@@ -1,0 +1,26 @@
+name: Guard Overleaf sync
+
+on: push
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for protected file changes
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          if echo "$MSG" | grep -qi overleaf; then
+            CHANGED=$(git diff --name-only HEAD~1 -- \
+              code/ results/)
+            if [ -n "$CHANGED" ]; then
+              echo "::error::Overleaf commit modified protected files:"
+              echo "$CHANGED"
+              exit 1
+            fi
+          else
+            echo "Non-Overleaf commit, skipping guard."
+          fi

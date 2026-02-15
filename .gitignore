@@ -1,0 +1,38 @@
+# Data (track code, not data)
+data/
+
+# Background literature (PDFs, notes — not tracked)
+background/
+
+# Scratch/temporary files
+scratch/
+
+# Reference materials (old repo, local files, emails)
+_old-repo/
+_local-files/
+_emails/
+
+# LaTeX intermediate files
+*.aux
+*.log
+*.nav
+*.out
+*.snm
+*.toc
+*.vrb
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.run.xml
+*.synctex.gz
+*.lof
+*.lot
+*.idx
+*.ilg
+*.ind
+
+# OS files
+.DS_Store
+Thumbs.db
