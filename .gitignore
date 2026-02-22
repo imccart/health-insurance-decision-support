@@ -7,10 +7,11 @@ background/
 # Scratch/temporary files
 scratch/
 
-# Reference materials (old repo, local files, emails)
+# Reference materials (temporary — delete after rebuild)
 _old-repo/
 _local-files/
 _emails/
+_overleaf/
 
 # LaTeX intermediate files
 *.aux
@@ -32,6 +33,10 @@ _emails/
 *.idx
 *.ilg
 *.ind
+
+# Claude Code
+CLAUDE.md
+.claude/
 
 # OS files
 .DS_Store

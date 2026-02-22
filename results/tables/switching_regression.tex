@@ -1,0 +1,37 @@
+\begin{table}
+\centering
+\begin{talltblr}[         %% tabularray outer open
+entry=none,label=none,
+note{}={* p \num{< 0.1}, ** p \num{< 0.05}, *** p \num{< 0.01}},
+]                     %% tabularray outer close
+{                     %% tabularray inner open
+colspec={Q[]Q[]Q[]Q[]},
+hline{2}={1-4}{solid, black, 0.05em},
+hline{12}={1-4}{solid, black, 0.05em},
+hline{1}={1-4}{solid, black, 0.08em},
+hline{21}={1-4}{solid, black, 0.08em},
+column{2-4}={}{halign=c},
+column{1}={}{halign=l},
+}                     %% tabularray inner close
+& Switch (Region FE) & Switch (HH FE) & Dom. Choice (Switchers) \\
+Assisted & \num{0.065}*** & \num{0.212}*** & \num{-0.011}*** \\
+& (\num{0.002}) & (\num{0.001}) & (\num{0.001}) \\
+English & \num{-0.010} & \num{0.015}*** & \num{0.010}*** \\
+& (\num{0.008}) & (\num{0.006}) & (\num{0.002}) \\
+Spanish & \num{-0.014} & \num{0.044}*** & \num{0.000} \\
+& (\num{0.010}) & (\num{0.008}) & (\num{0.002}) \\
+FPL & \num{0.000} & \num{0.000}*** & \num{-0.054}*** \\
+& (\num{0.000}) & (\num{0.000}) & (\num{0.008}) \\
+HH Size & \num{0.014}*** & \num{-0.043}*** & \num{0.003}*** \\
+& (\num{0.001}) & (\num{0.001}) & (\num{0.001}) \\
+Num.Obs. & \num{5139447} & \num{4034461} & \num{433874} \\
+R2 & \num{0.044} & \num{0.421} & \num{0.048} \\
+R2 Adj. & \num{0.044} & \num{0.133} & \num{0.048} \\
+R2 Within & \num{0.013} & \num{0.024} & \num{0.017} \\
+R2 Within Adj. & \num{0.013} & \num{0.024} & \num{0.017} \\
+FE: year & X & X & X \\
+FE: insurer & X & X & X \\
+FE: region & X &  & X \\
+FE: household\_id &  & X &  \\
+\end{talltblr}
+\end{table}

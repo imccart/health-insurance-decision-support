@@ -1,0 +1,13 @@
+# Raw data (large, and Covered California is FOIA-restricted)
+data/input/Covered California/
+data/input/SIPP Data/
+data/input/ACS Data/
+data/input/Medical Loss Ratio Data/
+
+# Processed data (large CSVs)
+data/output/
+
+# Old repo archive
+_old-repo/
+_emails/
+_overleaf/
