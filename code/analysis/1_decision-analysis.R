@@ -83,7 +83,7 @@ hh <- hh %>%
     pred_oom = predict(sipp_logit, newdata = ., type = "response"),
     pred_oom = if_else(is.na(plan_number_nocsr), pred_oom, NA_real_),
     unif_draw = runif(n(), 0, 1),
-    out_of_market = if_else(!is.na(pred_oom), pred_oom < unif_draw, FALSE)
+    out_of_market = if_else(!is.na(pred_oom), pred_oom >= unif_draw, FALSE)
   )
 
 n_before <- nrow(hh)
