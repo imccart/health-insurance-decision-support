@@ -51,4 +51,8 @@ source("code/data-build/10_finalize-demand.R")
 cat("\n--- Step 11: SIPP market transitions ---\n")
 source("code/data-build/11_sipp-market-transitions.R")
 
+# Phase 4: Broker density (script 12)
+cat("\n--- Step 12: Broker density ---\n")
+source("code/data-build/12_broker-density.R")
+
 cat("\n=== Data build complete ===\n")

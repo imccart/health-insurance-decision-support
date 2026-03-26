@@ -17,16 +17,40 @@ source("code/analysis/_helpers-analysis.R")
 source("code/analysis/_helpers-choice.R")
 source("code/analysis/_helpers-supply.R")
 
-# Ensure analysis data is ready -------------------------------------------
-if (!exists("hh_full") || !"ipweight" %in% names(hh_full)) {
-  cat("Analysis data not in memory. Running scripts 1-2...\n")
-  source("code/analysis/1_decision-analysis.R")
-  source("code/analysis/2_summary-stats.R")
-}
+# Read data from disk -----------------------------------------------------
+
+cat("Reading analysis data from disk...\n")
+hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
+plan_data  <- read_csv("data/input/Covered California/plan_data.csv",
+                        show_col_types = FALSE, name_repair = "minimal")
+broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
+commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+
+cat("  hh_full:", nrow(hh_full), "rows\n")
+
+# Control function: first-stage LPM with broker density -------------------
+
+cat("Computing control function residual...\n")
+hh_full <- hh_full %>%
+  left_join(broker_density %>% select(region, year, n_agents),
+            by = c("region", "year"))
+
+fs_model <- lm(assisted ~ n_agents + FPL + perc_0to17 + perc_18to25 +
+                  perc_65plus + perc_black + perc_hispanic + perc_asian +
+                  perc_male + household_size + factor(year),
+                data = hh_full)
+
+hh_full$v_hat <- residuals(fs_model)
+cat("  First-stage F:", round(summary(fs_model)$fstatistic[1], 1), "\n")
 
 # Prepare and partition data -----------------------------------------------
 
 cat("Preparing partitioned data for structural estimation...\n")
+
+# Exclude catastrophic HH
+n_before <- nrow(hh_full)
+hh_full <- hh_full %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
+cat("  Excluded catastrophic HH:", n_before - nrow(hh_full), "\n")
 
 # Rename plan_data columns at the boundary
 plan_choice <- plan_data %>%
@@ -76,7 +100,6 @@ cat("  Hausman IV coefficient:", round(coef(first_stage)["hausman_iv"], 4),
     " (SE:", round(fs_summary$coefficients["hausman_iv", "Std. Error"], 4), ")\n")
 
 # Commission data: attach comm_pmpm to plan_choice for structural demand
-commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
 cat("  Commission lookup:", nrow(commission_lookup), "rows,",
     length(unique(commission_lookup$insurer_prefix)), "insurers\n")
 
@@ -108,7 +131,7 @@ hh_choice <- hh_full %>%
          plan_number_nocsr, plan_name, previous_plan_number,
          oldest_member, cheapest_premium,
          subsidy, penalty, poverty_threshold, cutoff,
-         household_size, ipweight,
+         household_size, ipweight, v_hat,
          perc_0to17, perc_18to34, perc_35to54,
          perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
          channel)
@@ -139,7 +162,7 @@ gc(verbose = FALSE)
 cat("  Partitioned parquet written to", partition_dir, "(", n_cells, "cells)\n")
 
 # Free all large objects — subprocesses read from disk
-rm(hh_full, hh_clean, hh_ins, plan_choice, plan_data)
+rm(hh_full, plan_choice, plan_data)
 if (exists("hh_po")) rm(hh_po)
 gc(verbose = FALSE)
 cat("  Large objects freed from memory.\n")

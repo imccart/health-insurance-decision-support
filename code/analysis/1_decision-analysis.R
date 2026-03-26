@@ -102,3 +102,9 @@ cat("Decision analysis data ready.\n")
 cat("  hh_full: ", nrow(hh_full), " rows\n")
 cat("  hh_clean:", nrow(hh_clean), " rows\n")
 cat("  hh_ins:  ", nrow(hh_ins), " rows\n")
+
+# Save to disk for downstream scripts
+write_csv(hh_full, "data/output/hh_full.csv")
+write_csv(hh_clean, "data/output/hh_clean.csv")
+write_csv(hh_ins, "data/output/hh_ins.csv")
+cat("  Saved: hh_full.csv, hh_clean.csv, hh_ins.csv\n")

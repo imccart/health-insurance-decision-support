@@ -12,6 +12,7 @@ _old-repo/
 _local-files/
 _emails/
 _overleaf/
+_archive/
 
 # LaTeX intermediate files
 *.aux

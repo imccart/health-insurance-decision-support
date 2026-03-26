@@ -2,40 +2,80 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-03-16
-## Description:   Master runner for reduced-form analysis (design-based).
-##                Sources shared scripts 1-2 (data + IPW), partitions data
-##                for choice workers, then runs reduced-form scripts 3-6.
+## Date Edited:   2026-03-25
+## Description:   Master runner for reduced-form analysis.
+##                Reads analysis data from disk (built by scripts 1-2),
+##                adds control function residual (broker density IV),
+##                prepares partitioned data, runs estimation scripts.
 
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")
 library(arrow)
 
 # Helpers -----------------------------------------------------------------
-source("code/data-build/_helpers-enrollment.R")  # for standardize_insurer()
+source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/_helpers-analysis.R")
 source("code/analysis/_helpers-choice.R")
 
-# Ensure analysis data is ready -------------------------------------------
-if (!exists("hh_full") || !"ipweight" %in% names(hh_full)) {
-  cat("Analysis data not in memory. Running scripts 1-2...\n")
-  source("code/analysis/1_decision-analysis.R")
-  source("code/analysis/2_summary-stats.R")
-}
+# =========================================================================
+# Read data
+# =========================================================================
 
-# Exclude catastrophic plan enrollees (consistent with structural estimation)
+cat("Reading analysis data from disk...\n")
+hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
+hh_clean   <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE)
+plan_data  <- read_csv("data/input/Covered California/plan_data.csv",
+                        show_col_types = FALSE, name_repair = "minimal")
+broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
+commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+
+cat("  hh_full:", nrow(hh_full), "rows\n")
+cat("  hh_clean:", nrow(hh_clean), "rows\n")
+cat("  broker_density:", nrow(broker_density), "rows\n")
+
+# =========================================================================
+# Exclude catastrophic plans
+# =========================================================================
+
 n_before <- nrow(hh_full)
-hh_full <- hh_full %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
+hh_full  <- hh_full %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
+hh_clean <- hh_clean %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
 cat("  Excluded catastrophic HH:", n_before - nrow(hh_full), "of", n_before, "\n")
 
-# Reduced-form regressions ------------------------------------------------
-source("code/analysis/reduced-form/3_dominated-choices.R")
-source("code/analysis/reduced-form/4_switching.R")
+# =========================================================================
+# Control function: first-stage LPM with broker density
+# =========================================================================
 
-# Prepare and partition data for choice model workers ----------------------
+cat("Computing control function residual...\n")
 
-cat("Preparing partitioned data for choice model workers...\n")
+# Merge broker density (region-year level)
+hh_full <- hh_full %>%
+  left_join(broker_density %>% select(region, year, n_agents),
+            by = c("region", "year"))
 
-# Rename plan_data columns at the boundary
+# First stage: LPM on all HH
+fs_model <- lm(assisted ~ n_agents + FPL + perc_0to17 + perc_18to25 +
+                  perc_65plus + perc_black + perc_hispanic + perc_asian +
+                  perc_male + household_size + factor(year),
+                data = hh_full)
+
+hh_full$v_hat <- residuals(fs_model)
+
+cat("  First-stage F:", round(summary(fs_model)$fstatistic[1], 1), "\n")
+cat("  n_agents coef:", round(coef(fs_model)["n_agents"], 6),
+    " (SE:", round(summary(fs_model)$coefficients["n_agents", "Std. Error"], 6), ")\n")
+cat("  v_hat mean (unassisted):", round(mean(hh_full$v_hat[hh_full$assisted == 0]), 4), "\n")
+cat("  v_hat mean (assisted):  ", round(mean(hh_full$v_hat[hh_full$assisted == 1]), 4), "\n")
+
+# Propagate to hh_clean
+hh_clean <- hh_clean %>%
+  left_join(hh_full %>% select(household_year, v_hat, n_agents),
+            by = "household_year")
+
+# =========================================================================
+# Plan data prep
+# =========================================================================
+
 plan_choice <- plan_data %>%
   select(region, year = ENROLLMENT_YEAR, Issuer_Name, metal_level,
          plan_name = Plan_Name2, network_type = PLAN_NETWORK_TYPE,
@@ -53,9 +93,9 @@ plan_choice <- plan_data %>%
   select(-Issuer_Name) %>%
   filter(metal != "Minimum Coverage")
 
-cat("  Excluded catastrophic plans. plan_choice:", nrow(plan_choice), "rows\n")
+cat("  plan_choice:", nrow(plan_choice), "rows (catastrophic excluded)\n")
 
-# Hausman IV: leave-one-out mean premium of same insurer-metal in other regions
+# Hausman IV: leave-one-out mean premium
 plan_choice <- plan_choice %>%
   group_by(issuer, metal, year) %>%
   mutate(
@@ -69,24 +109,30 @@ plan_choice <- plan_choice %>%
   ungroup() %>%
   select(-n_other)
 
-# First-stage regression: premium on Hausman IV + controls
+# First-stage for premium endogeneity (CF residual for structural, kept here for consistency)
 first_stage <- lm(premium ~ hausman_iv + metal + network_type + factor(year),
                   data = plan_choice)
 plan_choice$cf_resid <- residuals(first_stage)
 
-# First-stage diagnostics
 fs_summary <- summary(first_stage)
 fs_fstat <- fs_summary$fstatistic
-cat("  First-stage F-stat:", round(fs_fstat[1], 1),
-    " (p =", format.pval(pf(fs_fstat[1], fs_fstat[2], fs_fstat[3], lower.tail = FALSE)), ")\n")
-cat("  Hausman IV coefficient:", round(coef(first_stage)["hausman_iv"], 4),
-    " (SE:", round(fs_summary$coefficients["hausman_iv", "Std. Error"], 4), ")\n")
+cat("  Premium first-stage F:", round(fs_fstat[1], 1), "\n")
+
+plan_choice$comm_pmpm <- 0
+for (y in unique(plan_choice$year)) {
+  idx <- plan_choice$year == y
+  plan_choice$comm_pmpm[idx] <- get_commission_pmpm(
+    plan_choice$plan_name[idx], plan_choice[idx, ], y, commission_lookup
+  )
+}
 
 write_csv(plan_choice, "data/output/plan_choice.csv")
-cat("  plan_choice:", nrow(plan_choice), "rows -> data/output/plan_choice.csv\n")
+cat("  plan_choice saved -> data/output/plan_choice.csv\n")
 
-# Select only columns needed by build_choice_data, add affordability threshold
-# Exclude HH who chose a catastrophic plan (consistent with plan_choice filter)
+# =========================================================================
+# Partition HH data for choice model
+# =========================================================================
+
 hh_choice <- hh_full %>%
   filter(!grepl("_CAT$", plan_name) | is.na(plan_name)) %>%
   mutate(
@@ -98,14 +144,13 @@ hh_choice <- hh_full %>%
          plan_number_nocsr, plan_name, previous_plan_number,
          oldest_member, cheapest_premium,
          subsidy, penalty, poverty_threshold, cutoff,
-         household_size, ipweight,
+         household_size, ipweight, v_hat,
          perc_0to17, perc_18to34, perc_35to54,
          perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
          channel)
 
-cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice), "cols (catastrophic HH excluded)\n")
+cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice), "cols\n")
 
-# Write as partitioned parquet files (one per region-year cell)
 partition_dir <- "data/output/hh_choice_partitions"
 if (dir.exists(partition_dir)) unlink(partition_dir, recursive = TRUE)
 dir.create(partition_dir, recursive = TRUE)
@@ -126,14 +171,22 @@ n_cells <- length(split_list)
 rm(split_list)
 gc(verbose = FALSE)
 
-cat("  Partitioned parquet written to", partition_dir, "(", n_cells, "cells)\n")
+cat("  Partitioned:", n_cells, "cells -> ", partition_dir, "\n")
 
-# Free all large objects — subprocesses read from disk
-rm(hh_full, hh_clean, hh_ins, plan_choice, plan_data)
-if (exists("hh_po")) rm(hh_po)
+# =========================================================================
+# Run reduced-form analysis
+# =========================================================================
+
+# Dominated choice ATT
+source("code/analysis/reduced-form/1_dominated-choices.R")
+
+# Free large objects before choice model
+rm(hh_full, hh_clean, plan_choice, plan_data)
 gc(verbose = FALSE)
-cat("  Large objects freed from memory.\n")
+cat("  Large objects freed.\n")
 
-# Demand estimation (ATT) -------------------------------------------------
-source("code/analysis/reduced-form/5_choice-att.R")
-source("code/analysis/reduced-form/6_choice-summary.R")
+# Choice model ATT
+source("code/analysis/reduced-form/2_choice-att.R")
+
+# Summary
+source("code/analysis/reduced-form/3_summary.R")

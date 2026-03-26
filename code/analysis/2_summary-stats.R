@@ -223,4 +223,10 @@ sum_tab <- sum_stats %>%
 
 writeLines(sum_tab, "results/tables/summary_stats.tex")
 
+# Save datasets with IPW weights for downstream scripts
+write_csv(hh_full, "data/output/hh_full.csv")
+write_csv(hh_clean, "data/output/hh_clean.csv")
+write_csv(hh_ins, "data/output/hh_ins.csv")
+cat("  Updated: hh_full.csv, hh_clean.csv, hh_ins.csv (with IPW weights)\n")
+
 cat("Summary statistics complete.\n")

@@ -327,7 +327,7 @@ compute_utility <- function(cell_data, coefs_cell) {
                  "hmo", "hsa", "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
                  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
                  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
-                 "commission_broker")
+                 "commission_broker", "v_hat_commission")
   for (v in all_terms) {
     if (v %in% names(coef_map) && v %in% names(cell_data))
       V <- V + coef_map[[v]] * cell_data[[v]]

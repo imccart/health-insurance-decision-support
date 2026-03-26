@@ -250,6 +250,10 @@ for (sc_name in names(scenarios)) {
       cd_scenario$commission_broker[idx] <- comm_sc[pn] * cd_scenario$assisted[idx]
     }
   }
+  # Recompute v_hat_commission after updating commission_broker
+  if ("v_hat" %in% names(cd_scenario) && "commission_broker" %in% names(cd_scenario)) {
+    cd_scenario$v_hat_commission <- cd_scenario$v_hat * cd_scenario$commission_broker
+  }
 
   foc_fn <- build_foc_function(cd_scenario, coefs, mc_vec, comm_sc, benchmark_plan, plans_cell)
 

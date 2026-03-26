@@ -2,16 +2,27 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-24
-## Description:   Summarize nested logit choice model results: ATT by metal
-##                and insurer with bootstrap confidence intervals.
-##                Port of _old-repo/analysis/decision-support/_ChoiceSummary.R.
+## Date Edited:   2026-03-25
+## Description:   Summarize choice model ATT results by metal tier and insurer.
 
 
 # Load results (if not already in memory) ---------------------------------
 
 if (!exists("all_prob")) {
-  all_prob     <- read_csv("data/output/choice_point_estimates.csv", show_col_types = FALSE)
-  sim_bs_pred  <- read_csv("data/output/choice_bootstrap_pred.csv", show_col_types = FALSE)
+  all_prob <- read_csv("data/output/choice_point_estimates.csv", show_col_types = FALSE,
+                       col_types = cols(plan_name = "c", tot_nonmiss = "i",
+                                        obs_purchase = "d", pred_purchase = "d",
+                                        region = "i", year = "i"))
+}
+if (!exists("sim_bs_pred")) {
+  bs_file <- "data/output/choice_bootstrap_pred.csv"
+  if (file.exists(bs_file)) {
+    sim_bs_pred <- read_csv(bs_file, show_col_types = FALSE)
+  } else {
+    sim_bs_pred <- tibble(plan_name = character(0), tot_nonmiss = integer(0),
+                          obs_purchase = numeric(0), pred_purchase = numeric(0),
+                          region = integer(0), year = integer(0), boot = integer(0))
+  }
 }
 
 
@@ -22,9 +33,10 @@ if (!exists("all_prob")) {
 
 parse_plan_names <- function(df) {
   df %>%
-    separate(plan_name, c("insurer_abbr", "metal_raw"),
-             sep = "_", extra = "merge", fill = "right") %>%
     mutate(
+      insurer_abbr = sub("_.*", "", plan_name),
+      metal_raw = sub("^[^_]*_?", "", plan_name),
+      metal_raw = if_else(metal_raw == "", NA_character_, metal_raw),
       metal = case_when(
         str_starts(metal_raw, "SIL") ~ "SIL",
         str_starts(metal_raw, "BR")  ~ "BR",
@@ -65,6 +77,9 @@ ins_summary   <- compute_att(pred_parsed, insurer_abbr)
 
 # Bootstrap CIs ------------------------------------------------------------
 
+has_bootstrap <- nrow(sim_bs_pred) > 0
+
+if (has_bootstrap) {
 bs_parsed <- sim_bs_pred %>% ungroup() %>% parse_plan_names()
 
 # Metal CIs (bootstrap SE, centered on point estimate)
@@ -110,6 +125,10 @@ bs_ins <- bs_parsed %>%
     se = sd(att, na.rm = TRUE),
     .groups = "drop"
   )
+} else {
+  bs_metal <- tibble(metal = character(0), se = numeric(0))
+  bs_ins   <- tibble(insurer_abbr = character(0), se = numeric(0))
+}
 
 
 # Merge point estimates with CIs ------------------------------------------

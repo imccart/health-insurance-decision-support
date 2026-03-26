@@ -197,12 +197,14 @@ build_choice_data <- function(plans, hhs, sample_frac) {
   rm(small_raw)
 
   # 7. Join HH demographics
-  hh_demo <- hhs_dt[, .(
-    household_id, hh_size = household_size, ipweight,
-    perc_0to17, perc_18to34, perc_35to54,
-    perc_black, perc_hispanic, perc_asian,
-    perc_other, perc_male, channel
-  )]
+  # Include v_hat if available (control function residual from broker density IV)
+  demo_cols <- c("household_id", "household_size", "ipweight",
+                  "perc_0to17", "perc_18to34", "perc_35to54",
+                  "perc_black", "perc_hispanic", "perc_asian",
+                  "perc_other", "perc_male", "channel")
+  if ("v_hat" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "v_hat")
+  hh_demo <- hhs_dt[, ..demo_cols]
+  setnames(hh_demo, "household_size", "hh_size")
   dt <- merge(dt, hh_demo, by = "household_id", all.x = TRUE)
   rm(hhs_dt, hh_demo)
 
@@ -285,6 +287,7 @@ build_choice_data <- function(plans, hhs, sample_frac) {
                    "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
                    "ipweight")
   if ("comm_pmpm" %in% names(dt)) model_vars <- c(model_vars, "comm_pmpm")
+  if ("v_hat" %in% names(dt)) model_vars <- c(model_vars, "v_hat")
 
   untreated <- dt[channel == "Unassisted", ..model_vars]
   treated   <- dt[channel != "Unassisted", ..model_vars]
@@ -312,6 +315,12 @@ build_choice_data <- function(plans, hhs, sample_frac) {
   if ("comm_pmpm" %in% names(untreated)) {
     untreated[, commission_broker := comm_pmpm * assisted]  # all 0
     treated[, commission_broker := comm_pmpm * assisted]    # comm_pmpm values
+  }
+
+  # CF x commission interaction (structural path only)
+  if ("v_hat" %in% names(untreated) && "commission_broker" %in% names(untreated)) {
+    untreated[, v_hat_commission := v_hat * commission_broker]
+    treated[, v_hat_commission := v_hat * commission_broker]
   }
 
   as_tibble(rbind(untreated, treated))

@@ -2,12 +2,18 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-21
-## Description:   Dominated choice regressions, potential outcomes, bootstrap.
-##                Port of _old-repo/analysis/decision-support/_DominatedChoices.R
+## Date Edited:   2026-03-25
+## Description:   Dominated choice regressions and potential outcomes ATT.
+##                Includes control function (v_hat) for selection correction.
+##                Expects hh_full, hh_clean in memory from _reduced-form.R.
 
-# Regression specifications -----------------------------------------------
+# =========================================================================
+# Regression specifications
+# =========================================================================
 
-# Model 1: all enrollees, region FE
+cat("Dominated choice regressions...\n")
+
+# Model 1: all enrollees, no CF
 mod1 <- feols(
   dominated_choice ~ assisted + english + spanish +
     FPL + perc_0to17 + perc_18to25 + perc_26to34 + perc_35to44 + perc_45to54 +
@@ -18,7 +24,7 @@ mod1 <- feols(
   weights = ~ipweight
 )
 
-# Model 2: new enrollees only, region FE
+# Model 2: new enrollees, no CF
 mod2 <- feols(
   dominated_choice ~ assisted + english + spanish +
     FPL + perc_0to17 + perc_18to25 + perc_26to34 + perc_35to44 + perc_45to54 +
@@ -29,11 +35,21 @@ mod2 <- feols(
   weights = ~ipweight
 )
 
-# Regression table --------------------------------------------------------
+# Model 3: new enrollees with CF
+mod3 <- feols(
+  dominated_choice ~ assisted + v_hat + english + spanish +
+    FPL + perc_0to17 + perc_18to25 + perc_26to34 + perc_35to44 + perc_45to54 +
+    perc_male + perc_asian + perc_black + perc_hispanic + perc_other +
+    household_size | region + year + insurer,
+  cluster = "region",
+  data = hh_clean,
+  weights = ~ipweight
+)
 
 dom_models <- list(
-  "All Enrollees"  = mod1,
-  "New Enrollees"  = mod2
+  "All Enrollees" = mod1,
+  "New Enrollees" = mod2,
+  "New + CF"      = mod3
 )
 
 modelsummary(
@@ -43,6 +59,7 @@ modelsummary(
   gof_omit = "AIC|BIC|Log|Std|RMSE",
   coef_map = c(
     "assisted"       = "Assisted",
+    "v_hat"          = "CF Residual",
     "english"        = "English",
     "spanish"        = "Spanish",
     "FPL"            = "FPL",
@@ -51,18 +68,20 @@ modelsummary(
   )
 )
 
-# Coefficient plot --------------------------------------------------------
-
 plot_dom_reg <- modelplot(dom_models,
                           coef_map = c("assisted" = "Assisted")) +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  labs(title = "Effect of Assistance on Dominated Choice") +
   theme_minimal()
 ggsave("results/figures/dominated_choice_regression.png", plot_dom_reg, width = 7, height = 4)
 
-# Potential outcomes approach ---------------------------------------------
 
-po_formula <- dominated_choice ~ english + spanish +
+# =========================================================================
+# Potential outcomes ATT (with CF)
+# =========================================================================
+
+cat("Potential outcomes ATT...\n")
+
+po_formula <- dominated_choice ~ v_hat + english + spanish +
   FPL + perc_0to17 + perc_18to25 + perc_26to34 + perc_35to44 + perc_45to54 +
   perc_male + perc_asian + perc_black + perc_hispanic + perc_other +
   household_size | insurer
@@ -90,16 +109,18 @@ compute_att <- function(df, channel_filter) {
   mean(treated$dominated_choice, na.rm = TRUE) - mean(predicted, na.rm = TRUE)
 }
 
-# Pre-filter to CSR-eligible insured (where dominated_choice is non-NA)
+# CSR-eligible insured (where dominated_choice is non-NA)
 hh_po <- hh_clean %>% filter(!is.na(dominated_choice))
-cat("Potential outcomes sample:", nrow(hh_po), "CSR-eligible new enrollees\n")
+cat("  PO sample:", nrow(hh_po), "CSR-eligible new enrollees\n")
 
-# Point estimates
 att_any   <- compute_att(hh_po, "any_assist")
 att_agent <- compute_att(hh_po, "agent")
 att_nav   <- compute_att(hh_po, "navigator")
 
-# Bootstrap ---------------------------------------------------------------
+
+# =========================================================================
+# Bootstrap
+# =========================================================================
 
 set.seed(42)
 max_boot <- 200
@@ -116,16 +137,19 @@ boot_att <- function(df, channel_filter, B = max_boot) {
 }
 
 setFixest_notes(FALSE)
-cat("Running bootstrap (200 iterations x 3 channels)...\n")
+cat("  Bootstrap (200 x 3 channels)...\n")
 boot_any   <- boot_att(hh_po, "any_assist")
-cat("  any_assist done\n")
+cat("    any_assist done\n")
 boot_agent <- boot_att(hh_po, "agent")
-cat("  agent done\n")
+cat("    agent done\n")
 boot_nav   <- boot_att(hh_po, "navigator")
-cat("  navigator done\n")
+cat("    navigator done\n")
 setFixest_notes(TRUE)
 
-# Summarize ATT with CIs -------------------------------------------------
+
+# =========================================================================
+# Summarize
+# =========================================================================
 
 att_summary <- tibble(
   Channel = c("Any Assistance", "Agent/Broker", "Navigator"),
@@ -142,11 +166,9 @@ plot_att <- ggplot(att_summary, aes(x = Channel, y = ATT)) +
   geom_point(size = 3) +
   geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 0.2) +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  labs(y = "ATT (Dominated Choice)", x = NULL,
-       title = "Potential Outcomes: Effect of Assistance") +
+  labs(y = "ATT (Dominated Choice)", x = NULL) +
   theme_minimal()
 ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4)
 
 cat("Dominated choice analysis complete.\n")
-cat("ATT estimates:\n")
 print(att_summary)
