@@ -220,7 +220,7 @@ if (nrow(cf_coefs) > 0) {
   print(cf_coefs %>% select(term, estimate, std.error, p.value), n = Inf)
 }
 
-write_csv(coefs, "data/output/choice_coefficients.csv")
+write_csv(coefs, "results/choice_coefficients.csv")
 
 
 # =========================================================================
@@ -254,9 +254,9 @@ for (i in seq_len(nrow(cells))) {
 }
 
 all_prob <- bind_rows(pred_list)
-write_csv(all_prob, "data/output/choice_point_estimates.csv")
+write_csv(all_prob, "results/choice_point_estimates.csv")
 
-cat("  Predictions:", nrow(all_prob), "rows -> data/output/choice_point_estimates.csv\n")
+cat("  Predictions:", nrow(all_prob), "rows -> results/choice_point_estimates.csv\n")
 
 rm(data_est, data_oos)
 gc(verbose = FALSE)

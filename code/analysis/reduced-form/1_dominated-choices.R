@@ -162,13 +162,17 @@ att_summary <- tibble(
                quantile(boot_nav, 0.95, na.rm = TRUE))
 )
 
+theme_paper <- theme_bw() +
+  theme(text = element_text(size = 12), panel.grid.minor = element_blank(),
+        plot.title = element_blank())
+
 plot_att <- ggplot(att_summary, aes(x = Channel, y = ATT)) +
-  geom_point(size = 3) +
+  geom_point(size = 2, color = "black") +
   geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 0.2) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  labs(y = "ATT (Dominated Choice)", x = NULL) +
-  theme_minimal()
-ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4)
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  labs(y = "ATT (percentage points)", x = NULL) +
+  theme_paper
+ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4, bg = "white")
 
 cat("Dominated choice analysis complete.\n")
 print(att_summary)

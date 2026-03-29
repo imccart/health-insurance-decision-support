@@ -55,4 +55,8 @@ source("code/data-build/11_sipp-market-transitions.R")
 cat("\n--- Step 12: Broker density ---\n")
 source("code/data-build/12_broker-density.R")
 
+# Phase 5: Rate filings for RA regressions (script 13)
+cat("\n--- Step 13: Process rate filings ---\n")
+source("code/data-build/13_process-rate-filings.R")
+
 cat("\n=== Data build complete ===\n")

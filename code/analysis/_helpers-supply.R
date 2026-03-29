@@ -39,7 +39,7 @@ identify_benchmark <- function(plans_cell) {
 # flag, and hh_premium. Must use the SAME seed and SAMPLE_FRAC as point
 # estimation to get the identical HH sample.
 
-build_supply_choice_data <- function(plans, hhs, sample_frac) {
+build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_size") {
 
   hhs_dt <- as.data.table(hhs)
   plans_dt <- as.data.table(plans)
@@ -218,13 +218,16 @@ build_supply_choice_data <- function(plans, hhs, sample_frac) {
   }
   rm(small_raw)
 
-  # 7. Join HH demographics
-  hh_demo <- hhs_dt[, .(
-    household_id, hh_size = household_size, ipweight,
-    perc_0to17, perc_18to34, perc_35to54,
-    perc_black, perc_hispanic, perc_asian,
-    perc_other, perc_male, channel
-  )]
+  # 7. Join HH demographics (include v_hat + tau-gradient cols if available)
+  demo_cols <- c("household_id", "household_size", "ipweight",
+                 "perc_0to17", "perc_18to34", "perc_35to54",
+                 "perc_black", "perc_hispanic", "perc_asian",
+                 "perc_other", "perc_male", "channel")
+  for (extra in c("v_hat", "channel_detail", "any_agent", "p_nav")) {
+    if (extra %in% names(hhs_dt)) demo_cols <- c(demo_cols, extra)
+  }
+  hh_demo <- hhs_dt[, ..demo_cols]
+  setnames(hh_demo, "household_size", "hh_size")
   dt <- merge(dt, hh_demo, by = "household_id", all.x = TRUE)
   rm(hhs_dt, hh_demo)
 
@@ -257,6 +260,12 @@ build_supply_choice_data <- function(plans, hhs, sample_frac) {
     Health_Net     = fifelse(issuer == "Health_Net", 1L, 0L),
     ipweight       = fifelse(is.na(ipweight), 1, ipweight)
   )]
+
+  # Override weight for structural estimation (household_size instead of IPW)
+  if (weight_var == "hh_size") {
+    dt[, ipweight := as.numeric(hh_size)]
+  }
+
   dt[, `:=`(
     hh_size_prem      = hh_size * net_premium,
     any_0to17_prem    = any_0to17 * net_premium,
@@ -297,6 +306,11 @@ build_supply_choice_data <- function(plans, hhs, sample_frac) {
     dt[, commission_broker := comm_pmpm * assisted]
   }
 
+  # CF x commission interaction (structural path only)
+  if ("v_hat" %in% names(dt) && "commission_broker" %in% names(dt)) {
+    dt[, v_hat_commission := v_hat * commission_broker]
+  }
+
   # Keep only HH where exactly one plan is chosen
   # Avoid .SD (triggers locked binding errors with dplyr 1.2.0)
   valid_hh <- dt[, .(keep = max(choice) == 1L), by = household_number][keep == TRUE, household_number]
@@ -327,6 +341,7 @@ compute_utility <- function(cell_data, coefs_cell) {
                  "hmo", "hsa", "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
                  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
                  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
+                 "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
                  "commission_broker", "v_hat_commission")
   for (v in all_terms) {
     if (v %in% names(coef_map) && v %in% names(cell_data))
@@ -872,8 +887,12 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
 
   total_weight_all <- ins_all[, .(w = first(ipweight)), by = household_number][, sum(w)]
 
-  # Broker HH only
-  ins_broker <- ins_all[assisted == 1L]
+  # Broker/agent HH only (navigators don't respond to commission changes)
+  if ("any_agent" %in% names(ins_all)) {
+    ins_broker <- ins_all[any_agent == 1L]
+  } else {
+    ins_broker <- ins_all[assisted == 1L]
+  }
   total_weight_broker <- if (nrow(ins_broker) > 0) {
     ins_broker[, .(w = first(ipweight)), by = household_number][, sum(w)]
   } else 0

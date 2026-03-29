@@ -37,7 +37,9 @@ cat("Region-year cells:", nrow(cells), "\n")
 set.seed(20260224)
 cell_seeds <- sample.int(1e7, nrow(cells))
 
-if (!dir.exists(CELL_DIR)) dir.create(CELL_DIR, recursive = TRUE)
+# Clean and recreate cell directory to ensure fresh data
+if (dir.exists(CELL_DIR)) unlink(CELL_DIR, recursive = TRUE)
+dir.create(CELL_DIR, recursive = TRUE)
 
 cat("\nPhase 1: Building cell CSVs...\n")
 n_built <- 0L
@@ -60,7 +62,7 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC)
+  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, weight_var = "hh_size")
   rm(hhs, plans)
 
   if (!is.null(cd)) {
@@ -120,18 +122,22 @@ if (julia_exe == "") {
 
 cat("\nPhase 3: Reading coefficient estimates...\n")
 
-coefs_path <- "data/output/choice_coefficients_structural.csv"
+coefs_path <- "results/choice_coefficients_structural.csv"
 
 if (file.exists(coefs_path)) {
   coefs_structural <- read_csv(coefs_path, show_col_types = FALSE)
   cat("  Pooled model:", nrow(coefs_structural), "terms\n")
   print(coefs_structural, n = Inf)
 
-  # Headline: commission-premium ratio
+  # Headline: commission-premium ratio and assisted x metal effects
   beta_p <- coefs_structural$estimate[coefs_structural$term == "premium"]
   beta_c <- coefs_structural$estimate[coefs_structural$term == "commission_broker"]
   if (length(beta_p) == 1 && length(beta_c) == 1 && abs(beta_p) > 1e-10) {
     cat(sprintf("\n  beta_commission / |beta_premium| = %.4f\n", beta_c / abs(beta_p)))
+  }
+  for (m in c("assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat")) {
+    b <- coefs_structural$estimate[coefs_structural$term == m]
+    if (length(b) == 1) cat(sprintf("  %s = %.6f\n", m, b))
   }
 } else {
   cat("  Coefficients not found.\n")

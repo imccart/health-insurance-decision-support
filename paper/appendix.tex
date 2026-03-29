@@ -1,0 +1,243 @@
+\documentclass[12pt]{article}
+\usepackage{graphicx,amssymb,amsmath,setspace,comment,verbatim,titling,pgf,lscape,color}
+\usepackage[left=2cm,right=2cm,top=2.5cm,bottom=2cm]{geometry}
+\usepackage[round]{natbib}
+\usepackage{hyperref}
+\usepackage{array}
+\usepackage{bbm}
+\usepackage{marginnote}
+\usepackage[justification=centering]{caption}
+%%\usepackage{breqn}
+\usepackage{booktabs}
+\newcommand{\pderiv}[2]{\frac{\partial#1}{\partial#2}}
+%\usepackage{siunitx}
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+\hypersetup{colorlinks,%
+						citecolor=black,%
+						filecolor=black,%
+						linkcolor=black,%
+						urlcolor=blue,%
+						}
+\setstretch{1.5}
+
+\setlength{\droptitle}{-50pt}
+
+\begin{document}
+\title{Decision Assistance and Steering in Health Insurance \\
+        SUPPLEMENTAL APPENDIX}
+\author{Ian McCarthy \& Evan Saltzman}
+\date{June 2021}
+\maketitle
+
+\renewcommand{\thetable}{A\arabic{table}}
+\renewcommand{\thefigure}{A\arabic{figure}}
+
+\section{Constructing the Outside Option}
+\label{app:outside_option}
+
+In this study, we model dynamic switching both between plans and into and out of the exchange market (any plan, vs. remaining uninsured) using five years of longitudinal data on exchange customers. Previous studies of the exchanges have treated demand as static, typically merging administrative data on exchange enrollees with survey data such as the American Community Survey (ACS) on the uninsured  to form the universe of potential exchange consumers \citep{Tebaldi2020,Domurat2017,saltzman2019}. In contrast, we form the uninsured population using data on consumers in our Covered California data for years in which they did not have exchange coverage, and using panel survey data on dynamics of consumers' exchange market eligibility. For example, within our data, consumers with exchange coverage in 2015 and 2016 are considered uninsured (the outside option) in 2014, 2017, and 2018, provided they remained eligible for the exchange market. Consumers might lose exchange market eligibility if they gain access to employer-sponsored insurance or public insurance such as Medicaid or Medicare. Because our data do not indicate when enrollees lose exchange market eligibility, we use the Survey of Income and Program Participation (SIPP) to impute consumer eligibility \citep{SIPP2019}.
+	
+To impute consumer exchange market eligibility, we use data from the SIPP. The SIPP is well-suited for the imputation because (1) it asks the insurance status of respondents for every month over a three-year period (2013-2015) and (2) it includes detailed information on the chief reasons for consumers' coverage status, such as whether the respondent obtained or lost an offer of employer-sponsored insurance, moved in or out of California, or became eligible or ineligible for Medicare or Medicaid. For SIPP respondents who newly obtained or gave up individual market coverage, we construct a \textit{transitioned} variable that indicates whether the respondent gained or lost eligibility for the individual market. The \textit{transitioned} variable takes value 1 if the respondent (1) belongs to a household that obtained or lost an offer of employer-sponsored insurance; (2) moved out of or into California; (3) the respondent turned 65 and qualified for Medicare; and (4) the respondent became eligible for Medicaid following a drop in income. We estimate a logit model regression of the \textit{transitioned} variable on the demographic variables available in both the SIPP and the Covered California data, including age, income, gender, race, and household size. We use the estimated logit to predict whether Covered California consumers observed for only some years of our study timeframe transitioned into or out of the exchange market. Consumers transitioning into or out of the exchange market are removed from our study population during years when they are not enrolled in an exchange plan. 
+
+\newpage
+
+\section{Mathematical Formulas in the ACA Exchange Model}
+\label{app::model_formulas}
+
+\noindent In this appendix, we write all model variables in terms of the following three variables and associated partial derivatives: (1) the household choice probabilities $q_{ijt}(\textit{p},\textit{n})$ with partial derivatives $\frac{ \partial q_{ikt}(\textit{p},\textit{n})}{\partial p_{ijt}(\textit{p},\textit{n})}$ and $\frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial \eta_{gijt}(\textit{p},\textit{n})}$; (2) the plan risk scores $r_{jmt}(\textit{p},\textit{n})$ with partial derivatives $\frac{\partial r_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}(\textit{p},\textit{n})}$ and $\frac{\partial r_{kmt}(\textit{p},\textit{n})}{\partial \eta_{gijt}(\textit{p},\textit{n})}$; and (3) plan average claims $c_{jmt}(\textit{p},\textit{n})$ with partial derivatives $ \frac{\partial c_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}(\textit{p},\textit{n})}$ and $\frac{\partial c_{kmt}(\textit{p},\textit{n})}{\partial \eta_{gijt}(\textit{p},\textit{n})}$.		
+	
+\noindent \textit{\bf Demand partial derivatives}:
+
+\noindent The demand partial derivatives with respect to the firm's base plan premium $p_{jmt}$ and commission decision $n_{gjt}$ are 	
+	
+\vspace{-0.4in}		
+		
+		\begin{eqnarray*}
+		\frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial p_{jmt}} &=& \begin{cases} \sum_{l \in J_{mt}} \left[ \frac{ \partial q_{ikt}(\textit{p},\textit{n})}{\partial p_{ilt}(\textit{p})}\frac{ \partial p_{ilt}(\textit{p})}{\partial p_{jmt}} +  \delta_{glt} \sigma_{it} \frac{ \partial q_{ikt}(\textit{p},\textit{n})}{\partial \eta_{gilt}(\textit{p})}  \right] & $l= j$, \mathrm{\% \,\, commission} \\
+		\sum_{l \in J_{mt}}  \frac{ \partial q_{ikt}(\textit{p},\textit{n})}{\partial p_{ilt}(\textit{p})}\frac{ \partial p_{ilt}(\textit{p})}{\partial p_{jmt}}  & \mathrm{o/w} 
+		\end{cases}
+		\end{eqnarray*}
+		
+		
+	\vspace{-0.4in}
+	\singlespacing	
+
+		 \begin{eqnarray*}
+	\frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial n_{gjt}} &=& \begin{cases} 
+		\sigma_{it} p_{jmt} \frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial \eta_{gijt}(\textit{p},\textit{n})}  & \mathrm{\% \,\, commission} \\		
+		\frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial \eta_{gijt}(\textit{p},\textit{n})} & \mathrm{\$ \,\, commission}
+   \end{cases}
+	\end{eqnarray*}
+				
+		\doublespacing
+				
+		
+	\noindent	where $\frac{\partial p_{ilt}(\textit{p})}{\partial p_{jmt}}$ is given in equation~(\ref{price_partial_formula}).
+	
+		
+\noindent \textit{\bf Revenue}:
+	
+\noindent Total premium revenue earned by the firm is 		
+	
+		\vspace{-0.3in}		
+	
+		$$
+		R_{ft}(\textit{p},\textit{n}) = \sum_{i \in I, m \in M, k \in J_{fmt}} \sigma_{it} p_{kmt} q_{ikt}(\textit{p},\textit{n})
+		$$	
+	
+\noindent and the partial derivatives with respect to the firm's base plan premium $p_{jmt}$ and commission decision $n_{gjt}$ are 	
+	
+		\vspace{-0.4in}		
+	
+		\begin{eqnarray*}
+		\frac{\partial R_{ft}(\textit{p},\textit{n})}{\partial p_{jmt}} &=&  \sum_{i \in I, m \in M, k \in J_{fmt}} \sigma_{it} \left(q_{ijt}(\textit{p},\textit{n}) + p_{kmt} \frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial p_{jmt}} \right) \\
+		\frac{\partial R_{ft}(\textit{p},\textit{n})}{\partial n_{gjt}} &=& \sum_{i \in I, m \in M, k \in J_{fmt}} \sigma_{it} p_{kmt}  \frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial n_{gjt}} 
+		\end{eqnarray*}
+
+	\vspace{-0.1in}
+
+\noindent \textit{\bf Claims}:
+	
+\noindent Total claims paid by the firm are 		
+	
+	\vspace{-0.3in}		
+	
+		$$
+		C_{ft}(\textit{p},\textit{n}) = \sum_{k \in J_{fmt}} c_{kmt}(\textit{p},\textit{n}) q_{kmt}(\textit{p},\textit{n})
+		$$	
+	
+\noindent where total plan demand $q_{kmt}(\textit{p},\textit{n}) = \sum_{i\in I} \left(\mathbb{I}_{i,m,t} \right) q_{ikt}(\textit{p},\textit{n})$  and the partial derivatives with respect to the firm's base plan premium $p_{jmt}$ and commission decision $n_{gjt}$ are 		
+	
+		\vspace{-0.4in}
+		\begin{eqnarray*}
+		\frac{\partial C_{ft}(\textit{p},\textit{n})}{\partial p_{jmt}} &=& \sum_{k \in J_{fmt}} \left[ c_{kmt}(\textit{p},\textit{n})\frac{ \partial q_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}}   +  q_{kmt}(\textit{p},\textit{n})\frac{ \partial c_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} \right] \\
+		\frac{\partial C_{ft}(\textit{p},\textit{n})}{\partial n_{gjt}} &=& \sum_{k \in J_{fmt}} \left[ c_{kmt}(\textit{p},\textit{n})\frac{ \partial q_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}}   +  q_{kmt}(\textit{p},\textit{n})\frac{ \partial c_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} \right]
+		\end{eqnarray*}
+
+	\vspace{-0.1in}
+	
+\noindent \textit{\bf Commissions}:
+	
+\noindent Total commissions paid by the firm are	
+	
+	\vspace{-0.3in}		
+	
+		$$
+		\mathcal{C}_{ft}(\textit{p},\textit{n};\boldsymbol{\theta}) = \sum_{g \in G, i \in I, m \in M, k \in J_{fmt}} \left( \mathbb{I}_{n,i,t} \right)   \eta_{gikt}(\textit{p},\textit{n}) q_{ikt}(\textit{p},\textit{n};\boldsymbol{\beta})
+		$$	
+	
+			
+	
+\noindent and the partial derivatives with respect to the firm's base plan premium $p_{jmt}$ and commission decision $n_{gjt}$ are 			
+	
+	
+	
+	
+\vspace{-0.4in}		
+		
+		\begin{eqnarray*}
+		\frac{\partial \mathcal{C}_{ft}(\textit{p},\textit{n})}{\partial p_{jmt}} &=& \begin{cases} \sum_{g \in G, i \in I,m \in M, k \in J_{fmt}} \mathbb{I}_{n,i,t} \left[ \eta_{gikt}(\textit{p},\textit{n}) \frac{ \partial q_{ikt}(\textit{p},\textit{n})}{\partial p_{jmt}} +  \left(\delta_{gjt} \sigma_{it} \right)  q_{ikt}(\textit{p},\textit{n})  \right] &  \mathrm{\% \,\, commission} \\
+		  \sum_{g \in G, i \in I, m \in M, k \in J_{fmt}} \left( \mathbb{I}_{n,i,t}\right) \eta_{gikt}(\textit{p},\textit{n}) \frac{ \partial q_{ikt}(\textit{p},\textit{n})}{\partial p_{jmt}}  & \mathrm{\$ \,\, commission}
+		\end{cases}
+		\end{eqnarray*}
+		
+		
+	
+	
+\vspace{-0.4in}
+	\singlespacing	
+
+		 \begin{eqnarray*}
+	\frac{\partial \mathcal{C}_{ft}(\textit{p},\textit{n})}{\partial n_{gjt}} &=& \begin{cases} 
+		\sum_{g \in G, i \in I, m \in M, k \in J_{fmt}} \mathbb{I}_{n,i,t} \left[\eta_{gikt}(\textit{p},\textit{n}) \frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial n_{gjt}} +  \left(\sigma_{it} p_{jmt} \right) q_{ikt}(\textit{p},\textit{n})   \right]   & \mathrm{\% \,\, commission} \\		
+		\sum_{g \in G, i \in I, m \in M, k \in J_{fmt}} \mathbb{I}_{n,i,t} \left[\eta_{gikt}(\textit{p},\textit{n}) \frac{\partial q_{ikt}(\textit{p},\textit{n})}{\partial n_{gjt}} + q_{ikt}(\textit{p},\textit{n})  \right]  & \mathrm{\$ \,\, commission}
+   \end{cases}
+	\end{eqnarray*}
+				
+		\doublespacing
+						
+	
+	
+\noindent \textit{\bf Risk adjustment}:
+	
+\noindent As defined in equation~(\ref{ra_formula}), the firm's risk adjustment transfer is	
+	
+	\vspace{-0.3in}		
+		
+	$$
+	RA_{ft}(\textit{p},\textit{n}) =  R_t(\textit{p},\textit{n}) \sum_{m \in M, k \in J_{fmt}} \left[ rs_{kmt}(\textit{p},\textit{n}) - us_{kmt}(\textit{p},\textit{n})  \right]
+	$$		
+			
+\noindent and the partial derivatives with respect to the firm's base plan premium $p_{jmt}$ and commission decision $n_{gjt}$ are 			
+		
+		\vspace{-0.4in}		
+	
+		\begin{eqnarray*}
+		\frac{\partial RA_{ft}(\textit{p},\textit{n})}{\partial p_{jmt}} &=& \sum_{k \in J_{fmt}}  \left[\frac{\partial R_t(\textit{p},\textit{n})}{\partial p_{jmt}}\left( rs_{kmt}(\textit{p},\textit{n}) - us_{kmt}(\textit{p},\textit{n})  \right) \right. \nonumber \\ && \left. + \,\,\,  R_t(\textit{p},\textit{n}) \left( \frac{\partial rs_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} - \frac{\partial  us_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} \right) \right] \\
+		\frac{\partial RA_{ft}(\textit{p},\textit{n})}{\partial n_{gjt}} &=& \sum_{k \in J_{fmt}}  \left[\frac{\partial R_t(\textit{p},\textit{n})}{\partial n_{gjt}}\left( rs_{kmt}(\textit{p},\textit{n}) - us_{kmt}(\textit{p},\textit{n})  \right) \right. \nonumber \\ && \left. + \,\,\,  R_t(\textit{p},\textit{n}) \left( \frac{\partial rs_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} - \frac{\partial  us_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} \right) \right]
+		\end{eqnarray*}
+
+		\vspace{-0.1in}			
+			
+\noindent where			
+	
+\vspace{-0.4in}	
+
+	
+
+
+	\begin{eqnarray*}
+	\frac{\partial R_t(\textit{p},\textit{n})}{\partial p_{jmt}} &=& \sum_{f \in F} \frac{\partial R_{ft}(\textit{p},\textit{n})}{\partial p_{jmt}} \\
+	\frac{\partial R_t(\textit{p},\textit{n})}{\partial n_{gjt}} &=& \sum_{f \in F} \frac{\partial R_{ft}(\textit{p},\textit{n})}{\partial n_{gjt}}
+	\end{eqnarray*}
+
+
+	
+\vspace{-0.4in}	
+
+	\begin{eqnarray*}
+	\frac{ \partial us_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} 
+	&=& \left(\sum_{m\in M,l \in J_{mt}} h_l q_{lmt}(\textit{p},\textit{n}) \right)^{-1}  \\ && \times \,\,\, \left[h_k \frac{\partial q_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} - \frac{h_k q_{kmt}(\textit{p},\textit{n})}{\sum_{m\in M,l \in J_{mt}} h_l q_{lmt}(\textit{p},\textit{n})}  \sum_{l \in J_{mt}} h_l \frac{\partial q_{lmt}(\textit{p},\textit{n})}{\partial p_{jmt} } \right] \\
+	\frac{ \partial us_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} 
+	&=& \left(\sum_{m\in M,l \in J_{mt}} h_l q_{lmt}(\textit{p},\textit{n}) \right)^{-1}  \\ && \times \,\,\, \left[h_k \frac{\partial q_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} - \frac{h_k q_{kmt}(\textit{p},\textit{n})}{\sum_{m\in M,l \in J_{mt}} h_l q_{lmt}(\textit{p},\textit{n})}  \sum_{l \in J_{mt}} h_l \frac{\partial q_{lmt}(\textit{p},\textit{n})}{\partial n_{gjt} } \right]
+	\end{eqnarray*}	
+
+
+\vspace{-0.4in}	
+
+	\begin{eqnarray*}
+	\frac{ \partial rs_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} 
+	&=& \left(\sum_{m\in M,l \in J_{mt}} r_{lmt}(\textit{p},\textit{n}) q_{lmt}(\textit{p},\textit{n})\right)^{-1}\left[\left(r_{kmt}(\textit{p},\textit{n})\frac{\partial q_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} + q_{kmt}(\textit{p},\textit{n})\frac{\partial r_{kmt}(\textit{p},\textit{n})}{\partial p_{jmt}} \right) \right.\\
+	&& - \,\,\, \left. \frac{r_{jmt}(\textit{p},\textit{n}) q_{jmt}(\textit{p},\textit{n})}{\sum_{m\in M,l \in J_{mt}} r_{lmt}(\textit{p},\textit{n}) q_{lmt}(\textit{p},\textit{n})}\sum_{l \in J_{mt}} \left[r_{lmt}(\textit{p},\textit{n})\frac{\partial q_{lmt}(\textit{p},\textit{n})}{\partial p_{jmt}} + q_{lmt}(\textit{p},\textit{n})\frac{\partial r_{lmt}(\textit{p},\textit{n})}{\partial p_{jmt}} \right]\right] \\
+	\frac{ \partial rs_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} 
+	&=& \left(\sum_{m\in M,l \in J_{mt}} r_{lmt}(\textit{p},\textit{n}) q_{lmt}(\textit{p},\textit{n})\right)^{-1}\left[\left(r_{kmt}(\textit{p},\textit{n})\frac{\partial q_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} + q_{kmt}(\textit{p},\textit{n})\frac{\partial r_{kmt}(\textit{p},\textit{n})}{\partial n_{gjt}} \right) \right.\\
+	&& - \,\,\, \left. \frac{r_{jmt}(\textit{p},\textit{n}) q_{jmt}(\textit{p},\textit{n})}{\sum_{m\in M,l \in J_{mt}} r_{lmt}(\textit{p},\textit{n}) q_{lmt}(\textit{p},\textit{n})}\sum_{l \in J_{mt}} \left[r_{lmt}(\textit{p},\textit{n})\frac{\partial q_{lmt}(\textit{p},\textit{n})}{\partial n_{gjt}} + q_{lmt}(\textit{p},\textit{n})\frac{\partial r_{lmt}(\textit{p},\textit{n})}{\partial n_{gjt}} \right]\right]
+	\end{eqnarray*}		
+	
+	
+	
+
+	
+	
+\noindent \textit{\bf Variable administrative cost}:
+	
+\noindent Total variable administrative cost is	
+	
+	\vspace{-0.3in}		
+	
+		$$
+		V_{ft}(\textit{p},\textit{n}) = v_{ft} q_{ft}(\textit{p},\textit{n})
+		$$	
+	
+		 
+\noindent where $v_{ft}$ is the variable administrative cost per-member per-month and total firm demand $q_{ft}(\textit{p},\textit{n}) = \sum_{i \in I, j \in J_f} q_{ijt}(\textit{p},\textit{n})$.  The partial derivatives with respect to the firm's base plan premium $p_{jmt}$ and commission decision $n_{gjt}$ are 				 
+		 
+		\vspace{-0.4in}	
+
+	\begin{eqnarray*}
+	\frac{ \partial V_{ft}(\textit{p},\textit{n})}{\partial p_{jmt}} &=& v_{ft} \frac{\partial q_{ft}(\textit{p},\textit{n})}{\partial p_{jmt}} \\
+	\frac{ \partial V_{ft}(\textit{p},\textit{n})}{\partial n_{gjt}} &=& v_{ft} \frac{\partial q_{ft}(\textit{p},\textit{n})}{\partial n_{gjt}}
+	\end{eqnarray*}
+
+
+\end{document}

@@ -45,10 +45,10 @@ cell_seeds <- sample.int(1e7, nrow(cells))
 
 cat("\nPhase 2: Checking prerequisites...\n")
 
-if (!file.exists("data/output/supply_results.csv")) {
+if (!file.exists("results/supply_results.csv")) {
   stop("supply_results.csv not found — run 2_supply.R first")
 }
-if (!file.exists("data/output/choice_coefficients_structural.csv")) {
+if (!file.exists("results/choice_coefficients_structural.csv")) {
   stop("choice_coefficients_structural.csv not found — run 1_demand.R first")
 }
 cat("  Prerequisites OK.\n")
@@ -121,9 +121,9 @@ cf_results <- cf_files %>%
   lapply(read_csv, show_col_types = FALSE) %>%
   bind_rows()
 
-write_csv(cf_results, "data/output/counterfactual_results.csv")
+write_csv(cf_results, "results/counterfactual_results.csv")
 cat("  Collected", nrow(cf_results), "rows from", length(cf_files), "cells\n")
-cat("  Written to data/output/counterfactual_results.csv\n")
+cat("  Written to results/counterfactual_results.csv\n")
 
 # =========================================================================
 # PHASE 5: Summary
@@ -131,7 +131,8 @@ cat("  Written to data/output/counterfactual_results.csv\n")
 
 cat("\n--- Counterfactual Summary ---\n")
 
-for (sc_name in c("observed", "zero", "uniform")) {
+# Summarize observed and uniform scenarios
+for (sc_name in c("observed", "uniform")) {
   sc_data <- cf_results %>% filter(scenario == sc_name)
   if (nrow(sc_data) == 0) next
 
@@ -140,31 +141,62 @@ for (sc_name in c("observed", "zero", "uniform")) {
   cat("\nScenario:", sc_name, "\n")
   cat("  Plans:", nrow(sc_data), "\n")
   cat("  Premium change: mean =", round(mean(sc_data$premium_change, na.rm = TRUE), 2),
-      ", median =", round(median(sc_data$premium_change, na.rm = TRUE), 2),
-      ", range = [", round(min(sc_data$premium_change, na.rm = TRUE), 2),
-      ",", round(max(sc_data$premium_change, na.rm = TRUE), 2), "]\n")
+      ", median =", round(median(sc_data$premium_change, na.rm = TRUE), 2), "\n")
   cat("  CS (weighted avg):", round(mean(sc_data$cs_weighted, na.rm = TRUE), 2), "\n")
   cat("  Converged:", round(converged_pct, 1), "%\n")
+  if ("ra_iter" %in% names(sc_data)) {
+    cat("  RA iterations (median):", round(median(sc_data$ra_iter, na.rm = TRUE), 1), "\n")
+  }
 }
 
-# Welfare comparison: zero vs observed
-cs_obs <- cf_results %>%
-  filter(scenario == "observed") %>%
-  distinct(region, year, cs_weighted) %>%
-  rename(cs_obs = cs_weighted)
+# Tau gradient summary
+tau_scenarios <- cf_results %>% filter(grepl("^zero_tau", scenario))
+if (nrow(tau_scenarios) > 0) {
+  cat("\n--- Broker-to-Navigator Substitution Gradient ---\n")
 
-cs_zero <- cf_results %>%
-  filter(scenario == "zero") %>%
-  distinct(region, year, cs_weighted) %>%
-  rename(cs_zero = cs_weighted)
+  cs_obs_val <- cf_results %>%
+    filter(scenario == "observed") %>%
+    distinct(region, year, cs_weighted)
 
-welfare <- inner_join(cs_obs, cs_zero, by = c("region", "year"))
-if (nrow(welfare) > 0) {
-  welfare <- welfare %>% mutate(delta_cs = cs_zero - cs_obs)
-  cat("\nWelfare effect of eliminating commissions:\n")
-  cat("  Mean delta CS:", round(mean(welfare$delta_cs, na.rm = TRUE), 2), "$/month/HH\n")
-  cat("  Positive (consumers gain):", sum(welfare$delta_cs > 0, na.rm = TRUE),
-      "of", nrow(welfare), "cells\n")
+  tau_summary <- tau_scenarios %>%
+    distinct(region, year, scenario, tau, cs_weighted) %>%
+    left_join(cs_obs_val %>% rename(cs_obs = cs_weighted), by = c("region", "year")) %>%
+    mutate(delta_cs = cs_weighted - cs_obs) %>%
+    group_by(tau) %>%
+    summarize(
+      mean_delta_cs = mean(delta_cs, na.rm = TRUE),
+      mean_premium_change = mean(
+        tau_scenarios$premium_change[tau_scenarios$tau == first(tau)], na.rm = TRUE
+      ),
+      n_cells = length(unique(paste(region, year))),
+      .groups = "drop"
+    )
+
+  cat("\n")
+  print(tau_summary %>%
+    mutate(across(where(is.numeric), ~round(., 2))),
+    n = Inf
+  )
+
+  # Welfare gradient figure
+  if (!dir.exists("results/figures")) dir.create("results/figures", recursive = TRUE)
+
+  p_tau <- tau_summary %>%
+    ggplot(aes(x = tau, y = mean_delta_cs)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 2) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(x = "Broker-to-Navigator Substitution Rate",
+         y = "Mean Welfare Change ($/month/HH)") +
+    scale_x_continuous(breaks = seq(0, 1, 0.25)) +
+    theme_bw()
+  ggsave("results/figures/cf_welfare_gradient.png", p_tau, width = 6, height = 4)
+  cat("  Welfare gradient figure saved.\n")
+
+  cat("\n  Value of assistance (tau=1 vs tau=0):",
+      round(tau_summary$mean_delta_cs[tau_summary$tau == 1] -
+              tau_summary$mean_delta_cs[tau_summary$tau == 0], 2),
+      "$/month/HH\n")
 }
 
 cat("\nCounterfactual simulation complete.\n")

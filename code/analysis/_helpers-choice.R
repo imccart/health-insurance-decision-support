@@ -21,7 +21,7 @@
 # Returns:
 #   Combined estimation + OOS tibble with `assisted` flag.
 
-build_choice_data <- function(plans, hhs, sample_frac) {
+build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") {
 
   # Convert inputs to data.table (copy, don't modify originals)
   hhs_dt <- as.data.table(hhs)
@@ -202,6 +202,8 @@ build_choice_data <- function(plans, hhs, sample_frac) {
                   "perc_0to17", "perc_18to34", "perc_35to54",
                   "perc_black", "perc_hispanic", "perc_asian",
                   "perc_other", "perc_male", "channel")
+  if ("channel_detail" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "channel_detail")
+  if ("any_agent" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "any_agent")
   if ("v_hat" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "v_hat")
   hh_demo <- hhs_dt[, ..demo_cols]
   setnames(hh_demo, "household_size", "hh_size")
@@ -237,6 +239,12 @@ build_choice_data <- function(plans, hhs, sample_frac) {
     Health_Net     = fifelse(issuer == "Health_Net", 1L, 0L),
     ipweight       = fifelse(is.na(ipweight), 1, ipweight)
   )]
+
+  # Override weight for structural estimation (household_size instead of IPW)
+  if (weight_var == "hh_size") {
+    dt[, ipweight := as.numeric(hh_size)]
+  }
+
   dt[, `:=`(
     hh_size_prem      = hh_size * net_premium,
     any_0to17_prem    = any_0to17 * net_premium,
@@ -288,6 +296,8 @@ build_choice_data <- function(plans, hhs, sample_frac) {
                    "ipweight")
   if ("comm_pmpm" %in% names(dt)) model_vars <- c(model_vars, "comm_pmpm")
   if ("v_hat" %in% names(dt)) model_vars <- c(model_vars, "v_hat")
+  if ("channel_detail" %in% names(dt)) model_vars <- c(model_vars, "channel_detail")
+  if ("any_agent" %in% names(dt)) model_vars <- c(model_vars, "any_agent")
 
   untreated <- dt[channel == "Unassisted", ..model_vars]
   treated   <- dt[channel != "Unassisted", ..model_vars]
@@ -311,13 +321,36 @@ build_choice_data <- function(plans, hhs, sample_frac) {
   untreated[, assisted := 0L]
   treated[, assisted := 1L]
 
-  # Commission x broker interaction (structural path only)
+  # Assisted x metal interactions (structural path only)
+  # Captures general effect of any assistance on metal tier choice
   if ("comm_pmpm" %in% names(untreated)) {
-    untreated[, commission_broker := comm_pmpm * assisted]  # all 0
-    treated[, commission_broker := comm_pmpm * assisted]    # comm_pmpm values
+    untreated[, `:=`(
+      assisted_silver = assisted * silver,
+      assisted_bronze = assisted * bronze,
+      assisted_gold   = assisted * gold,
+      assisted_plat   = assisted * platinum
+    )]
+    treated[, `:=`(
+      assisted_silver = assisted * silver,
+      assisted_bronze = assisted * bronze,
+      assisted_gold   = assisted * gold,
+      assisted_plat   = assisted * platinum
+    )]
   }
 
-  # CF x commission interaction (structural path only)
+  # Commission x broker interaction (structural path only)
+  # Only broker/agent-assisted HH receive commission steering; navigators do not
+  if ("comm_pmpm" %in% names(untreated)) {
+    if ("any_agent" %in% names(untreated)) {
+      untreated[, commission_broker := comm_pmpm * fifelse(any_agent == 1L, assisted, 0L)]
+      treated[, commission_broker := comm_pmpm * fifelse(any_agent == 1L, assisted, 0L)]
+    } else {
+      untreated[, commission_broker := comm_pmpm * assisted]
+      treated[, commission_broker := comm_pmpm * assisted]
+    }
+  }
+
+  # CF corrections (structural path only)
   if ("v_hat" %in% names(untreated) && "commission_broker" %in% names(untreated)) {
     untreated[, v_hat_commission := v_hat * commission_broker]
     treated[, v_hat_commission := v_hat * commission_broker]
@@ -341,10 +374,9 @@ build_choice_data <- function(plans, hhs, sample_frac) {
 estimate_nested_logit <- function(d, nest_names, pooled = FALSE,
                                    include_commission = FALSE) {
 
-  # Covariate selection
+  # Covariate selection (no cf_resid — premiums treated as exogenous in regulated market)
   covars <- c("premium", "penalty_own", "premium_sq",
               "silver", "bronze", "hh_size_prem",
-              "cf_resid",
               "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
               "any_black_prem", "any_hispanic_prem")
 
@@ -437,7 +469,7 @@ predict_nested_logit <- function(d, coefs, nest_names) {
 
   # Core covariates (always present)
   core_terms <- c("premium", "penalty_own", "premium_sq",
-                  "silver", "bronze", "hh_size_prem", "cf_resid",
+                  "silver", "bronze", "hh_size_prem",
                   "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
                   "any_black_prem", "any_hispanic_prem")
   for (v in core_terms) {
@@ -449,7 +481,8 @@ predict_nested_logit <- function(d, coefs, nest_names) {
   for (v in c("hmo", "hsa", "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
               "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
               "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
-              "commission_broker")) {
+              "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
+              "commission_broker", "v_hat_commission")) {
     if (v %in% names(coef_map) && v %in% names(d))
       V <- V + coef_map[[v]] * d[[v]]
   }

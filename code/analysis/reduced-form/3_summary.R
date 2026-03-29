@@ -9,13 +9,13 @@
 # Load results (if not already in memory) ---------------------------------
 
 if (!exists("all_prob")) {
-  all_prob <- read_csv("data/output/choice_point_estimates.csv", show_col_types = FALSE,
+  all_prob <- read_csv("results/choice_point_estimates.csv", show_col_types = FALSE,
                        col_types = cols(plan_name = "c", tot_nonmiss = "i",
                                         obs_purchase = "d", pred_purchase = "d",
                                         region = "i", year = "i"))
 }
 if (!exists("sim_bs_pred")) {
-  bs_file <- "data/output/choice_bootstrap_pred.csv"
+  bs_file <- "results/choice_bootstrap_pred.csv"
   if (file.exists(bs_file)) {
     sim_bs_pred <- read_csv(bs_file, show_col_types = FALSE)
   } else {
@@ -155,15 +155,19 @@ metal_labels <- c(G = "Gold", BR = "Bronze", P = "Platinum",
                   SIL = "Silver", CAT = "Catastrophic")
 metal_order  <- c("Platinum", "Gold", "Silver", "Bronze", "Catastrophic")
 
+theme_paper <- theme_bw() +
+  theme(text = element_text(size = 12), panel.grid.minor = element_blank(),
+        plot.title = element_blank())
+
 choice_metals <- metal_final %>%
   mutate(metal = factor(metal_labels[metal], levels = metal_order)) %>%
   ggplot(aes(x = metal, y = att)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi), width = 0.15, linewidth = 0.8) +
-  geom_point(size = 1.5, shape = 21, fill = "white") +
-  labs(y = "Estimate and\n95% Confidence Interval", x = "Metal Level") +
-  theme_bw()
-ggsave("results/figures/choice_metals.png", choice_metals, width = 6, height = 4)
+  geom_point(size = 2, color = "black") +
+  labs(y = "ATT (percentage points)", x = "Metal Level") +
+  theme_paper
+ggsave("results/figures/choice_metals.png", choice_metals, width = 6, height = 4, bg = "white")
 
 # Decode insurer abbreviations
 ins_labels <- c(ANT = "Anthem", BS = "Blue Shield", HN = "Health Net",
@@ -173,11 +177,11 @@ ins_order  <- c("Anthem", "Blue Shield", "Health Net", "Kaiser", "Other")
 choice_insurer <- ins_final %>%
   mutate(insurer = factor(ins_labels[insurer_abbr], levels = ins_order)) %>%
   ggplot(aes(x = insurer, y = att)) +
-  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi), width = 0.15, linewidth = 0.8) +
-  geom_point(size = 1.5, shape = 21, fill = "white") +
-  labs(y = "Estimate and\n95% Confidence Interval", x = "Insurer") +
-  theme_bw()
-ggsave("results/figures/choice_insurer.png", choice_insurer, width = 6, height = 4)
+  geom_point(size = 2, color = "black") +
+  labs(y = "ATT (percentage points)", x = "Insurer") +
+  theme_paper
+ggsave("results/figures/choice_insurer.png", choice_insurer, width = 6, height = 4, bg = "white")
 
 cat("Choice summary complete. Figures saved to results/figures/.\n")

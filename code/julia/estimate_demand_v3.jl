@@ -36,10 +36,13 @@ end
 # =========================================================================
 
 const BASE_COVARS = [
-    "premium", "silver", "bronze", "hh_size_prem",
+    "premium", "penalty_own", "premium_sq",
+    "silver", "bronze", "hh_size_prem",
     "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
     "any_black_prem", "any_hispanic_prem", "hmo", "hsa",
-    "Anthem", "Blue_Shield", "Kaiser", "Health_Net"
+    "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+    "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
+    "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze"
 ]
 
 # =========================================================================
@@ -511,17 +514,19 @@ end
 
 function main()
     cell_dir = "data/output/choice_cells"
-    out_dir = "data/output"
+    out_dir = "results"
 
     println("=== Structural demand estimation (Julia v3) ===")
     println("  V_0 = β'X_0 (NOT 0)")
     println("  Weights normalized to mean 1 globally")
     println("  Optim.jl LBFGS with cell-by-cell accumulator")
-    println("  Pooled model: all HH, commission_broker = comm_pmpm * assisted")
+    println("  Pooled model: all HH, assisted x metal + commission_broker (broker only)")
 
-    # --- Pooled model: all HH, with commission_broker + CF ---
+    # --- Pooled model: all HH, with assisted x metal + commission_broker + CF ---
     println("\n--- Pooled model: all HH ---")
-    covars = vcat(BASE_COVARS, "commission_broker", "v_hat_commission")
+    covars = vcat(BASE_COVARS,
+                  "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
+                  "commission_broker", "v_hat_commission")
     K = length(covars)
 
     cells, total_hh = load_cells(cell_dir, covars; filter_assisted=-1)
@@ -563,23 +568,31 @@ function main()
     end
     @printf("    %-25s = %12.6f\n", "lambda", θ_opt[K+1])
 
-    # Headline: commission-premium ratio
+    # Headline: commission-premium ratio and assisted effects
     β_p = θ_opt[findfirst(==("premium"), covars)]
     β_c = θ_opt[findfirst(==("commission_broker"), covars)]
     if abs(β_p) > 1e-10
         @printf("\n  β_commission / |β_premium| = %.4f\n", β_c / abs(β_p))
-        @printf("  Interpretation: \$1 commission ≈ \$%.2f premium equivalent for assisted HH\n",
+        @printf("  Interpretation: \$1 commission ≈ \$%.2f premium equivalent for broker HH\n",
                 β_c / abs(β_p))
     end
+    for m in ["assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat"]
+        idx = findfirst(==(m), covars)
+        if idx !== nothing
+            @printf("  %s = %.6f\n", m, θ_opt[idx])
+        end
+    end
 
-    println("  -> $out_dir/choice_coefficients_structural.csv")
+    println("  -> results/choice_coefficients_structural.csv")
     println("\nDone.")
 end
 
 # Single-cell test mode: julia estimate_demand_v3.jl test
 if length(ARGS) > 0 && ARGS[1] == "test"
     println("=== Single-cell test (region 15, year 2017, all HH) ===")
-    covars = vcat(BASE_COVARS, "commission_broker", "v_hat_commission")
+    covars = vcat(BASE_COVARS,
+                  "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
+                  "commission_broker", "v_hat_commission")
     K = length(covars)
 
     f = "data/output/choice_cells/cell_15_2017_data.csv"

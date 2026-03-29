@@ -1,0 +1,556 @@
+\documentclass[12pt]{article}
+\usepackage{amssymb,amsmath,pgf,setspace,comment,verbatim,titling,pdflscape,url}
+\usepackage{graphicx}
+\graphicspath{{../}}
+\usepackage[left=1in,right=1in,top=1in,bottom=0.75in]{geometry}
+\usepackage[round]{natbib}
+\usepackage{hyperref}
+\usepackage[labelfont=bf]{caption}
+\newcommand{\pderiv}[2]{\frac{\partial#1}{\partial#2}}
+\hypersetup{colorlinks,%
+	citecolor=black,%
+	filecolor=black,%
+	linkcolor=black,%
+	urlcolor=blue,%
+}
+\setstretch{1.5}
+
+\setlength{\droptitle}{-50pt}
+
+\input{results/tables/paper-numbers.tex}
+
+\begin{document}
+\title{Decision Assistance and Steering in Health Insurance}
+\author{Ian McCarthy \& Evan Saltzman}
+\date{March 2026}
+\maketitle
+
+\vspace{-2ex}
+\begin{abstract}
+\noindent In many markets, consumers have access to an agent or some other intermediary to aid in decision making. The influence of such agents on consumer decisions, and the firm's influence on the behaviors of its agents, have important implications for the efficiency of these markets. In this paper, we study the welfare effects of decision assistance and firm steering in health insurance using the population of enrollments from the California Affordable Care Act (ACA) exchange from 2014 to 2019. We find that enrollees are 30\% more likely to select a silver plan when using some form of decision assistance and 30\% less likely to select a ``dominated'' plan. Preliminary results suggest that firms have considerable ability to steer consumers' decisions using agent commissions, where a \$1 increase in commissions paid to agents has the same effect as a \$2 or \$3 increase in plan premiums.
+\end{abstract}
+
+\clearpage
+
+\section{Introduction}
+\label{sec:introduction}
+
+Health insurance markets are unique in many respects, not least of which is the increasing complexity of choosing an optimal health insurance plan. Such complexity has been well-documented in studies of health insurance choice in the Medicare Advantage market \citep{abaluck2011, ketcham2012, gruber2017}. One way to reduce the burden of this complexity is to provide professional decision support through private insurance agents or public assistance programs, both of which are available in the California health insurance exchanges created under the Affordable Care Act (ACA). Such decision assistance, however, also introduces the potential for private insurers to steer enrollees into potentially suboptimal plans. Commissions paid to facilitate any steering may also increase plan premiums for all enrollees. In this paper, we examine the role of decision assistance on health insurance plan choice and its implications for consumer welfare.
+
+Our analysis is based on household enrollment data from the California ACA exchange. Our final data consist of over 8 million household-year observations from 2014 to 2019. The data include a variety of household characteristics, plan choices and plan characteristics, and information on the type of decision assistance used by the enrollee (if any). Using these data, we can precisely identify each household's choice set, the premium paid for each plan in the choice set, and any premium and cost sharing subsidies for which the household is eligible.
+
+Our empirical analysis proceeds as follows. First, we examine whether decision assistance affects plan choice. Our estimand of interest is the average treatment effect on the treated (ATT) for enrollees receiving decision assistance. We employ as our estimator an augmented inverse propensity weighted nested logit regression with a control function correction for the endogeneity of assistance, using regional variation in broker density as an instrument, as discussed in more detail in Section \ref{sec:causal}. We estimate that such households are just over 30\% more likely to select a silver plan, the majority of which comes from a reduction in the probability of selecting a bronze plan.
+
+Second, we consider the potential for decision assistance to ``improve'' plan choice. While identifying ``improvement'' is not generally feasible in our data, we can identify specific instances in which the observed plan choice is dominated by some other plan in an individual's choice set. For example, gold and platinum tier plans are dominated for any household that is eligible for cost-sharing subsidies and with incomes below 150\% of the federal poverty level. We can therefore identify dominated choices and examine whether those with decision assistance appear less likely to select a dominated plan. As with our initial nested logit model of plan choice, our estimand is the ATT for households receiving decision assistance, and our estimator is an augmented inverse propensity weighted logit regression. 
+
+Our results suggest that individuals with decision assistance are over 1 percentage point less likely to make a dominated choice. On a base of 3.5\%, this reflects a 30\% decrease in the probability of making a dominated choice. We also find evidence of heterogeneities in the effects of different forms of decision assistance. In particular, we find that individuals using publicly provided decision assistance are around 0.8 percentage points less likely to select a dominated plan, while individuals using a private insurance agent are 1.2 percentage points less likely to select a dominated plan.
+
+Third, we incorporate insurer commission payments alongside premium-setting and demand estimation as part of a structural model of insurer steering. Results from this analysis are pending; however, preliminary analysis of commission payments and plan choice suggests that commissions are a larger factor in plan choice than premiums. For example, we estimate that a \$1 increase in commissions paid to private insurance agents is equivalent to a \$2 to \$3 increase in premiums. In other words, private insurance agents appear to have significant influence on plan choice, with commission payments having 2x the effect of premiums.
+
+We contribute to two distinct literatures. First, our examination of decision assistance and health insurance relates to the literature on the role of experts in decision making.\footnote{A broader literature considers ``persuasion'', which includes the role of advertising and media reports. We are interested in the more narrow literature specifically dealing with decision assistance in the form of third-party ``experts'' or advice. See \cite{dellavigna2010} for a general survey of the empirical evidence on persuasion.} Theoretical models of the role of experts and advice in a principal-agent framework include \cite{szalay2005}, \cite{alonso2008}, and \cite{armstrong2010}. In an experimental setting, \cite{schotter2003} finds that individuals are much more likely to follow the advice of an expert and that such behavior is welfare-improving. In education, \cite{borghans2015} find large effects of high school counselors on students' college field choices, and \cite{bettinger2012} estimate large effects of personal assistance on the probability of applying for and receiving college financial aid, with subsequently large effects on college attendance. \cite{finkelstein2019} similarly find large effects of both improved information and personal assistance on probability of enrollment in the Supplemental Nutrition Assistance Program among eligible households.
+
+A related literature considers the effects of recommendations, sometimes automated via an algorithmic recommendation, on decisions. \cite{bundorf2019}, for example, show that offering additional information alongside an algorithmic expert recommendation significantly affects an individual's choice of prescription drug plans. \cite{kling2012} also estimates large effects of personalized cost information on plan switching in the Medicare Part D market. To our knowledge, the literature on experts and decision-making in the context of health insurance focuses on unbiased and often anonymous ``experts'' (e.g., an algorithm suggesting the best plan for an individual). Our setting is unique in that individuals have access to a public ``navigator,'' who receives no compensation for any plan choice, and a private insurance agent who receives a commission that varies by plan.
+
+Second, we contribute to the literature examining the prevalence and underlying mechanisms of poor decision making in health insurance. In the employer-provided insurance market, \cite{liu2021} document that over half of employers offer a dominated plan among their menu of insurance options available to their employees, and \cite{sinaiko2011} and \cite{bhargava2017} find that a large share of employees regularly select such dominated insurance plans. \cite{abaluck2011}, \cite{ketcham2012}, \cite{zhou2012}, \cite{heiss2013}, \cite{gruber2017}, \cite{ho2017rand} and many others similarly examine poor decisions when selecting a Medicare prescription drug (Part D) plan. The consensus from this literature is that individuals regularly make \textit{ex ante} poor health insurance decisions, often selecting plans that are either financially dominated by other plan options or most likely suboptimal given the enrollee's existing medical conditions. While not definitive, a common theme in this literature is that poor health insurance decisions are due in-part to an inability or unwillingness of enrollees to accurately evaluate their plan options \citep{bhargava2017, hanoch2009}. 
+
+A few recent studies consider poor health insurance decisions in the context of the ACA and the role of public navigators.\footnote{\cite{ketcham2012} find that observed poor health insurance decision making will tend to improve over time, thereby partially alleviating the need for any explicit intervention; however, unlike Medicare Advantage or Medicare Part D, the majority of enrollees in California exchange plans are not continuously enrolled over multiple years. Therefore, there exists relatively little opportunity for enrollees to sufficiently identify poor decisions and update plan choices accordingly.} For example, \cite{orzol2018} find that an ``Enroll America,'' a national non-profit organization designed to expand health insurance enrollment in the U.S., significantly increased enrollment in the ACA exchange plans. \cite{myerson2019} also finds that federally funded assistance programs significantly increased the probability of enrollment in Medicaid, although they found little effect of such federal funding on enrollment in exchange plans. \cite{sommers2015} similarly show that access to navigators is highly correlated with Medicaid enrollment, mirroring earlier findings from \cite{aizer2003} in her study of Medicaid enrollment and application assistants in California. \cite{aizawa2021} distinguish between ``public'' provision (via government advertising) versus private provision (via insurer advertising) on plan choice, where they find that both forms of advertising affect participation in the market and that private advertising has a particularly large effect on the intensive margin of plan choice; however, the welfare effects of private advertising are unclear due to business stealing and costs of advertising.
+
+Our contribution to this literature is most closely related to \cite{aizawa2021} in that we consider both private and public decision assistance; however, we examine this in the context of one-on-one assistance rather than general exposure to advertising. We also consider the potential for private agents to improve health insurance decisions while also allowing for potential bias introduced through commissions (i.e., steering), and we compare outcomes from the use of private agents to those of public navigators. Our analysis envisions private agents as helping to resolve an information problem, the costs of which include potential steering into sub-optimal plans and spillover effects of commission payments onto premiums. Whether the costs of such private agents exceed the benefits or are best borne by public agents without steering incentives is an empirical question which we pursue in Section \ref{sec:structural}. 
+
+\section{Background and Institutional Details}
+\label{sec:background}
+
+One of the pillars of the Affordable Care Act (ACA) was the creation of regulated state insurance exchanges in which insurers sell private insurance plans directly to consumers. While all state exchanges must adhere to a minimum set of federal regulations, states vary in how they manage and regulate their exchanges. Since our analysis uses data from the California exchange, we focus on the institutional details of the California ACA marketplace.
+
+There are three general aspects of the California insurance exchange that are particularly relevant for our analysis: 1) enrollee choice sets and the types of plans available; 2) variation in premiums across individuals on the exchange; and 3) the presence of navigators and brokers to assist individuals when considering an exchange plan. We discuss the institutional details of each of these areas in more detail throughout the remainder of this section.
+
+\subsection{Choice Sets and Plan Types}
+Exchange plans are classified by a ``metal'' tier intended to easily summarize the actuarial value (AV) of a plan. Bronze plans reflect an AV of 60\%, silver plans an AV of 70\%, gold plans an AV of 80\%, and platinum plans an AV of 90\%. For plans on the California exchange, other cost sharing parameters are standardized within a metal tier, such that the enrollee's financial burden across plans within a given metal tier is relatively homogeneous.\footnote{In other states, insurers can generally design plans with different cost sharing provisions within a metal tier, but the regulations on the California exchange are more stringent.} Each state also defines geographic rating areas, usually composed of counties, in which an insurer's premiums must be the same for consumers of the same age.
+
+Most households face the same choice set based on their region and year of enrollment; however, some individuals (mainly those under age 30) are also eligible for basic catastrophic coverage. Insurers can also choose to serve only a part of a rating area. Such ``partial'' rating area coverage is relatively uncommon in California, and \cite{fang2020} show that insurers' decisions to enter a subset of counties in a rating area appears to be determined by entry costs and risk pools rather than strategic competitive behavior.
+
+\subsection{Premiums and Cost-sharing}
+Premium variation within a plan is more tightly regulated in California than in other state exchanges, with insurer price discrimination only allowed based on an enrollee's age and geographic residence. For example, insurers can charge a 64-year old up to 3 times as much as a 21-year old according to the default age rating curve.
+
+The ACA also provides premium and cost-sharing subsidies to eligible enrollees.\footnote{Premium subsidies are available to consumers who meet the following criteria: 1) income between 100 and 400\% of the federal poverty level (FPL); 2) citizenship or legal resident status; 3) ineligible for public insurance such as Medicare or Medicaid; and 4) lack access to an ``affordable plan offer'' through employer-sponsored insurance either as an employee or as a dependent. Cost-sharing subsidies are available to anyone with income $\leq$ 250\% of FPL and serve to increase the actuarial value of a plan from 70\% up to 94\% (income $<$ 150\% of FPL), 87\% (income between 150\% and 200\% of FPL), and 73\% (incomes between 200\% and 250\% of FPL).} The premium subsidy is set to the difference between: 1) the premium of the benchmark plan, defined as the second-cheapest silver plan available to a given enrollee; and 2) and the enrollee's income contribution cap, defined as the maximum percent of a person's income spent on premiums. Consumers can apply the premium subsidy towards the premium of any metal plan, whereas cost-sharing subsidies only apply to the purchase of a silver tier plan.
+
+\subsection{Decision Assistance}
+There are two forms of formal decision assistance available to potential enrollees on the California exchange: ``navigators'' and private insurance agents or brokers. For states participating in the federal exchange, navigators are mandated under the ACA and were initially federally funded, although funding has fluctuated substantially across administrations.\footnote{Federal navigator funding was cut by 84\% during the first Trump administration (2017--2021), restored to record levels under Biden (\$100 million annually), and reduced by 90\% in February 2025. California, as a state-based exchange, operates its own navigator program and is less directly affected by federal funding changes.} Most state-based exchanges, including California, offer similar navigator assistance to potential enrollees.
+
+A navigator is available to help potential enrollees better understand their insurance options, and navigators receive no compensation tied to any specific plan choice. Access to navigators has been shown to have a particularly large effect on Medicaid enrollment \citep{myerson2019, sommers2015, aizer2003}. Relatedly, navigators tend to work with households of lower incomes, currently uninsured, and non-native english speakers. Among individuals receiving some form of assistance in our data, about 30\% of households used a navigator.
+
+Potential enrollees on the California exchange may also use a traditional private insurance agent or broker (hereafter, agents). Agents are not generally tied to any specific insurer and can enroll individuals in any available plan. Agents are also not restricted to any specific geography or region and can enroll individuals in the relevant rating area regardless of the physical office in which the agent resides. Among individuals receiving some form of assistance in our data, 70\% used a private insurance agent.
+
+Unlike navigators, agents are paid commissions for each enrollment into an exchange plan. The amount of commission varies by insurer and is generally set as a flat fee per enrollee or as a percentage of the premium paid by that enrollee. For new enrollees, flat fee commissions typically range between \$100 and \$200, with percent commissions ranging between 2\% and 5\%. Figure~\ref{fig:commissions} presents the observed commission rates by insurer over time, separately among insurers offering a flat fee commission versus those offering a percentage commission. As is evident from the figure, there exists meaningful variation in commissions across insurers, although commission rates within a given insurer are largely stable over time.
+
+
+\section{Data}
+\label{sec:data}
+
+Our analysis draws on several data sources, which we describe in turn before discussing sample construction and summary statistics.
+
+\subsection{Enrollment Data}
+The primary data source is individual-level administrative enrollment records from Covered California, obtained via a Freedom of Information Act (FOIA) request. The data cover the universe of exchange enrollees from 2014 to 2019 and include each enrollee's selected plan, age, income (as a fraction of the federal poverty level), county of residence, subsidy eligibility, household composition, and the type of decision assistance used (navigator, broker/agent, or none). Individual and household identifiers allow consumers to be grouped into household units and tracked across enrollment years. The enrollment data also indicate whether each household is a new enrollee or a renewal, which we use to construct our measure of market churn.
+
+\subsection{Plan Characteristics}
+We collect plan-level data from the Covered California website, including plan premiums, metal tier, cost-sharing parameters (deductible, coinsurance, and maximum out-of-pocket limit), network type (HMO, PPO, EPO), and the insurer offering each plan. Plans are identified by a combination of insurer, metal tier, and network type within each of California's 19 rating regions. We use these data to construct each household's choice set and household-specific premiums, $p_{ij}$, applying the ACA age-rating curve and subsidy formula described in Section~\ref{sec:background}.
+
+\subsection{Commission Data}
+Commission schedules are collected from Covered California's published rate schedules for each insurer and year. Commissions are set either as a flat per-member-per-month (PMPM) amount or as a percentage of the unsubsidized premium, varying by insurer but not by plan within an insurer. We convert percentage-based commissions to PMPM equivalents using each plan's average unsubsidized premium. The commission data cover all 10--12 insurers operating on the exchange in each year.
+
+\subsection{Broker Density}
+We obtain data on the number of licensed insurance agents actively enrolling consumers in each rating region and year from a FOIA request to the California Department of Insurance (via the California Producer Licensing Authority). These data provide our instrumental variable for the endogeneity of assistance, as described in Sections~\ref{sec:causal} and \ref{sec:structural}.
+
+\subsection{Rate Filings and Risk Adjustment}
+For the supply-side analysis, we use plan-level rate filing data from the CMS Public Use Files (PUFs) for 2014--2020. These filings report plan-level earned premiums, incurred claims, risk adjustment transfers, and reinsurance recoveries, along with member months by plan. We use these data to estimate risk score prediction models and claims regressions that feed into the structural marginal cost decomposition (Section~\ref{subsec:supply}).
+
+\subsection{Outside Option}
+To form the universe of potential exchange consumers, we supplement the Covered California data with data from the American Community Survey (ACS) and the Survey of Income and Program Participation (SIPP). From the ACS, we identify individuals who are uninsured and potentially eligible for exchange coverage (excluding those enrolled in or eligible for employer-sponsored insurance, Medicare, or Medicaid, as well as undocumented immigrants). We use the SIPP to estimate the probability that an uninsured individual exits or enters the individual insurance market in a given year, which we use to calibrate the size of the outside option (the uninsured population) relative to exchange enrollees.
+
+\subsection{Sample Construction and Summary Statistics}
+
+Our final data consist of over 5 million household-year observations from 2014--2019, of which approximately 56\% are first-time enrollees. Among assisted households, roughly 70\% used a private insurance agent and 30\% used a navigator. Figure~\ref{fig:enrollee-count} shows total enrollment by year and channel.
+
+Table~\ref{tab:summary-stats} displays summary statistics separately for assisted and unassisted households. Households using decision assistance tend to have lower incomes and larger household sizes. The silver tier is the most commonly selected option, particularly among assisted households, reflecting the interaction between decision guidance and the availability of cost-sharing reductions for silver plans. Among types of plans purchased, we observe relatively minor differences between those with and without assistance, with the exception of Kaiser plans, for which assisted households are less likely to enroll.
+
+
+\section{Does Decision Assistance Improve Plan Choice?}
+\label{sec:causal}
+
+We begin by examining whether decision assistance affects plan choice and, if so, whether it improves the quality of decisions. Our estimand is the average treatment effect on the treated (ATT) for households receiving decision assistance, and we limit the analysis to newly enrolled households. We embed a nested logit discrete choice model into a potential outcomes framework \citep{rubin1974, imbens2009}, following \cite{saltzman2019}, and we employ two complementary strategies to address the endogeneity of assistance.
+
+\subsection{Identification}
+\label{subsec:identification}
+
+The central identification challenge is that the decision to seek assistance is not random. Households who use a broker or navigator may differ systematically from those who do not, both in observable characteristics and in unobservable ways that also affect plan preferences. We address this concern with two complementary strategies.
+
+First, we construct inverse propensity weights (IPW) to rebalance the treated and untreated groups on observable characteristics \citep{wooldridge2010}. We estimate a logit regression of assistance status on household demographics, and we assign each untreated household a weight of $\hat{p}_{i}/(1-\hat{p}_{i})$, where $\hat{p}_{i}$ is the predicted probability of assistance. Treated households receive a weight of one. This reweighting ensures that the untreated group used to form counterfactual predictions is comparable to the treated group on observables.
+
+Second, we employ a control function approach to correct for unobservable selection into assistance \citep{petrin2010}. We use broker density, measured as the number of licensed insurance agents per rating region and year, as an instrument for assistance. Broker availability plausibly affects the probability that a household seeks help but does not directly affect plan preferences conditional on household characteristics and market fixed effects. We estimate a first-stage linear probability model,
+\begin{equation}
+\label{eqn:first_stage}
+a_{it} = \gamma_0 + \gamma_1 z_{mt} + \gamma_2' w_{it} + \nu_{it},
+\end{equation}
+where $a_{it}$ is an indicator for using a broker, $z_{mt}$ is broker density in market $m$ at time $t$, and $w_{it}$ is a vector of household demographics. The residual $\hat{v}_{it} = a_{it} - \hat{a}_{it}$ captures the component of assistance that is unexplained by observables and the instrument. Following \cite{bhattacharya2007}, the propensity score used for IPW excludes the instrument, while the first-stage model includes it.\footnote{Including the instrument in the propensity score would absorb the variation needed for the control function to correct for unobservable selection. The IPW and control function serve complementary roles, with IPW addressing observable imbalance and the control function addressing unobservable selection.}
+
+We then include $\hat{v}_{it}$ in the choice model interacted with plan indicators, allowing the selection correction to operate differentially across plans. This approach corrects for the possibility that households who select into assistance have systematically different plan preferences from those who do not.
+
+\subsection{Estimation}
+\label{subsec:causal-methods}
+
+We model plan choice with a nested logit specification in which household $i$ chooses plan $j$ to maximize
+\begin{equation}
+\label{eqn:utility_rf}
+u_{ijt} = \alpha_i p_{ijt} + x'_{ij}\beta^x + \hat{v}_{it} \delta_j + \xi_j + \varepsilon_{ijt},
+\end{equation}
+where $p_{ijt}$ is the household's subsidized premium, $x_{ij}$ includes metal tier indicators, network type, and insurer fixed effects, $\hat{v}_{it}$ is the control function residual from Equation~\eqref{eqn:first_stage}, $\delta_j$ is a plan-specific coefficient on the residual that absorbs differential selection into plans, $\xi_j$ captures unobserved plan characteristics, and $\varepsilon_{ijt}$ follows a generalized extreme value distribution yielding a two-nest structure (exchange plans and the outside option). We allow for heterogeneous price sensitivity through $\alpha_i = \alpha + \phi' w_{it}$, where $w_{it}$ includes household size, presence of children, income category, and race/ethnicity. The utility of the outside option is $u_{i0t} = \alpha_i \rho_{it} + \varepsilon_{i0t}$, where $\rho_{it}$ is the mandate penalty. Unlike the structural specification in Section~\ref{sec:structural}, this model does not include commission terms, since it is estimated only on untreated households for whom commissions play no role.
+
+We estimate the ATT through a four-step process. First, we estimate Equation~\eqref{eqn:utility_rf} on untreated households only (those without any form of decision assistance), weighted by IPW weights. Second, we use the estimated coefficients to predict counterfactual choice probabilities for treated households, $\widehat{Pr[Y_{ij}^{0} | \text{Assisted}]}$, setting $\hat{v}_{it} = 0$ in the prediction to reflect the counterfactual in which treated households behave as if they had not selected into assistance. Third, we aggregate predicted probabilities across treated households to form the counterfactual enrollment count $\widehat{N_j^0}$. Fourth, we compute the ATT as the difference between observed and predicted enrollment,
+\begin{equation}
+    ATT_{j} = \underbrace{N^{1}_{j}}_{\text{Observed}} - \underbrace{\widehat{N_{j}^{0}}}_{\text{Predicted}}.
+\label{eqn:att}
+\end{equation}
+We obtain confidence intervals by bootstrapping the full procedure, including the first-stage assistance model, IPW estimation, choice model, and ATT computation.
+
+\subsection{Effects on Plan Choice}
+\label{subsec:causal-results}
+
+Figure~\ref{fig:ps-balance} presents the propensity scores from the preliminary logit regression of assistance on household demographics. There is clear common support across treated and untreated groups. Figure~\ref{fig:cov-balance} shows standardized mean differences before and after reweighting. The IPW-adjusted differences are near zero for all covariates, confirming that the reweighting achieves adequate balance.
+
+We summarize ATT estimates by insurer and metal tier in Figures~\ref{fig:choice-insurer} and \ref{fig:choice-metal}. Figure~\ref{fig:choice-insurer} shows that assisted households are significantly more likely to select a plan from Blue Shield, Health Net, or a smaller insurer, and much less likely to select Anthem or Kaiser. Notably, Anthem and Kaiser both offer the lowest flat-fee commissions among the major insurers, suggesting that commission variation may partly explain these patterns. We investigate the relationship between commissions and plan choice more fully in Section~\ref{sec:structural}.
+
+Figure~\ref{fig:choice-metal} shows that assisted households are approximately 16 percentage points more likely to select a silver plan. Relative to a baseline of 50\% among unassisted households, this represents a 32\% increase. Most of this shift comes from a corresponding decrease in bronze plan selection, with a smaller reduction in gold plan selection.
+
+\subsection{Effects on Dominated Choices}
+\label{sec:dominated}
+
+The plan choice results establish that assistance shifts enrollment across plans and insurers, but they do not reveal whether these shifts represent improvements. To examine choice quality, we identify specific instances in which the observed plan choice is dominated by another option in the household's choice set.
+
+Dominance arises from the interaction of cost-sharing reductions (CSRs) with metal tier pricing. For households eligible for CSRs with incomes below 150\% of FPL, enhanced silver plans offer both lower premiums and lower out-of-pocket costs than gold or platinum plans. Since provider networks do not vary across metal tiers within the same plan type, gold and platinum plans are strictly dominated for these households. Gold plans are similarly dominated for households with incomes between 150\% and 200\% of FPL.
+
+We estimate the ATT of assistance on dominated choices using a weighted logistic regression, following the same IPW and control function strategy described above. We restrict the sample to households with at least one dominated plan in their choice set. Results are presented in Figure~\ref{fig:dom-choice}. We estimate that assisted households are just over 1 percentage point less likely to make a dominated choice. On a base rate of 3.5\%, this reflects a nearly 30\% reduction in dominated choices. The effects are largest among households using a private insurance agent (ATT of $-1.2$ percentage points) compared to those using a navigator (ATT of $-0.8$ percentage points). This differential suggests that brokers, despite the potential for commission-driven steering, provide more effective guidance on average than navigators in helping households avoid dominated plans.
+
+
+\section{Insurer Premium Setting with Commission-Based Steering}
+\label{sec:structural}
+
+The reduced-form evidence in Section~\ref{sec:causal} establishes that broker assistance shifts plan choice and reduces dominated decisions. However, broker assistance is not free. Insurers pay commissions to brokers for each enrollment, and these commission costs are ultimately reflected in premiums paid by all enrollees, including those who do not use a broker. The net welfare effect of broker intermediation therefore depends on the tradeoff between improved plan selection for assisted households and higher premiums for the full market. To quantify this tradeoff, we develop a model of insurer premium setting in which commissions serve as the mechanism through which insurers influence the recommendations of broker-assisted consumers.
+
+The supply side of our model features Bertrand-Nash premium setting by insurers, taking commission schedules as given. On the demand side, households choose the plan that maximizes expected utility. We do not explicitly model the actions of individual insurance agents. Instead, we model how insurer commission payments affect the plan recommendations that agents make to their clients. Our identifying assumption is that commissions incentivize agents to recommend certain plans but do not induce agents to change advertising or marketing efforts to recruit new clients. Advertising and marketing by both insurers and agents are tightly regulated in Covered California, making this assumption relatively innocuous.
+
+\subsection{Household Plan Choice}
+\label{subsec:demand}
+
+Household $i$ chooses the plan $j$ that maximizes indirect utility
+\begin{equation}
+\label{eqn:utility}
+U_{ijt} = \alpha_i p_{ijt} + \beta^{\eta} \eta_{jt} a_{it}^B + MT'_j \beta^{a} a_{it} + x'_{ij}\beta^x + \xi_{j} + \varepsilon_{ijt},
+\end{equation}
+where $p_{ijt}$ is household $i$'s subsidized premium for plan $j$ in year $t$, $\eta_{jt}$ is the per-member-per-month commission paid to brokers enrolling consumers in plan $j$, $a_{it}^B$ is an indicator for whether household $i$ used a private broker or agent, $a_{it}$ is an indicator for whether household $i$ used any form of decision assistance (broker or navigator), $MT_j$ is a vector of metal tier indicators, $x_{ij}$ is a vector of plan and household-plan interaction characteristics, $\xi_{j}$ captures unobserved plan characteristics, and $\varepsilon_{ijt}$ is an error term.\footnote{While inertia is known to play an important role in health insurance plan choice \citep{handel2013, polyakova2016}, it is less of a concern for our analysis. Approximately 56\% of household-year observations in our sample are first-time enrollees, consistent with the high churn rates characteristic of ACA individual market coverage. In the supplemental appendix, we re-estimate demand restricting to new enrollees and find similar coefficient estimates.}
+
+The assisted-by-metal interactions $MT'_j \beta^{a} a_{it}$ capture the general effect of decision assistance on metal tier preferences. These interactions apply to all assisted households, whether using a broker or navigator, and are identified by variation in metal tier across plans within a choice set. The commission term $\beta^{\eta} \eta_{jt} a_{it}^B$ captures the additional steering effect of commissions, entering utility only for broker-assisted households ($a_{it}^B = 1$). A positive $\beta^{\eta}$ indicates that brokers steer consumers toward plans with higher commissions. Navigator-assisted households receive the assisted-by-metal interactions (capturing the benefits of guidance) but not the commission term (since navigators receive no plan-specific compensation). For unassisted households, all assistance-related terms are zero, and choices are driven entirely by premiums, plan characteristics, and unobserved preferences.
+
+Insurers set commissions either as a flat per-member-per-month amount or as a percentage of the unsubsidized premium. For percentage-based commissions, we convert to per-member-per-month equivalents using the plan's average unsubsidized premium. In practice, commission schedules exhibit remarkably little temporal variation. Of the ten insurers operating on the exchange during our sample period, seven maintained identical commission rates across all years. Only the three largest insurers (Anthem, Blue Shield, and Health Net) adjusted their rates, and these adjustments followed a monotone downward trend rather than the year-to-year reoptimization that a commission first-order condition would imply. We therefore treat commission schedules as predetermined parameters of the annual premium-setting game rather than as jointly optimized instruments.\footnote{Health Net's switch from percentage-based to flat commissions in 2018 followed its acquisition by Centene and represents an organizational change rather than marginal optimization.}
+
+The household's subsidized premium is
+\begin{equation}
+\label{eqn:cons_premium}
+	p_{ijt} = \max \left \lbrace \underbrace{\sigma_{it} p_{jmt}}_{\text{\scriptsize{full premium}}}  - \underbrace{\max\{\sigma_{it} p_{bmt} - \zeta_{it},0\}}_{\text{\scriptsize{premium subsidy}}},0 \right \rbrace,
+\end{equation}
+where $\sigma_{it}$ is the household's age-based rating factor, $p_{jmt}$ is the base premium for plan $j$ in market $m$ at time $t$, $p_{bmt}$ is the base premium of the benchmark plan (the second-cheapest silver plan), and $\zeta_{it}$ is the household's income contribution cap. Premium subsidies are available to households with incomes between 100\% and 400\% of the federal poverty level. The income contribution cap ranged from 2\% of annual income at 100\% FPL to 9.5\% at 400\% FPL in 2014, with slight annual increases. Subsidies can be applied toward any non-catastrophic plan. For some low-income consumers, the subsidy may exceed certain bronze plan premiums, in which case the premium is set to zero.
+
+We allow for heterogeneous price sensitivity by parameterizing $\alpha_i = \alpha + \phi' w_{it}$, where $w_{it}$ includes household size, presence of children, income category, and race/ethnicity. In estimation, this amounts to including interactions between $w_{it}$ and $p_{ijt}$. The vector $x_{ij}$ includes metal tier indicators, network type, insurer fixed effects, and insurer-by-metal interactions. The utility of the outside option is $U_{i0t} = \alpha_i \rho_{it} + \varepsilon_{i0t}$, where $\rho_{it}$ is the household's penalty for not having insurance.
+
+\paragraph{Identification of the assistance effects.} A key identification challenge is that the decision to seek assistance is endogenous. Households who choose to work with a broker or navigator may differ in unobservable ways that also affect their plan preferences. To address this concern, we adopt a control function approach using broker density, measured as the number of licensed agents in each rating region and year, as an instrument for assistance. We estimate a first-stage linear probability model of assistance on broker density and household characteristics, and we include the residual $\hat{v}_{it}$ interacted with the commission and navigator terms in estimation. Specifically, we augment the estimating equation with $\beta^{v_\eta} \hat{v}_{it} \eta_{jt} a_{it}^B + \beta^{v_a} \hat{v}_{it} a_{it}$, which absorbs the correlation between unobserved determinants of assistance and plan preferences. This allows $\beta^{\eta}$ and $\beta^{a}$ to be interpreted as causal effects of commission-driven steering and general decision assistance, respectively. The identifying assumption is that broker density affects the probability of using assistance but does not directly affect plan preferences conditional on the other covariates in the model.
+
+\paragraph{Choice probabilities.} We assume that the error terms $\varepsilon_{ijt}$ follow a generalized extreme value distribution, yielding a nested logit model with exchange plans in one nest and the outside option in a second nest. This two-nest structure captures the observed substitution pattern between silver plans and the outside option that arises from the ACA's linkage of cost-sharing reductions to silver plan enrollment. The household choice probabilities are
+\begin{equation}
+\label{eqn:choice_probs}
+	q_{ijt} =  \frac{e^{V_{ijt}/\lambda}\left(\sum_{k \in J_{mt}} e^{V_{ikt}/\lambda}\right)^{\lambda-1}}{e^{V_{i0t}} + \left(\sum_{k \in J_{mt}} e^{V_{ikt}/\lambda}\right)^{\lambda}},
+\end{equation}
+where $V_{ijt}$ is the deterministic component of utility from Equation~\eqref{eqn:utility}, $V_{i0t} = \alpha_i \rho_{it}$ is the deterministic utility of the outside option, $J_{mt}$ is the set of exchange plans in market $m$ at time $t$, and $\lambda \in (0,1]$ is the nesting parameter. The choice probabilities converge to standard logit when $\lambda \rightarrow 1$.
+
+The sensitivity of demand to a base premium change involves the chain rule through the subsidy formula. For a non-benchmark plan, an increase in its base premium raises only that plan's consumer-facing premium. For the benchmark plan, an increase raises the subsidy available to all plans, leaving the benchmark plan's consumer-facing premium unchanged for subsidized households while reducing the effective premium of all competing plans. Specifically,
+\begin{equation}
+\label{eqn:price_partial_formula}
+    \frac{\partial p_{ilt}}{\partial p_{jmt}} =
+    \begin{cases}
+	    0 & l=j, \, j = b \\
+		\sigma_{it} & l = j, \, j \neq b \\
+		-\sigma_{it} & l \neq j, \, j = b \\
+		0 & l \neq j, \, j \neq b
+    \end{cases},
+\end{equation}
+where $b$ denotes the benchmark plan. This subsidy linkage creates significant computational challenges but is essential to model given the central role of premium subsidies in ACA markets.
+
+\paragraph{Identification of the premium parameter.} Several sources of exogenous variation identify the premium coefficient $\alpha_i$. First, the phasing-in of the individual mandate penalty between 2014 and 2016, and the elimination of the penalty in 2019, generate variation in the relative price of the outside option. Second, kinks in the subsidy formula~\eqref{eqn:cons_premium} generate variation in relative premiums across plans. Because the subsidy is tied to the benchmark plan premium, some bronze plans may be free to low-income consumers when the subsidy exceeds the full bronze premium. The set of free plans varies by market, year, and household characteristics. Finally, we include insurer fixed effects to absorb unobservable plan characteristics such as provider networks and formularies that may correlate with premiums, following \citet{Ho2014} and \citet{tebaldi2022}.
+
+\subsection{Insurer Pricing}
+\label{subsec:supply}
+
+Taking commission schedules as given, each insurer $f$ chooses base premiums $p_{jmt}$ for each of its plans to maximize expected variable profit
+\begin{equation}
+\label{eqn:profit}
+	\pi_{ft} = R_{ft} - (1 - \iota_{ft}) C_{ft} - \mathcal{C}_{ft} + RA_{ft} - V_{ft},
+\end{equation}
+where $R_{ft}$ is total premium revenue, $C_{ft}$ is total claims, $\iota_{ft}$ is the reinsurance rate (the expected share of claims covered by the ACA transitional reinsurance program), $\mathcal{C}_{ft}$ is total commissions paid, $RA_{ft}$ is the net risk adjustment transfer, and $V_{ft}$ is variable administrative cost excluding commissions. Total commissions paid by the firm are
+\begin{equation*}
+    \mathcal{C}_{ft} = \sum_{m \in M} \sum_{j \in J_{fmt}} \sum_{i \in I} a_{it}^B \, q_{ijt} \, \eta_{jt},
+\end{equation*}
+where $a_{it}^B$ indicates broker-assisted enrollment and $q_{ijt}$ are the choice probabilities from Equation~\eqref{eqn:choice_probs}.
+
+\paragraph{Risk adjustment.} The ACA risk adjustment program makes budget-neutral transfers across plans based on the relative health risk of their enrollees \citep{pope2014}. Plans that attract higher-risk enrollees receive transfers funded by plans with lower-risk enrollees. The per-member-per-month transfer for plan $j$ is
+\begin{equation}
+\label{eqn:ra_formula}
+	ra_{jmt} = \left(\frac{r_{jmt}}{\sum_{l} r_{lmt} \tilde{q}_{lmt}}    -     \frac{h_j}{\sum_{l} h_l \tilde{q}_{lmt}}\right)\bar{p}_t,
+\end{equation}
+where $r_{jmt}$ is the plan risk score, $h_j$ is an exogenous utilization factor that accounts for the plan's actuarial value and associated moral hazard, $\tilde{q}_{lmt}$ denotes enrollment-weighted plan shares, and $\bar{p}_t$ is the market average premium. The first term in parentheses captures the plan's share of total risk (reflecting adverse selection, moral hazard, and plan generosity), while the second captures the plan's expected utilization share (reflecting only moral hazard and generosity). A positive difference indicates that the plan attracts higher-risk enrollees than its generosity alone would predict, generating an inward risk adjustment transfer. Budget neutrality is maintained by construction.
+
+We do not directly observe plan risk scores in the rate filing data. Instead, we estimate a risk score prediction model as a function of the plan's demographic composition and metal tier,
+\begin{equation}
+\label{eqn:risk_score_estimation}
+	\ln r_{jmt} = \sum_{d \in D} \gamma^d s_{djmt} + MT'_j \gamma^{MT} + \epsilon_{jmt}^r,
+\end{equation}
+where $s_{djmt}$ is the share of plan $j$'s enrollment with demographic characteristic $d$ (age group and ethnicity), $MT_j$ is a vector of metal tier fixed effects, and $\gamma = (\gamma^d, \gamma^{MT})$ are the risk score parameters. To avoid endogeneity from selection on unobservables, we compute predicted demographic shares by aggregating the estimated household choice probabilities from Equation~\eqref{eqn:choice_probs} rather than using observed enrollment shares, following the approach widely used in the hospital choice literature to construct market concentration measures \citep{Kessler2000}.
+
+We predict plan average claims as a function of the predicted risk score,
+\begin{equation}
+\label{eqn:avg_claims_estimation}
+	\ln c_{jmt} = \mu^r \ln r_{jmt} + x'_j  \mu^{x}  + \mu^l l_t + n'_m \mu^{n} + \epsilon_{jmt}^c,
+\end{equation}
+where $x_j$ includes network type indicators, $l_t$ is a linear trend, $n_m$ are market fixed effects, and $\mu = (\mu^r, \mu^x, \mu^l, \mu^n)$ are the claims parameters. We use predicted risk scores from Equation~\eqref{eqn:risk_score_estimation} rather than observed risk scores to address the endogeneity of plan enrollment composition.
+
+\paragraph{Pricing first-order conditions.} Differentiating Equation~\eqref{eqn:profit} with respect to the base premium $p_{jmt}$ yields the first-order condition
+\begin{equation}
+\label{eqn:pricing_foc}
+	\frac{\partial R_{ft}}{\partial p_{jmt}} + \frac{\partial RA_{ft}}{\partial p_{jmt}} = (1-\iota_{ft}) \frac{\partial C_{ft}}{\partial p_{jmt}} + \frac{\partial \mathcal{C}_{ft}}{\partial p_{jmt}} + \frac{\partial V_{ft}}{\partial p_{jmt}}
+\end{equation}
+for each plan $j$ offered by firm $f$. In the supplemental appendix, we express all terms in Equation~\eqref{eqn:pricing_foc} in terms of choice probabilities, risk scores, and average claims. Collecting the first-order conditions across all plans into matrix form, the equilibrium markup for each plan is
+\begin{equation}
+\label{eqn:markup}
+	p - mc = \Omega^{-1}\left(s + \Omega^{B} \eta \right),
+\end{equation}
+where $p$ is the vector of base premiums, $mc$ is the vector of marginal costs (net of risk adjustment and reinsurance), $s$ is the vector of market shares, and $\eta$ is the vector of commission rates. The ownership matrix $\Omega$ has elements
+$$
+\Omega_{jl} = -\mathbb{1}\left[f(j)=f(l)\right] \frac{\partial s_l}{\partial p_j},
+$$
+and $\Omega^B$ is the analogous matrix constructed from broker-assisted demand derivatives only. The term $\Omega^{B} \eta$ captures how commission costs distort pricing relative to a standard Bertrand-Nash equilibrium without intermediaries. Plans with higher commissions and more price-sensitive broker-assisted enrollees face larger upward pressure on premiums.
+
+\subsection{Estimation}
+\label{subsec:estimation}
+
+We estimate the model sequentially in three stages. First, we estimate the demand parameters $\boldsymbol{\beta}$ and the nesting parameter $\lambda$ by maximum likelihood using the nested logit choice probabilities in Equation~\eqref{eqn:choice_probs}. We pool all households across markets and years, estimating a single set of coefficients, and weight each household by its size (number of members). This weighting ensures that predicted market shares correspond to member-level enrollment, which is the relevant unit for insurer revenue, risk pool composition, and the supply-side first-order conditions. Second, given the estimated demand parameters, we compute market shares and the elasticity matrices $\Omega$ and $\Omega^B$ for each market-year cell and recover plan-level marginal costs by inverting the pricing first-order condition in Equation~\eqref{eqn:markup}. Third, we estimate the risk score and claims regressions in Equations~\eqref{eqn:risk_score_estimation} and \eqref{eqn:avg_claims_estimation} using plan-level data from insurer rate filings. The predicted risk scores and claims, combined with the ACA risk adjustment formula, allow us to decompose marginal costs into claims, risk adjustment transfers, and reinsurance components.
+
+We obtain standard errors by bootstrapping the full estimation pipeline. Each bootstrap iteration re-samples households, re-estimates demand, re-computes supply-side objects, and re-runs counterfactual simulations. This approach accounts for estimation uncertainty propagating across all three stages.
+
+
+\subsection{Results}
+\label{subsec:structural-results}
+
+
+\section{Welfare Effects of Broker Intermediation}
+\label{sec:welfare}
+
+The reduced-form evidence in Section~\ref{sec:causal} shows that broker assistance improves plan choice, while the structural estimates in Section~\ref{sec:structural} quantify how commissions drive broker recommendations and affect insurer pricing. In this section, we use the estimated model to evaluate the net welfare effects of broker intermediation through a series of counterfactual simulations. Each counterfactual solves for a new Nash equilibrium in which insurers re-optimize premiums in response to a change in the commission environment, enrollment reshuffles across plans, risk pools adjust, and risk adjustment transfers rebalance accordingly.
+
+\subsection{Counterfactual Design}
+\label{subsec:cf_design}
+
+We consider three counterfactual scenarios that illuminate different aspects of the welfare tradeoff.
+
+\paragraph{Zero commissions.} In the first scenario, we set all commissions to zero and solve for the new equilibrium premium vector. This scenario has two effects. First, insurers' marginal costs fall by the amount of eliminated commission payments, generating downward pressure on premiums. Second, the steering channel in the demand model is shut off ($\eta_j = 0$ for all $j$), so broker-assisted households no longer receive commission-driven plan recommendations. Households who previously used a broker may still receive assistance (from a navigator, for instance) or may revert to unassisted choice. The welfare implications depend critically on what replaces broker assistance.
+
+To capture this, we parameterize the substitution from broker assistance to navigator assistance using a substitution rate $\tau \in [0, 1]$. At $\tau = 0$, all formerly broker-assisted households become unassisted. At $\tau = 1$, all switch to navigator assistance, retaining the benefits of guidance without the commission-driven steering. For intermediate values, a fraction $\tau$ of broker-assisted households transition to navigators, with the remainder becoming unassisted. We allocate the $\tau$ fraction based on each household's estimated propensity to use a navigator, computed from a logistic regression of navigator use among assisted households. This propensity-based allocation reflects the idea that households most similar to current navigator users are most likely to substitute toward navigator assistance.
+
+We solve the zero-commission equilibrium at each point on a grid $\tau \in \{0, 0.25, 0.5, 0.75, 1\}$. At each $\tau$, insurers re-optimize premiums given the modified demand system. Comparing welfare across the $\tau$ gradient decomposes the total effect of removing commissions into two components. The gap between welfare at $\tau = 1$ and the observed equilibrium captures the pure premium savings from eliminating commission costs. The gap between welfare at $\tau = 0$ and $\tau = 1$ captures the value of assistance itself, holding premiums at their zero-commission equilibrium levels.
+
+\paragraph{Uniform commissions.} In the second scenario, we replace the observed commission schedule with a uniform commission equal to the mean observed commission (among plans with positive commissions). This scenario eliminates the cross-insurer variation in commissions that drives broker steering while preserving the overall level of compensation. Comparing the uniform-commission equilibrium to the observed equilibrium isolates the welfare cost of differential steering, separate from the premium-level effects of commissions.
+
+\paragraph{Observed commissions.} As a benchmark, we also verify that the model reproduces observed premiums when commissions are set to their actual values. This serves as a calibration check on the equilibrium solver.
+
+\subsection{Equilibrium Computation}
+\label{subsec:cf_computation}
+
+Each counterfactual requires solving for a Nash equilibrium in which all insurers simultaneously set premiums to satisfy the first-order conditions in Equation~\eqref{eqn:pricing_foc}, given the modified commission schedule and demand system. We solve this system of nonlinear equations using a Broyden method, starting from observed premiums as an initial guess.
+
+Because risk adjustment transfers depend on enrollment composition, which in turn depends on premiums, we embed the pricing solver in an outer iteration loop that updates marginal costs. Specifically, at each outer iteration we (1) solve the pricing FOC given current marginal costs, (2) compute new equilibrium shares at the resulting prices, (3) predict new demographic composition from the demand model, (4) update risk scores, claims predictions, and risk adjustment transfers, and (5) recompute marginal costs. We iterate until marginal costs converge (within a tolerance of \$0.10 PMPM), using damped updates to ensure stability. This procedure typically converges within 3--5 outer iterations.
+
+Premium subsidies are also endogenous to the equilibrium. When the benchmark plan's premium changes, the subsidy available to all households adjusts according to the ACA formula in Equation~\eqref{eqn:cons_premium}. We update subsidies at each pricing iteration, so the equilibrium premiums, subsidies, shares, and risk adjustment transfers are jointly consistent.
+
+\subsection{Welfare Measurement}
+\label{subsec:welfare_measurement}
+
+We measure consumer welfare using the Small-Rosen consumer surplus from the nested logit model \citep{small1981},
+\begin{equation}
+\label{eqn:cs}
+CS_i = \frac{1}{\alpha_i} \ln\left(e^{V_{i0}} + \left(\sum_{j \in J} e^{V_{ij}/\lambda}\right)^{\lambda}\right),
+\end{equation}
+where $\alpha_i$ is household $i$'s marginal utility of income (the heterogeneous price coefficient), $V_{i0}$ is the deterministic utility of the outside option, and the summation runs over all exchange plans. The change in consumer surplus between a counterfactual and the observed equilibrium provides a money-metric welfare measure that accounts for both premium changes and shifts in plan matching quality.
+
+We aggregate consumer surplus across households, weighting by household size, and report results as weighted averages per member per month. Confidence intervals are obtained from the bootstrap procedure described in Section~\ref{subsec:estimation}, which re-runs the full counterfactual analysis at each iteration.
+
+\subsection{Results}
+\label{subsec:welfare_results}
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+
+
+\pagebreak
+\bibliographystyle{aer}
+\bibliography{BibTeX_Library}
+
+\clearpage
+\newpage
+
+
+\section*{Tables and Figures}
+
+\begin{table}
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Summary Statistics for Covered California Enrollees}\footnote{Statistics based on the population of new enrollee households in a Covered California plan from 2014--2019. Household demographics and income are based on all households. Dominated choice rates are conditional on having at least one dominated plan in the choice set.}}
+\label{tab:summary-stats}
+\centerline{%
+    \input{results/tables/summary_stats.tex}
+}
+\end{minipage}
+\end{table}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Commission Rates by Insurer, 2014--2019}\footnote{Top panel shows flat-fee commissions (dollars per member per month). Bottom panel shows percentage-based commissions. Source: Covered California published rate schedules.}}
+\centerline{%
+    \begin{tabular}{c}
+        \includegraphics[width=5in]{results/figures/flat_comm.pdf} \\
+        \includegraphics[width=5in]{results/figures/perc_comm.pdf}
+    \end{tabular}
+}
+\label{fig:commissions}
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Enrollment by Channel, 2014--2019}\footnote{Count of insured households enrolled in a Covered California plan in each year, by assistance channel.}}
+\centerline{%
+    \includegraphics[width=5in]{results/figures/enrollee_count.png}
+}
+\label{fig:enrollee-count}
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Distribution of Propensity Scores for Decision Assistance}\footnote{Propensity scores from a logistic regression of decision assistance on household characteristics, including household income, racial and ethnic composition, age distribution, gender composition, and household size.}}
+\centerline{%
+    \includegraphics[width=5in]{results/figures/ps_assist_clean.png}
+}
+\label{fig:ps-balance}
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Covariate Balance Before and After Inverse-Propensity Weighting}\footnote{Standardized mean differences between assisted and unassisted households. ``Adjusted'' reflects IPW-ATT weights where treated households receive weight 1 and untreated households receive weight $p/(1-p)$, with $p$ denoting the estimated propensity score (see Figure~\ref{fig:ps-balance}).}}
+\centerline{%
+    \includegraphics[width=5in]{results/figures/cov_balance.png}
+}
+\label{fig:cov-balance}
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{ATT of Decision Assistance on Insurer Choice}\footnote{Estimated ATT as described in Section~\ref{sec:causal}, aggregated to the insurer level. Point estimates shown without confidence intervals; bootstrap standard errors are pending.}}
+\centerline{%
+    \includegraphics[width=5in]{results/figures/choice_insurer.png}
+}
+\label{fig:choice-insurer}
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{ATT of Decision Assistance on Metal Tier Choice}\footnote{Estimated ATT as described in Section~\ref{sec:causal}, aggregated to the level of metal tier. Point estimates shown without confidence intervals; bootstrap standard errors are pending.}}
+\centerline{%
+    \includegraphics[width=5in]{results/figures/choice_metals.png}
+}
+\label{fig:choice-metal}
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{ATT of Decision Assistance on Dominated Choices}\footnote{Estimated ATT as described in Section~\ref{sec:dominated}. Point estimates shown without confidence intervals; bootstrap standard errors are pending.}}
+\centerline{%
+    \includegraphics[width=5in]{results/figures/dom_choice.png}
+}
+\label{fig:dom-choice}
+\end{minipage}
+\end{figure}
+
+
+\clearpage
+\newpage
+
+\begin{table}
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Structural Demand Estimates}\footnote{Estimated by maximum likelihood on the pooled sample of all households, weighted by household size. The nesting parameter $\lambda$ governs substitution between exchange plans and the outside option. Assisted $\times$ metal interactions capture the general effect of decision assistance on metal tier preferences. Commission $\times$ broker captures the additional effect of per-member-per-month commissions for broker-assisted households. CF interactions are control function corrections for endogenous assistance.}}
+\label{tab:demand-estimates}
+\centerline{%
+    \input{results/tables/demand_estimates.tex}
+}
+\end{minipage}
+\end{table}
+
+
+\newpage
+\begin{table}
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Supply-Side Results by Metal Tier}\footnote{Markups recovered from the Bertrand-Nash pricing first-order conditions. MC (FOC) is the marginal cost implied by the first-order condition inversion. MC (Structural) is the predicted marginal cost from the risk score and claims regressions estimated on rate filing data. Lerner index is markup divided by posted premium.}}
+\label{tab:supply-results}
+\centerline{%
+    \input{results/tables/supply_results.tex}
+}
+\end{minipage}
+\end{table}
+
+
+\newpage
+\begin{table}
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Counterfactual Premium and Welfare Effects}\footnote{Each row reports the average across region-year cells for a given counterfactual scenario. $\tau$ is the broker-to-navigator substitution rate. $\Delta$ Premium is the change relative to observed premiums. CS is the Small-Rosen consumer surplus per member per month.}}
+\label{tab:cf-results}
+\centerline{%
+    \input{results/tables/counterfactual_results.tex}
+}
+\end{minipage}
+\end{table}
+
+
+% TODO: Uncomment once structural pipeline produces CF figures
+% \newpage
+% \begin{figure}[htb]
+% \centering
+% \begin{minipage}[h]{6in}
+% \caption[caption]{\textbf{Welfare Gradient}\footnote{Consumer surplus change as a function of broker-to-navigator substitution rate ($\tau$). Each point represents the mean change in consumer surplus (relative to the observed equilibrium) across all region-year cells at a given $\tau$.}}
+% \centerline{%
+%     \includegraphics[width=5in]{results/figures/cf_welfare_gradient.png}
+% }
+% \label{fig:cf-welfare-gradient}
+% \end{minipage}
+% \end{figure}
+%
+% \newpage
+% \begin{figure}[htb]
+% \centering
+% \begin{minipage}[h]{6in}
+% \caption[caption]{\textbf{Average Premium Change by Counterfactual Scenario}\footnote{Bars show the share-weighted mean change in posted premiums across region-year cells. Scenarios vary the commission structure and the broker-to-navigator substitution rate.}}
+% \centerline{%
+%     \includegraphics[width=5in]{results/figures/cf_premium_change.png}
+% }
+% \label{fig:cf-premium-change}
+% \end{minipage}
+% \end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Marginal Cost Validation}\footnote{FOC-implied marginal cost versus structural prediction from risk score and claims regressions. Each point represents a plan in a region-year cell. The dashed line is the 45-degree line.}}
+\centerline{%
+    \includegraphics[width=5in]{results/figures/supply_mc_foc_vs_structural.png}
+}
+\label{fig:mc-validation}
+\end{minipage}
+\end{figure}
+
+
+\newpage
+\begin{figure}[htb]
+\centering
+\begin{minipage}[h]{6in}
+\caption[caption]{\textbf{Premium Rating Regions in the California Exchange}\footnote{California's 58 counties are divided into 19 rating areas. Source: California Department of Managed Health Care.}}
+\centerline{%
+    \includegraphics[scale=.45]{background/CA_Rating_Regions2.jpg}
+}
+\label{rating_area_partitions}
+\end{minipage}
+\end{figure}
+
+
+\end{document}
+
+

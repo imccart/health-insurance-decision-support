@@ -43,6 +43,29 @@ fs_model <- lm(assisted ~ n_agents + FPL + perc_0to17 + perc_18to25 +
 hh_full$v_hat <- residuals(fs_model)
 cat("  First-stage F:", round(summary(fs_model)$fstatistic[1], 1), "\n")
 
+# Navigator propensity model -----------------------------------------------
+# Among assisted HH, predict P(navigator vs. broker/agent).
+# Used in counterfactual welfare decomposition to allocate broker-assisted
+# HH to navigator substitution by propensity rather than randomly.
+
+cat("Estimating navigator propensity model...\n")
+assisted_hh <- hh_full %>% filter(assisted == 1)
+nav_model <- glm(
+  (channel_detail == "Navigator") ~ FPL + perc_hispanic + perc_black +
+    perc_0to17 + perc_65plus + household_size + perc_male + factor(year),
+  data = assisted_hh, family = binomial
+)
+cat("  Navigator model N =", nrow(assisted_hh),
+    ", AUC proxy (% navigator):", round(mean(assisted_hh$channel_detail == "Navigator") * 100, 1), "%\n")
+
+# Predict for ALL HH (not just assisted) — score is used to rank
+# broker-assisted HH by likelihood of switching to navigator
+hh_full$p_nav <- predict(nav_model, newdata = hh_full, type = "response")
+# For unassisted HH, p_nav is hypothetical but harmless
+cat("  p_nav range:", round(range(hh_full$p_nav, na.rm = TRUE), 3), "\n")
+
+rm(assisted_hh, nav_model)
+
 # Prepare and partition data -----------------------------------------------
 
 cat("Preparing partitioned data for structural estimation...\n")
@@ -51,6 +74,37 @@ cat("Preparing partitioned data for structural estimation...\n")
 n_before <- nrow(hh_full)
 hh_full <- hh_full %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
 cat("  Excluded catastrophic HH:", n_before - nrow(hh_full), "\n")
+
+# Plan-level demographics from observed enrollment (for RA regression) -----
+# Weighted mean of HH demographics by chosen plan-year.
+# These are structural parameters of the risk score model, estimated once.
+cat("Computing plan-level demographics from observed enrollment...\n")
+plan_demographics <- hh_full %>%
+  filter(!is.na(plan_name), plan_name != "Uninsured") %>%
+  mutate(
+    plan_name = gsub("SIL(94|73|87)", "SIL", plan_name),
+    wt = ifelse(is.na(ipweight), 1, ipweight)
+  ) %>%
+  group_by(plan_name, year) %>%
+  summarize(
+    share_18to34  = weighted.mean(perc_18to34, wt, na.rm = TRUE),
+    share_35to54  = weighted.mean(perc_35to54, wt, na.rm = TRUE),
+    share_hispanic = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
+    n_hh = n(),
+    .groups = "drop"
+  )
+# Average across regions to get plan-year level (matching rate filing granularity)
+plan_demographics_yr <- plan_demographics %>%
+  group_by(plan_name, year) %>%
+  summarize(
+    share_18to34  = weighted.mean(share_18to34, n_hh, na.rm = TRUE),
+    share_35to54  = weighted.mean(share_35to54, n_hh, na.rm = TRUE),
+    share_hispanic = weighted.mean(share_hispanic, n_hh, na.rm = TRUE),
+    .groups = "drop"
+  )
+write_csv(plan_demographics_yr, "data/output/plan_demographics.csv")
+cat("  Plan demographics:", nrow(plan_demographics_yr), "plan-year rows -> data/output/plan_demographics.csv\n")
+rm(plan_demographics, plan_demographics_yr)
 
 # Rename plan_data columns at the boundary
 plan_choice <- plan_data %>%
@@ -134,7 +188,7 @@ hh_choice <- hh_full %>%
          household_size, ipweight, v_hat,
          perc_0to17, perc_18to34, perc_35to54,
          perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
-         channel)
+         channel, channel_detail, any_agent, p_nav)
 
 cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice), "cols (catastrophic HH excluded)\n")
 
