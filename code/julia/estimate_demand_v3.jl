@@ -10,7 +10,10 @@
 # Called from R via system2(). Reads cell CSVs, writes coefficient CSVs.
 # See code/analysis/structural/optimizer.md for full documentation.
 
-using CSV, DataFrames, LinearAlgebra, Printf, Optim
+using CSV, DataFrames, LinearAlgebra, Printf, Optim, Dates
+
+# Single-threaded BLAS for deterministic results
+BLAS.set_num_threads(1)
 
 # =========================================================================
 # Data structures
@@ -50,9 +53,20 @@ const BASE_COVARS = [
 # =========================================================================
 
 function build_cell_data(df::DataFrame, covars::Vector{String})
-    sort!(df, [:household_number, :plan_name])
     n = nrow(df)
     K = length(covars)
+
+    # Group rows by household using a dictionary (no sort needed)
+    hh_num = df.household_number
+    hh_rows = Dict{Int, Vector{Int}}()
+    for i in 1:n
+        hh = hh_num[i]
+        if haskey(hh_rows, hh)
+            push!(hh_rows[hh], i)
+        else
+            hh_rows[hh] = [i]
+        end
+    end
 
     # Build X matrix (ALL rows including uninsured)
     X = Matrix{Float64}(undef, n, K)
@@ -69,24 +83,20 @@ function build_cell_data(df::DataFrame, covars::Vector{String})
 
     choice = df.choice
     plan_name = df.plan_name
-    hh_num = df.household_number
 
     groups = HHGroup[]
-    i = 1
-    while i <= n
-        hh = hh_num[i]
-        j = i
-        while j <= n && hh_num[j] == hh
-            j += 1
-        end
-
+    for (hh, rows) in hh_rows
         ins_start = -1; ins_end = -1; unins_row = -1; chosen_row = -1
-        for r in i:(j-1)
+        for r in rows
             if plan_name[r] == "Uninsured"
                 unins_row = r
             else
-                ins_start == -1 && (ins_start = r)
-                ins_end = r
+                if ins_start == -1
+                    ins_start = r; ins_end = r
+                else
+                    ins_start = min(ins_start, r)
+                    ins_end = max(ins_end, r)
+                end
             end
             choice[r] == 1 && (chosen_row = r)
         end
@@ -94,9 +104,8 @@ function build_cell_data(df::DataFrame, covars::Vector{String})
         # Must have insured alternatives, uninsured row, and a chosen alternative
         if ins_start != -1 && unins_row != -1 && chosen_row != -1
             push!(groups, HHGroup(ins_start, ins_end, unins_row, chosen_row,
-                                   chosen_row != unins_row, Float64(df.ipweight[i])))
+                                   chosen_row != unins_row, Float64(df.ipweight[rows[1]])))
         end
-        i = j
     end
 
     CellData(X, groups, length(groups))
@@ -537,17 +546,41 @@ function main()
     β_start, _ = optimize_beta(cells, K, zeros(K), 1.0; verbose=true)
     θ_start = vcat(β_start, 1.0)
 
-    # Optim.jl LBFGS
+    # Optim.jl LBFGS with diagnostic logging
     println("\n  Optim.jl LBFGS...")
+    logfile = joinpath(out_dir, "demand_optim_log.csv")
+    open(logfile, "w") do f
+        println(f, "eval,type,negll,grad_norm,lambda,beta_1,beta_premium_sq,timestamp")
+    end
+    eval_count = Ref(0)
+
     function obj(θ)
         θ_c = copy(θ); θ_c[K+1] = clamp(θ_c[K+1], 0.001, 5.0)
         nll, _, _ = accumulate(θ_c, cells; compute_gradi=false)
+        eval_count[] += 1
+        if !isfinite(nll)
+            @warn "Non-finite NLL at eval $(eval_count[]): $nll, λ=$(θ_c[K+1])"
+        end
+        open(logfile, "a") do f
+            @printf(f, "%d,obj,%.6f,NA,%.6f,%.8f,%.2e,%s\n",
+                    eval_count[], nll, θ_c[K+1], θ_c[1], θ_c[3],
+                    Dates.format(Dates.now(), "HH:MM:SS"))
+        end
         return nll
     end
     function grad!(G, θ)
         θ_c = copy(θ); θ_c[K+1] = clamp(θ_c[K+1], 0.001, 5.0)
         _, g, _ = accumulate(θ_c, cells; compute_gradi=false)
         G .= g
+        gnorm = sqrt(sum(g.^2))
+        if !isfinite(gnorm) || any(!isfinite, g)
+            @warn "Non-finite gradient at eval $(eval_count[]): norm=$gnorm, λ=$(θ_c[K+1])"
+        end
+        open(logfile, "a") do f
+            @printf(f, "%d,grad,NA,%.6e,%.6f,%.8f,%.2e,%s\n",
+                    eval_count[], gnorm, θ_c[K+1], θ_c[1], θ_c[3],
+                    Dates.format(Dates.now(), "HH:MM:SS"))
+        end
     end
 
     result = optimize(obj, grad!, θ_start, LBFGS(),
@@ -555,6 +588,7 @@ function main()
                                      show_trace=true, show_every=10))
     θ_opt = Optim.minimizer(result)
     negll = Optim.minimum(result)
+    println("  Log written to $logfile")
 
     # Save
     coefs = DataFrame(term = vcat(covars, "lambda"), estimate = θ_opt)
