@@ -4,11 +4,12 @@
 ## Date Created:  2026-03-23
 ## Date Edited:   2026-03-26
 ## Description:   Subprocess worker for counterfactual simulation on one
-##                region-year cell. Called by 3_counterfactuals.R via system().
+##                region-year cell. Called by 4_counterfactuals.R via system().
 ##                Includes endogenous RA (outer iteration on MC) and
 ##                broker-to-navigator substitution gradient (tau).
+##                Uses GMM-estimated cost parameters (FOC-consistent).
 ##
-## Usage:         Rscript code/analysis/structural/3a_cf-worker.R <region> <year> <seed> <sample_frac>
+## Usage:         Rscript code/analysis/structural/4a_cf-worker.R <region> <year> <seed> <sample_frac>
 ## Outputs:       data/output/cf_cells/cf_{r}_{y}.csv
 
 # Parse CLI arguments -----------------------------------------------------
@@ -31,12 +32,19 @@ suppressPackageStartupMessages({
 })
 
 source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/_helpers-analysis.R")
-source("code/analysis/_helpers-choice.R")
-source("code/analysis/_helpers-supply.R")
-source("code/analysis/_helpers-ra.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/covariates.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
+source("code/analysis/helpers/ra.R")
 
-MAX_HH <- 1000
+TEMP_DIR <- Sys.getenv("TEMP_DIR")
+
+# Load demand spec (written by _structural.R)
+demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
+STRUCTURAL_SPEC <- demand_spec$base
+STRUCTURAL_ASST <- demand_spec$assisted
+
 RA_TOL <- 1e-4
 RA_MAX_ITER <- 10
 RA_DAMPING <- 0.7
@@ -44,17 +52,18 @@ TAU_GRID <- c(0, 0.25, 0.5, 0.75, 1.0)
 
 # Load global data --------------------------------------------------------
 coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
-plan_choice <- read_csv("data/output/plan_choice.csv", show_col_types = FALSE)
+plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
 
-# RA regression coefficients
-rs_coefs_df <- read_csv("data/output/ra_rs_coefs.csv", show_col_types = FALSE)
-claims_coefs_df <- read_csv("data/output/ra_claims_coefs.csv", show_col_types = FALSE)
-reins_df <- read_csv("data/output/reinsurance_factors.csv", show_col_types = FALSE)
+# Cost parameters from GMM (consistent with FOC)
+rs_coefs_df <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"), show_col_types = FALSE)
+claims_coefs_df <- read_csv(file.path(TEMP_DIR, "ra_claims_coefs_gmm.csv"), show_col_types = FALSE)
+reins_df <- read_csv(file.path(TEMP_DIR, "reinsurance_factors.csv"), show_col_types = FALSE)
 
 rs_coefs <- setNames(rs_coefs_df$estimate, rs_coefs_df$term)
 claims_coefs <- setNames(claims_coefs_df$estimate, claims_coefs_df$term)
+plan_demo_yr <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
 
 coef_map <- setNames(coefs$estimate, coefs$term)
 lambda <- coef_map[["lambda"]]
@@ -67,10 +76,6 @@ if (nrow(sr_cell) == 0) {
   quit(save = "no", status = 0)
 }
 
-mc_vec <- setNames(sr_cell$mc_foc, sr_cell$plan_name)
-p_obs <- setNames(sr_cell$posted_premium, sr_cell$plan_name)
-plan_names_cell <- sr_cell$plan_name
-
 plans_cell <- plan_choice %>% filter(region == r, year == y)
 if (nrow(plans_cell) == 0) {
   cat("No plans for cell", r, y, "\n")
@@ -79,7 +84,7 @@ if (nrow(plans_cell) == 0) {
 
 set.seed(seed)
 hhs_raw <- tryCatch(
-  read_parquet(file.path("data/output/hh_choice_partitions",
+  read_parquet(file.path(TEMP_DIR, "hh_choice_partitions",
                           paste0("hh_", r, "_", y, ".parquet"))),
   error = function(e) NULL
 )
@@ -88,64 +93,59 @@ if (is.null(hhs_raw) || nrow(hhs_raw) == 0) {
   quit(save = "no", status = 0)
 }
 
-n_hh_cell <- length(unique(hhs_raw$household_id))
-eff_frac <- min(sample_frac, MAX_HH / max(n_hh_cell, 1))
-
-benchmark_plan <- identify_benchmark(plans_cell)
-comm_obs <- get_commission_pmpm(plan_names_cell, plans_cell, y, commission_lookup)
-plans_cell$comm_pmpm <- comm_obs[plans_cell$plan_name]
+# Add commissions to plans before building choice data
+comm_obs_raw <- get_commission_pmpm(unique(plans_cell$plan_name), plans_cell, y, commission_lookup)
+plans_cell$comm_pmpm <- comm_obs_raw[plans_cell$plan_name]
 plans_cell$comm_pmpm[is.na(plans_cell$comm_pmpm)] <- 0
 
-cell_data_base <- build_supply_choice_data(plans_cell, hhs_raw, eff_frac)
+build_result <- build_supply_choice_data(plans_cell, hhs_raw, sample_frac,
+                                         spec = STRUCTURAL_SPEC)
 rm(hhs_raw)
 gc(verbose = FALSE)
 
-if (is.null(cell_data_base) || nrow(cell_data_base) == 0) {
+if (is.null(build_result)) {
   cat("Empty cell data for", r, y, "\n")
   quit(save = "no", status = 0)
 }
+cell_data_base <- build_result$cell_data
+plan_attrs     <- build_result$plan_attrs
+rm(build_result)
 
 if (!"adj_subsidy" %in% names(cell_data_base)) {
   cell_data_base$adj_subsidy <- ifelse(is.na(cell_data_base$subsidy), 0, cell_data_base$subsidy)
 }
 
-# Restrict to plans present in cell data
-cd_plans <- unique(cell_data_base$plan_name[cell_data_base$plan_name != "Uninsured"])
-plan_names_cell <- intersect(plan_names_cell, cd_plans)
-p_obs <- p_obs[plan_names_cell]
-mc_vec <- mc_vec[plan_names_cell]
+# Plan names and attributes from plan_attrs (post-collapse, always consistent)
+plan_names_cell <- sort(plan_attrs$plan_name)
+
+# Restrict to plans also in supply results
+plan_names_cell <- intersect(plan_names_cell, sr_cell$plan_name)
 
 if (length(plan_names_cell) < 3) {
   cat("Too few plans for cell", r, y, "\n")
   quit(save = "no", status = 0)
 }
 
-# Plan characteristics for RA predictions
-plan_metal <- sapply(plan_names_cell, function(pn) {
-  m <- plans_cell$metal[plans_cell$plan_name == pn]
-  if (length(m) == 0) return(NA_character_)
-  m[1]
-})
+# Read all plan attributes from plan_attrs
+pa <- plan_attrs[match(plan_names_cell, plan_attrs$plan_name), ]
+p_obs      <- setNames(pa$premium_posted, pa$plan_name)
+plan_avs   <- setNames(pa$av, pa$plan_name)
+comm_obs   <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_name) else setNames(rep(0, length(plan_names_cell)), plan_names_cell)
+
+benchmark_plan <- identify_benchmark(plan_attrs)
+
 plan_chars_cell <- tibble(
-  plan_name = plan_names_cell,
-  Silver   = as.integer(unname(plan_metal) == "Silver"),
-  Gold     = as.integer(unname(plan_metal) == "Gold"),
-  Platinum = as.integer(unname(plan_metal) == "Platinum"),
-  HMO      = as.integer(sapply(plan_names_cell, function(pn) {
-    pt <- plans_cell$network_type[plans_cell$plan_name == pn]
-    if (length(pt) == 0) return(0L)
-    as.integer(pt[1] == "HMO")
-  })),
-  trend    = y - 2014L,
+  plan_name   = plan_names_cell,
+  Silver      = as.integer(pa$metal == "Silver"),
+  Gold        = as.integer(pa$metal == "Gold"),
+  Platinum    = as.integer(pa$metal == "Platinum"),
+  HMO         = pa$hmo,
+  trend       = y - 2014L,
   Anthem      = as.integer(grepl("^ANT", plan_names_cell)),
   Blue_Shield = as.integer(grepl("^BS", plan_names_cell)),
   Health_Net  = as.integer(grepl("^HN", plan_names_cell)),
   Kaiser      = as.integer(grepl("^KA", plan_names_cell))
 )
-
-plan_avs <- sapply(plan_names_cell, function(pn) {
-  switch(plan_metal[pn], Platinum = 0.90, Gold = 0.80, Silver = 0.70, Bronze = 0.60, 0.70)
-})
 
 # Reinsurance factors for this year
 rf_year <- reins_df %>% filter(year == y)
@@ -155,76 +155,63 @@ reins_vec <- sapply(plan_names_cell, function(pn) {
   mean(rf, na.rm = TRUE)
 })
 
+# Use mc_foc from supply results as initial MC
+# mc_foc is the FOC-implied MC at observed equilibrium — by construction,
+# the FOC residual is zero at p_obs with mc_foc, giving nleqslv a clean start.
+# The RA outer loop will adjust MC for enrollment composition changes.
+mc_init_foc <- setNames(sr_cell$mc_foc, sr_cell$plan_name)[plan_names_cell]
+mc_vec <- mc_init_foc
+
+# Demographics for RA iteration (used in solve_equilibrium)
+demo_obs <- plan_demo_yr %>% filter(year == y)
+demo_obs_cell <- tibble(
+  plan_name = plan_names_cell,
+  share_18to34 = sapply(plan_names_cell, function(p) {
+    v <- demo_obs$share_18to34[demo_obs$plan_name == p]
+    if (length(v) == 0) mean(demo_obs$share_18to34, na.rm = TRUE) else v[1]
+  }),
+  share_35to54 = sapply(plan_names_cell, function(p) {
+    v <- demo_obs$share_35to54[demo_obs$plan_name == p]
+    if (length(v) == 0) mean(demo_obs$share_35to54, na.rm = TRUE) else v[1]
+  }),
+  share_hispanic = sapply(plan_names_cell, function(p) {
+    v <- demo_obs$share_hispanic[demo_obs$plan_name == p]
+    if (length(v) == 0) mean(demo_obs$share_hispanic, na.rm = TRUE) else v[1]
+  })
+)
+
 # Mean observed commission for uniform scenario
 mean_comm_pmpm <- mean(sr_cell$commission_pmpm[sr_cell$commission_pmpm > 0], na.rm = TRUE)
 if (is.na(mean_comm_pmpm)) mean_comm_pmpm <- 0
 
-# Observed benchmark premium (for subsidy endogenization)
-p_bench_obs <- if (!is.na(benchmark_plan) && benchmark_plan %in% names(p_obs)) {
-  p_obs[benchmark_plan]
-} else {
-  NA_real_
-}
-
-# Update subsidies for counterfactual benchmark premium -------------------
-# ACA subsidy = max(0, benchmark_prem * rf/RF40 - contribution).
-# contribution is fixed by income, so delta_subsidy = delta_benchmark * rf/RF40.
-# Only applies to subsidized HH (adj_subsidy > 0 at baseline).
-
-update_subsidies <- function(dt, p_vec) {
-  if (is.na(p_bench_obs) || is.na(benchmark_plan)) return(invisible(dt))
-  if (!benchmark_plan %in% names(p_vec)) return(invisible(dt))
-  delta_bench <- p_vec[benchmark_plan] - p_bench_obs
-  if (abs(delta_bench) < 1e-6) return(invisible(dt))
-  # adj_subsidy_base is the observed subsidy (stored once at data build)
-  if (!"adj_subsidy_base" %in% names(dt)) {
-    dt[, adj_subsidy_base := adj_subsidy]
-  }
-  dt[adj_subsidy_base > 0, adj_subsidy := pmax(0, adj_subsidy_base +
-    delta_bench * rating_factor / RATING_FACTOR_AGE40)]
-  invisible(dt)
-}
-
-
 # FOC function ------------------------------------------------------------
+# ra_foc_vec is pre-computed per RA outer iteration (not inside every nleqslv call)
 build_foc_function <- function(cell_data_base, coefs_cell, mc_current,
-                                comm_scenario, benchmark_plan, plans_cell) {
+                                comm_scenario, ra_foc_vec,
+                                benchmark_plan, plans_cell) {
   dt_base <- as.data.table(cell_data_base)
 
   function(p_vec) {
     pn_solve <- names(p_vec)
     dt <- copy(dt_base)
 
-    # Update subsidies for counterfactual benchmark premium
-    update_subsidies(dt, p_vec)
-
+    # Posted premium: age-adjusted posted (no subsidy deduction)
     for (pn in pn_solve) {
       idx <- dt$plan_name == pn
       if (sum(idx) == 0) next
       hh_prem_new <- (p_vec[pn] / RATING_FACTOR_AGE40) * dt$rating_factor[idx]
-      final_prem <- fifelse(
-        dt$metal_level[idx] == "Minimum Coverage",
-        hh_prem_new,
-        pmax(hh_prem_new - dt$adj_subsidy[idx], 0)
-      )
-      dt$premium[idx] <- final_prem / dt$hh_size[idx]
+      dt$premium[idx] <- hh_prem_new / dt$hh_size[idx]
     }
 
-    dt[plan_name != "Uninsured", `:=`(
-      premium_sq        = premium^2,
-      hh_size_prem      = hh_size * premium,
-      any_0to17_prem    = any_0to17 * premium,
-      any_black_prem    = any_black * premium,
-      any_hispanic_prem = any_hispanic * premium,
-      FPL_250to400_prem = FPL_250to400 * premium,
-      FPL_400plus_prem  = FPL_400plus * premium
-    )]
+    # Recompute demographic x premium interactions (spec-driven)
+    recompute_prem_interactions(dt[plan_name != "Uninsured"], STRUCTURAL_SPEC)
 
     util <- compute_utility(dt, coefs_cell)
     V <- util$V
 
     se_result <- tryCatch(
-      compute_shares_and_elasticities(dt, V, lambda, benchmark_plan, plans_cell, coefs_cell),
+      compute_shares_and_elasticities(dt, V, lambda, benchmark_plan, plans_cell,
+                                       coefs_cell, spec = STRUCTURAL_SPEC),
       error = function(e) NULL
     )
     if (is.null(se_result)) return(rep(NA_real_, length(p_vec)))
@@ -237,7 +224,8 @@ build_foc_function <- function(cell_data_base, coefs_cell, mc_current,
     Omega <- -own_mat * elast_mat
 
     broker_result <- tryCatch(
-      compute_broker_shares_and_elasticities(dt, V, lambda, benchmark_plan, plans_cell, coefs_cell),
+      compute_broker_shares_and_elasticities(dt, V, lambda, benchmark_plan, plans_cell,
+                                              coefs_cell, spec = STRUCTURAL_SPEC),
       error = function(e) NULL
     )
 
@@ -245,10 +233,12 @@ build_foc_function <- function(cell_data_base, coefs_cell, mc_current,
       broker_elast <- broker_result$broker_elast_mat[pn_solve, pn_solve]
       Omega_broker <- -own_mat * broker_elast
       comm_vec <- comm_scenario[pn_solve]
-      residual <- shares - as.vector(Omega %*% (p_vec - mc_current[pn_solve])) +
+      residual <- shares + ra_foc_vec[pn_solve] -
+                  as.vector(Omega %*% (p_vec - mc_current[pn_solve])) +
                   as.vector(Omega_broker %*% comm_vec)
     } else {
-      residual <- shares - as.vector(Omega %*% (p_vec - mc_current[pn_solve]))
+      residual <- shares + ra_foc_vec[pn_solve] -
+                  as.vector(Omega %*% (p_vec - mc_current[pn_solve]))
     }
 
     residual
@@ -259,8 +249,6 @@ build_foc_function <- function(cell_data_base, coefs_cell, mc_current,
 compute_consumer_surplus <- function(cell_data, coefs_cell) {
   coef_map_cs <- setNames(coefs_cell$estimate, coefs_cell$term)
   lambda_cs <- coef_map_cs[["lambda"]]
-  beta_p_cs <- coef_map_cs[["premium"]]
-  beta_h_cs <- coef_map_cs[["hh_size_prem"]]
 
   util <- compute_utility(cell_data, coefs_cell)
   V <- util$V
@@ -279,20 +267,9 @@ compute_consumer_surplus <- function(cell_data, coefs_cell) {
   ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
   ins_dt[, log_D_lam := lambda_cs * log_D]
 
-  beta_0to17 <- if ("any_0to17_prem" %in% names(coef_map_cs)) coef_map_cs[["any_0to17_prem"]] else 0
-  beta_250   <- if ("FPL_250to400_prem" %in% names(coef_map_cs)) coef_map_cs[["FPL_250to400_prem"]] else 0
-  beta_400   <- if ("FPL_400plus_prem" %in% names(coef_map_cs)) coef_map_cs[["FPL_400plus_prem"]] else 0
-  beta_blk   <- if ("any_black_prem" %in% names(coef_map_cs)) coef_map_cs[["any_black_prem"]] else 0
-  beta_hisp  <- if ("any_hispanic_prem" %in% names(coef_map_cs)) coef_map_cs[["any_hispanic_prem"]] else 0
-  beta_psq   <- if ("premium_sq" %in% names(coef_map_cs)) coef_map_cs[["premium_sq"]] else 0
-
-  ins_dt[, alpha_i := (beta_p_cs + beta_h_cs * hh_size +
-                          beta_0to17 * any_0to17 +
-                          beta_250 * FPL_250to400 +
-                          beta_400 * FPL_400plus +
-                          beta_blk * any_black +
-                          beta_hisp * any_hispanic +
-                          2 * beta_psq * premium) / hh_size]
+  # Generic alpha_i from spec (automatically adapts to covariate changes)
+  alpha_vec <- compute_alpha_i(ins_dt, coefs_cell, STRUCTURAL_SPEC)
+  ins_dt[, alpha_i := alpha_vec]
 
   ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
   ins_dt[is.na(V_0), V_0 := 0]
@@ -314,90 +291,50 @@ compute_consumer_surplus <- function(cell_data, coefs_cell) {
 }
 
 
-# Solve with endogenous RA ------------------------------------------------
-# Outer loop iterates on MC; inner solve finds pricing equilibrium.
+# Solve pricing equilibrium ------------------------------------------------
+# Fixed MC (no RA iteration). Solves FOC for equilibrium prices given MC.
+# RA endogeneity will be added after demand re-estimation.
 
 solve_equilibrium <- function(cd_scenario, comm_sc, mc_init, p_init) {
 
-  mc_current <- mc_init
+  ra_foc_vec <- setNames(rep(0, length(mc_init)), names(mc_init))
 
-  for (ra_iter in seq_len(RA_MAX_ITER)) {
-    # Inner: solve pricing FOC given current MC
-    foc_fn <- build_foc_function(cd_scenario, coefs, mc_current,
-                                  comm_sc, benchmark_plan, plans_cell)
+  foc_fn <- build_foc_function(cd_scenario, coefs, mc_init,
+                                comm_sc, ra_foc_vec, benchmark_plan, plan_attrs)
 
-    sol <- tryCatch(
-      nleqslv(x = p_init, fn = foc_fn, method = "Broyden",
-              control = list(maxit = 200, xtol = 1e-6, ftol = 1e-8)),
-      error = function(e) NULL
-    )
+  sol <- tryCatch(
+    nleqslv(x = p_init, fn = foc_fn, method = "Broyden",
+            control = list(maxit = 200, xtol = 1e-6, ftol = 1e-8)),
+    error = function(e) NULL
+  )
 
-    if (is.null(sol) || sol$termcd > 2) return(NULL)
+  if (is.null(sol) || sol$termcd > 2) return(NULL)
 
-    p_new <- sol$x
+  p_new <- sol$x
 
-    # Compute shares at new prices (for RA update)
-    dt_new <- as.data.table(copy(cd_scenario))
-    update_subsidies(dt_new, p_new)
-    for (pn in names(p_new)) {
-      idx <- dt_new$plan_name == pn
-      if (sum(idx) == 0) next
-      hh_prem_new <- (p_new[pn] / RATING_FACTOR_AGE40) * dt_new$rating_factor[idx]
-      final_prem <- fifelse(
-        dt_new$metal_level[idx] == "Minimum Coverage",
-        hh_prem_new,
-        pmax(hh_prem_new - dt_new$adj_subsidy[idx], 0)
-      )
-      dt_new$premium[idx] <- final_prem / dt_new$hh_size[idx]
-    }
-    dt_new[plan_name != "Uninsured", `:=`(
-      premium_sq        = premium^2,
-      hh_size_prem      = hh_size * premium,
-      any_0to17_prem    = any_0to17 * premium,
-      any_black_prem    = any_black * premium,
-      any_hispanic_prem = any_hispanic * premium,
-      FPL_250to400_prem = FPL_250to400 * premium,
-      FPL_400plus_prem  = FPL_400plus * premium
-    )]
-
-    util_new <- compute_utility(dt_new, coefs)
-    se_new <- tryCatch(
-      compute_shares_and_elasticities(dt_new, util_new$V, lambda,
-                                       benchmark_plan, plans_cell, coefs),
-      error = function(e) NULL
-    )
-    if (is.null(se_new)) return(NULL)
-
-    shares_new <- se_new$shares[plan_names_cell]
-
-    # Predict new risk scores and MC (with endogenous demographics)
-    demo_new <- tryCatch(
-      compute_demographic_shares(dt_new, util_new$V, lambda),
-      error = function(e) NULL
-    )
-    rs_new <- predict_risk_scores(rs_coefs, plan_chars_cell, demo_new)
-    log_rs_new <- setNames(rs_new$log_risk_score_hat, rs_new$plan_name)
-    claims_new <- predict_claims(claims_coefs, plan_chars_cell, log_rs_new)
-    avg_prem_new <- mean(p_new, na.rm = TRUE)
-    ra_new <- compute_ra_transfers(rs_new, shares_new, avg_prem_new, plan_avs)
-    mc_new <- predict_mc_structural(claims_new, ra_new, reins_vec)
-
-    # Check convergence
-    mc_diff <- max(abs(mc_new - mc_current), na.rm = TRUE)
-    if (mc_diff < RA_TOL) {
-      return(list(sol = sol, p = p_new, mc = mc_new, shares = shares_new,
-                  ra_iter = ra_iter, dt_final = dt_new))
-    }
-
-    # Damped update
-    mc_current <- RA_DAMPING * mc_new + (1 - RA_DAMPING) * mc_current
-    p_init <- p_new  # warm start
-    rm(dt_new)
+  # Compute shares at equilibrium prices
+  dt_new <- as.data.table(copy(cd_scenario))
+  for (pn in names(p_new)) {
+    idx <- dt_new$plan_name == pn
+    if (sum(idx) == 0) next
+    hh_prem_new <- (p_new[pn] / RATING_FACTOR_AGE40) * dt_new$rating_factor[idx]
+    dt_new$premium[idx] <- hh_prem_new / dt_new$hh_size[idx]
   }
+  recompute_prem_interactions(dt_new[plan_name != "Uninsured"], STRUCTURAL_SPEC)
 
-  # Hit max iterations — return last result
-  list(sol = sol, p = p_new, mc = mc_current, shares = shares_new,
-       ra_iter = RA_MAX_ITER, dt_final = NULL)
+  util_new <- compute_utility(dt_new, coefs)
+  se_new <- tryCatch(
+    compute_shares_and_elasticities(dt_new, util_new$V, lambda,
+                                     benchmark_plan, plan_attrs, coefs,
+                                     spec = STRUCTURAL_SPEC),
+    error = function(e) NULL
+  )
+  if (is.null(se_new)) return(NULL)
+
+  shares_new <- se_new$shares[plan_names_cell]
+
+  list(sol = sol, p = p_new, mc = mc_init, shares = shares_new,
+       ra_iter = 1L, dt_final = dt_new)
 }
 
 
@@ -525,26 +462,13 @@ for (tau in TAU_GRID) {
     dt_cs <- eq_tau$dt_final
     if (is.null(dt_cs)) {
       dt_cs <- as.data.table(copy(cd_tau))
-      update_subsidies(dt_cs, eq_tau$p)
       for (pn in names(eq_tau$p)) {
         idx <- dt_cs$plan_name == pn
         if (sum(idx) == 0) next
         hh_prem_new <- (eq_tau$p[pn] / RATING_FACTOR_AGE40) * dt_cs$rating_factor[idx]
-        final_prem <- fifelse(
-          dt_cs$metal_level[idx] == "Minimum Coverage",
-          hh_prem_new,
-          pmax(hh_prem_new - dt_cs$adj_subsidy[idx], 0)
-        )
-        dt_cs$premium[idx] <- final_prem / dt_cs$hh_size[idx]
+        dt_cs$premium[idx] <- hh_prem_new / dt_cs$hh_size[idx]
       }
-      dt_cs[plan_name != "Uninsured", `:=`(
-        hh_size_prem      = hh_size * premium,
-        any_0to17_prem    = any_0to17 * premium,
-        any_black_prem    = any_black * premium,
-        any_hispanic_prem = any_hispanic * premium,
-        FPL_250to400_prem = FPL_250to400 * premium,
-        FPL_400plus_prem  = FPL_400plus * premium
-      )]
+      recompute_prem_interactions(dt_cs[plan_name != "Uninsured"], STRUCTURAL_SPEC)
     }
     cs_tau <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
                         error = function(e) NA_real_)
@@ -609,7 +533,7 @@ rm(cd_unif)
 
 
 # Write results -----------------------------------------------------------
-out_dir <- "data/output/cf_cells"
+out_dir <- file.path(TEMP_DIR, "cf_cells")
 if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
 
 if (length(results_list) > 0) {

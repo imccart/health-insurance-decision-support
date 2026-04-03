@@ -13,15 +13,17 @@ library(arrow)
 
 # Tuning parameters -------------------------------------------------------
 
-SAMPLE_FRAC   <- 0.20
-CELL_DIR      <- "data/output/choice_cells"
-PARTITION_DIR <- "data/output/hh_choice_partitions"
+SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
+MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
+TEMP_DIR      <- Sys.getenv("TEMP_DIR")
+CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
+PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
 
 # =========================================================================
 # PHASE 1: Build cell CSVs (R)
 # =========================================================================
 
-plan_choice <- read_csv("data/output/plan_choice.csv", show_col_types = FALSE)
+plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 
 partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.parquet$",
                               full.names = FALSE)
@@ -34,7 +36,7 @@ cells <- tibble(file = partition_files) %>%
 
 cat("Region-year cells:", nrow(cells), "\n")
 
-set.seed(20260224)
+set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))
 
 # Clean and recreate cell directory to ensure fresh data
@@ -62,12 +64,14 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, weight_var = "hh_size")
+  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, weight_var = "hh_size",
+                          spec = STRUCTURAL_SPEC)
   rm(hhs, plans)
 
   if (!is.null(cd)) {
     cd$region <- r
     cd$year <- y
+
     write_csv(cd, out_file)
     n_built <- n_built + 1L
   } else {
@@ -110,9 +114,18 @@ if (julia_exe == "") {
   cat("    julia --threads=auto", julia_script, "\n")
 } else {
   cat("  Julia executable:", julia_exe, "\n")
-  exit_code <- system2(julia_exe, args = c("+release", "--threads=auto", julia_script),
-                        stdout = "", stderr = "")
-  if (exit_code != 0) cat("  Julia exited with code", exit_code, "\n")
+  # Retry loop: Julia LLVM JIT crashes intermittently on Windows.
+  # Non-deterministic — usually succeeds within 2-3 attempts.
+  max_attempts <- 3
+  for (attempt in seq_len(max_attempts)) {
+    cat("  Attempt", attempt, "of", max_attempts, "\n")
+    exit_code <- system2(julia_exe,
+                          args = c("+release", "--threads=auto", julia_script),
+                          stdout = "", stderr = "")
+    if (exit_code == 0) break
+    cat("  Julia exited with code", exit_code, "— retrying...\n")
+  }
+  if (exit_code != 0) cat("  Julia failed after", max_attempts, "attempts\n")
 }
 
 

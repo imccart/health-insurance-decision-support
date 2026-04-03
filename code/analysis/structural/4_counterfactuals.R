@@ -10,14 +10,16 @@
 # Setup (idempotent — safe to re-source) -----------------------------------
 source("code/0-setup.R")
 source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/_helpers-analysis.R")
-source("code/analysis/_helpers-choice.R")
-source("code/analysis/_helpers-supply.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
 library(arrow)
 
 # Tuning parameters --------------------------------------------------------
-SAMPLE_FRAC   <- 0.20
-PARTITION_DIR <- "data/output/hh_choice_partitions"
+SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
+MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
+TEMP_DIR      <- Sys.getenv("TEMP_DIR")
+PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
 
 # =========================================================================
 # PHASE 1: Discover cells
@@ -36,7 +38,7 @@ cells <- tibble(file = partition_files) %>%
 
 cat("  Region-year cells:", nrow(cells), "\n")
 
-set.seed(20260224)
+set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))
 
 # =========================================================================
@@ -46,7 +48,7 @@ cell_seeds <- sample.int(1e7, nrow(cells))
 cat("\nPhase 2: Checking prerequisites...\n")
 
 if (!file.exists("results/supply_results.csv")) {
-  stop("supply_results.csv not found — run 2_supply.R first")
+  stop("supply_results.csv not found — run 2_pricing.R first")
 }
 if (!file.exists("results/choice_coefficients_structural.csv")) {
   stop("choice_coefficients_structural.csv not found — run 1_demand.R first")
@@ -59,10 +61,11 @@ cat("  Prerequisites OK.\n")
 
 cat("\nPhase 3: Dispatching counterfactual workers...\n")
 
-if (!dir.exists("data/output/cf_cells")) dir.create("data/output/cf_cells", recursive = TRUE)
+cf_cells_dir <- file.path(TEMP_DIR, "cf_cells")
+if (!dir.exists(cf_cells_dir)) dir.create(cf_cells_dir, recursive = TRUE)
 
 rscript_exe <- file.path(R.home("bin"), "Rscript.exe")
-worker_script <- "code/analysis/structural/3a_cf-worker.R"
+worker_script <- "code/analysis/helpers/cf_worker.R"
 
 n_success <- 0L
 n_fail    <- 0L
@@ -72,7 +75,7 @@ t_start <- Sys.time()
 for (i in seq_len(nrow(cells))) {
   r <- cells$region[i]
   y <- cells$year[i]
-  out_file <- file.path("data/output/cf_cells", paste0("cf_", r, "_", y, ".csv"))
+  out_file <- file.path(cf_cells_dir, paste0("cf_", r, "_", y, ".csv"))
 
   cmd <- paste(
     shQuote(rscript_exe),
@@ -110,11 +113,11 @@ if (n_fail > 0) {
 
 cat("\nPhase 4: Collecting results...\n")
 
-cf_files <- list.files("data/output/cf_cells", pattern = "^cf_\\d+_\\d+\\.csv$",
+cf_files <- list.files(cf_cells_dir, pattern = "^cf_\\d+_\\d+\\.csv$",
                         full.names = TRUE)
 
 if (length(cf_files) == 0) {
-  stop("No counterfactual cell results found in data/output/cf_cells/")
+  stop("No counterfactual cell results found in ", cf_cells_dir)
 }
 
 cf_results <- cf_files %>%

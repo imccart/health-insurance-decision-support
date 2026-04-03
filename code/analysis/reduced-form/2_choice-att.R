@@ -14,7 +14,8 @@ library(arrow)
 
 # Tuning ------------------------------------------------------------------
 
-SAMPLE_FRAC   <- 0.20
+SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
+MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
 CELL_DIR      <- "data/output/choice_cells"
 PARTITION_DIR <- "data/output/hh_choice_partitions"
 
@@ -38,7 +39,7 @@ cells <- tibble(file = partition_files) %>%
 
 cat("Phase 1: Building cell data (", nrow(cells), "cells)...\n")
 
-set.seed(20260224)
+set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))
 
 cell_list <- list()
@@ -68,7 +69,7 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC)
+  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, spec = REDUCED_FORM_SPEC)
   rm(hhs, plans)
 
   if (!is.null(cd)) {
@@ -157,14 +158,8 @@ nest1 <- nest_names[nest_names != "Uninsured"]
 # Easiest: add them to the data and modify the function call.
 
 # Build formula manually (same covariates as estimate_nested_logit pooled mode + CF)
-base_covars <- c("premium", "penalty_own", "premium_sq",
-                  "silver", "bronze", "hh_size_prem",
-                  "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
-                  "any_black_prem", "any_hispanic_prem",
-                  "hmo", "hsa",
-                  "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-                  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-                  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze")
+# Use reduced-form spec (defined in _analysis.R / _reduced-form.R)
+base_covars <- REDUCED_FORM_SPEC
 
 # Drop cf_resid (we use CF from broker density first stage instead)
 all_covars <- c(base_covars, cf_vars)

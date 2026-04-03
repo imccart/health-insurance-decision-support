@@ -8,14 +8,33 @@
 ##                adds control function residual (broker density IV),
 ##                prepares partitioned data, runs estimation scripts.
 
+# Pipeline parameters (set in _analysis.R, recovered via env vars)
+SAMPLE_FRAC <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
+MASTER_SEED <- as.integer(Sys.getenv("MASTER_SEED"))
+
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")
 library(arrow)
 
 # Helpers -----------------------------------------------------------------
 source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/_helpers-analysis.R")
-source("code/analysis/_helpers-choice.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/covariates.R")
+source("code/analysis/helpers/choice.R")
+
+# Reduced-form specification
+REDUCED_FORM_SPEC <- c(
+  "premium", "penalty_own",
+  "silver", "bronze", "hmo", "hsa",
+  "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
+  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
+  "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
+  "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
+  "FPL_250to400_prem", "FPL_400plus_prem"
+)
+
+
 
 # =========================================================================
 # Read data

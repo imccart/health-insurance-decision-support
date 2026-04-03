@@ -6,24 +6,61 @@
 ##                Data prep runs only when intermediate files are missing.
 ##                Aggressive memory cleanup between stages.
 
+# Pipeline parameters (set in _analysis.R, recovered via env vars)
+TEMP_DIR     <- Sys.getenv("TEMP_DIR")
+SAMPLE_FRAC  <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
+MASTER_SEED  <- as.integer(Sys.getenv("MASTER_SEED"))
+
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")
 library(arrow)
 
 # Helpers -----------------------------------------------------------------
 source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/_helpers-analysis.R")
-source("code/analysis/_helpers-choice.R")
-source("code/analysis/_helpers-supply.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/covariates.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
+
+
+# Covariate spec: insurer FEs, insurer x metal, demo x premium/insured.
+# Commission and assisted x metal appended in STRUCTURAL_ASST.
+# Spec written to TEMP_DIR/demand_spec.csv for Julia and cf_worker.
+
+STRUCTURAL_SPEC <- c(
+  "premium", "penalty_own",
+  "silver", "bronze", "hmo", "hsa",
+  "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
+  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
+  "hh_size_prem",
+  "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
+  "perc_male_prem",
+  "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
+  "FPL_250to400_prem", "FPL_400plus_prem",
+  "FPL_250to400_insured", "FPL_400plus_insured",
+  "hh_size_insured", 
+  "perc_0to17_insured", "perc_18to34_insured", "perc_35to54_insured",
+  "perc_male_insured",
+  "perc_black_insured", "perc_hispanic_insured", "perc_asian_insured", "perc_other_insured"
+)
+
+STRUCTURAL_ASST <- c(
+  "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
+  "commission_broker", "v_hat_commission"
+)
+
+write_demand_spec(STRUCTURAL_SPEC, STRUCTURAL_ASST, file.path(TEMP_DIR, "demand_spec.csv"))
+
 
 # =========================================================================
 # DATA PREP — only when intermediate files are missing
 # =========================================================================
 
 prep_files <- c(
-  "data/output/plan_choice.csv",
-  "data/output/plan_demographics.csv",
-  "data/output/hh_choice_partitions"
+  file.path(TEMP_DIR, "plan_choice.csv"),
+  file.path(TEMP_DIR, "plan_demographics.csv"),
+  file.path(TEMP_DIR, "hh_choice_partitions")
 )
 prep_done <- all(file.exists(prep_files))
 
@@ -89,7 +126,7 @@ if (prep_done) {
               share_35to54 = weighted.mean(share_35to54, n_hh, na.rm = TRUE),
               share_hispanic = weighted.mean(share_hispanic, n_hh, na.rm = TRUE),
               .groups = "drop")
-  write_csv(plan_demographics_yr, "data/output/plan_demographics.csv")
+  write_csv(plan_demographics_yr, file.path(TEMP_DIR, "plan_demographics.csv"))
   cat("  Plan demographics:", nrow(plan_demographics_yr), "rows\n")
   rm(plan_demographics, plan_demographics_yr)
 
@@ -130,7 +167,7 @@ if (prep_done) {
     plan_choice$comm_pmpm[idx] <- get_commission_pmpm(
       plan_choice$plan_name[idx], plan_choice[idx, ], y, commission_lookup)
   }
-  write_csv(plan_choice, "data/output/plan_choice.csv")
+  write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
   cat("  plan_choice:", nrow(plan_choice), "rows\n")
 
   # Partition HH
@@ -147,7 +184,7 @@ if (prep_done) {
            perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
            channel, channel_detail, any_agent, p_nav)
 
-  partition_dir <- "data/output/hh_choice_partitions"
+  partition_dir <- file.path(TEMP_DIR, "hh_choice_partitions")
   if (dir.exists(partition_dir)) unlink(partition_dir, recursive = TRUE)
   dir.create(partition_dir, recursive = TRUE)
 
@@ -176,31 +213,81 @@ gc(full = TRUE, verbose = FALSE)
 source("code/0-setup.R")
 library(arrow)
 source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/_helpers-analysis.R")
-source("code/analysis/_helpers-choice.R")
-source("code/analysis/_helpers-supply.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/covariates.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
+
+# Recover spec from file (survives rm(list=ls()) via env var)
+demand_spec <- read_demand_spec(file.path(Sys.getenv("TEMP_DIR"), "demand_spec.csv"))
+STRUCTURAL_SPEC <- demand_spec$base
+STRUCTURAL_ASST <- demand_spec$assisted
 
 # =========================================================================
 # DEMAND
 # =========================================================================
-cat("--- Demand estimation ---\n")
-source("code/analysis/structural/1_demand.R")
-rm(list = setdiff(ls(), lsf.str()))  # keep functions, drop data
+if (file.exists("results/choice_coefficients_structural.csv")) {
+  cat("--- Demand: coefficients found, skipping ---\n")
+} else {
+  cat("--- Demand estimation ---\n")
+  source("code/analysis/structural/1_demand.R")
+}
+
+# Full cleanup: drop ALL objects (data AND functions), force GC
+rm(list = ls(all.names = TRUE))
 gc(full = TRUE, verbose = FALSE)
 
 # =========================================================================
-# SUPPLY
+# PRICING
 # =========================================================================
-cat("\n--- Supply recovery ---\n")
-source("code/analysis/structural/2_supply.R")
-rm(list = setdiff(ls(), lsf.str()))
+cat("\n--- Pricing (markups, FOC inputs) ---\n")
+source("code/0-setup.R")
+library(arrow)
+source("code/data-build/_helpers-enrollment.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/covariates.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
+source("code/analysis/helpers/ra.R")
+demand_spec <- read_demand_spec(file.path(Sys.getenv("TEMP_DIR"), "demand_spec.csv"))
+STRUCTURAL_SPEC <- demand_spec$base
+STRUCTURAL_ASST <- demand_spec$assisted
+source("code/analysis/structural/2_pricing.R")
+
+rm(list = ls(all.names = TRUE))
 gc(full = TRUE, verbose = FALSE)
+
+# =========================================================================
+# COST-SIDE GMM
+# =========================================================================
+cat("\n--- Cost-side GMM ---\n")
+source("code/0-setup.R")
+source("code/data-build/_helpers-enrollment.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/supply.R")
+source("code/analysis/helpers/ra.R")
+source("code/analysis/structural/3_cost_gmm.R")
+
+rm(list = ls(all.names = TRUE))
+gc(full = TRUE, verbose = FALSE)
+cat("  Memory after GMM cleanup:\n")
+print(gc())
 
 # =========================================================================
 # COUNTERFACTUALS
 # =========================================================================
 cat("\n--- Counterfactual simulation ---\n")
-source("code/analysis/_helpers-ra.R")
-source("code/analysis/structural/3_counterfactuals.R")
+source("code/0-setup.R")
+library(arrow)
+source("code/data-build/_helpers-enrollment.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/covariates.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
+source("code/analysis/helpers/ra.R")
+demand_spec <- read_demand_spec(file.path(Sys.getenv("TEMP_DIR"), "demand_spec.csv"))
+STRUCTURAL_SPEC <- demand_spec$base
+STRUCTURAL_ASST <- demand_spec$assisted
+source("code/analysis/structural/4_counterfactuals.R")
 
 cat("\n=== Structural pipeline complete ===\n")

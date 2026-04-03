@@ -23,10 +23,9 @@ MH_FACTOR <- c(
 # Returns the plan_name of the second-cheapest Silver plan by posted premium
 # in a given region-year. If only one Silver plan exists, returns that one.
 
-identify_benchmark <- function(plans_cell) {
-  silver <- plans_cell %>%
-    filter(metal == "Silver") %>%
-    arrange(premium)
+identify_benchmark <- function(plan_attrs) {
+  silver <- plan_attrs[plan_attrs$metal == "Silver", ]
+  silver <- silver[order(silver$premium_posted), ]
   if (nrow(silver) == 0) return(NA_character_)
   if (nrow(silver) == 1) return(silver$plan_name[1])
   silver$plan_name[2]
@@ -39,7 +38,8 @@ identify_benchmark <- function(plans_cell) {
 # flag, and hh_premium. Must use the SAME seed and SAMPLE_FRAC as point
 # estimation to get the identical HH sample.
 
-build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_size") {
+build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_size",
+                                     spec = NULL) {
 
   hhs_dt <- as.data.table(hhs)
   plans_dt <- as.data.table(plans)
@@ -61,14 +61,14 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
 
   # 1. Choice set (one row per plan_name + Uninsured)
   choice_set <- plans_dt[, .(
-    issuer       = first(issuer),
-    network_type = first(network_type),
-    metal_level  = first(metal_level),
-    metal        = first(metal),
-    premium      = mean(premium, na.rm = TRUE),
-    msp          = min(msp, na.rm = TRUE),
-    hsa          = min(hsa, na.rm = TRUE),
-    cf_resid     = first(cf_resid)
+    issuer         = first(issuer),
+    network_type   = first(network_type),
+    metal_level    = first(metal_level),
+    metal          = first(metal),
+    premium_posted = mean(premium, na.rm = TRUE),
+    msp            = min(msp, na.rm = TRUE),
+    hsa            = min(hsa, na.rm = TRUE),
+    cf_resid       = first(cf_resid)
   ), by = plan_name]
   choice_set[, plan_name := as.character(plan_name)]
 
@@ -82,7 +82,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   uninsured_row <- data.table(
     plan_name = "Uninsured", issuer = "Outside_Option",
     network_type = NA_character_, metal_level = NA_character_,
-    metal = NA_character_, premium = NA_real_,
+    metal = NA_character_, premium_posted = NA_real_,
     msp = NA_real_, hsa = NA_real_, cf_resid = 0
   )
   if ("comm_pmpm" %in% names(choice_set)) uninsured_row$comm_pmpm <- 0
@@ -141,15 +141,17 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   )]
   dt[, insured := max(plan_choice), by = household_id]
 
-  dt[, `:=`(
-    adj_subsidy = fifelse(is.na(subsidy), 0, subsidy),
-    hh_premium  = (premium / RATING_FACTOR_AGE40) * rating_factor
+  # Posted premium: age-adjusted posted premium (no subsidy deduction).
+  # Subsidy effects captured via FPL x premium interactions in demand model.
+  dt[, premium_hh := (premium_posted / RATING_FACTOR_AGE40) * rating_factor]
+  # Outside option premium = 0. Penalty effect captured by penalty_own.
+  # Keeps β_premium identified only from insured plan variation.
+  dt[, premium_oop := fcase(
+    issuer == "Outside_Option",        0.0,
+    default = premium_hh
   )]
-  dt[, final_premium := fcase(
-    issuer == "Outside_Option",        penalty / 12,
-    metal_level == "Minimum Coverage", hh_premium,
-    default = pmax(hh_premium - adj_subsidy, 0)
-  )]
+  # adj_subsidy and subsidized still needed for benchmark elasticity split
+  dt[, adj_subsidy := fifelse(is.na(subsidy), 0, subsidy)]
   dt[, av := fcase(
     metal_level == "Minimum Coverage",     0.55,
     metal_level == "Bronze",               0.60,
@@ -164,8 +166,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   )]
   dt[, subsidized := fifelse(subsidized_members > 0, 1L, 0L)]
 
-  # Keep hh_premium (age-adjusted posted) but drop raw posted premium
-  dt[, premium := NULL]
+  # premium_posted kept on data for supply-side use
 
   # 6. Collapse small insurers
   big_four <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net")
@@ -178,7 +179,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
 
   if (nrow(small_raw) > 0) {
     small <- small_raw[, .(
-      final_premium  = min(final_premium, na.rm = TRUE),
+      premium_oop    = min(premium_oop, na.rm = TRUE),
       plan_choice    = max(plan_choice, na.rm = TRUE),
       FPL            = first(FPL),
       hh_plan_name   = first(hh_plan_name),
@@ -192,7 +193,8 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
       rating_factor  = first(rating_factor),
       adj_subsidy    = first(adj_subsidy),
       subsidized     = first(subsidized),
-      hh_premium     = min(hh_premium, na.rm = TRUE)
+      premium_hh     = min(premium_hh, na.rm = TRUE),
+      premium_posted = min(premium_posted, na.rm = TRUE)
     ), by = .(household_id, metal)]
     if (has_comm) {
       comm_agg <- small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)),
@@ -239,16 +241,13 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   )]
 
   # 8. Final variables
-  dt <- dt[!is.na(final_premium) & !is.na(plan_name)]
+  dt <- dt[!is.na(premium_oop) & !is.na(plan_name)]
   dt[, `:=`(
-    net_premium    = final_premium / hh_size,
+    net_premium    = premium_oop / hh_size,
     hmo            = fifelse(fifelse(is.na(network_type), "", network_type) == "HMO", 1L, 0L),
     hsa            = fifelse(is.na(hsa) | hsa <= 0, 0L, 1L),
     FPL_250to400   = fifelse(FPL > 2.50 & FPL <= 4.00, 1L, 0L),
     FPL_400plus    = fifelse(FPL > 4.00, 1L, 0L),
-    any_0to17      = fifelse(perc_0to17 > 0, 1L, 0L),
-    any_black      = fifelse(perc_black > 0, 1L, 0L),
-    any_hispanic   = fifelse(perc_hispanic > 0, 1L, 0L),
     uninsured_plan = fifelse(plan_name == "Uninsured", 1L, 0L),
     platinum       = fifelse(metal == "Platinum", 1L, 0L),
     gold           = fifelse(metal == "Gold", 1L, 0L),
@@ -266,17 +265,57 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
     dt[, ipweight := as.numeric(hh_size)]
   }
 
+  # Demographic x premium interactions (heterogeneous price sensitivity)
   dt[, `:=`(
-    hh_size_prem      = hh_size * net_premium,
-    any_0to17_prem    = any_0to17 * net_premium,
-    any_black_prem    = any_black * net_premium,
-    any_hispanic_prem = any_hispanic * net_premium,
-    FPL_250to400_prem = FPL_250to400 * net_premium,
-    FPL_400plus_prem  = FPL_400plus * net_premium
+    hh_size_prem       = hh_size * net_premium,
+    perc_0to17_prem    = perc_0to17 * net_premium,
+    perc_18to34_prem   = perc_18to34 * net_premium,
+    perc_35to54_prem   = perc_35to54 * net_premium,
+    perc_male_prem     = perc_male * net_premium,
+    perc_black_prem    = perc_black * net_premium,
+    perc_hispanic_prem = perc_hispanic * net_premium,
+    perc_asian_prem    = perc_asian * net_premium,
+    perc_other_prem    = perc_other * net_premium,
+    FPL_250to400_prem  = FPL_250to400 * net_premium,
+    FPL_400plus_prem   = FPL_400plus * net_premium
+  )]
+
+  # Demographic x insured interactions (cross-nest margin shifters)
+  insured_ind <- fifelse(dt$plan_name == "Uninsured", 0, 1)
+  dt[, `:=`(
+    hh_size_insured       = hh_size * insured_ind,
+    perc_0to17_insured    = perc_0to17 * insured_ind,
+    perc_18to34_insured   = perc_18to34 * insured_ind,
+    perc_35to54_insured   = perc_35to54 * insured_ind,
+    perc_male_insured     = perc_male * insured_ind,
+    perc_black_insured    = perc_black * insured_ind,
+    perc_hispanic_insured = perc_hispanic * insured_ind,
+    perc_asian_insured    = perc_asian * insured_ind,
+    perc_other_insured    = perc_other * insured_ind,
+    FPL_250to400_insured  = FPL_250to400 * insured_ind,
+    FPL_400plus_insured   = FPL_400plus * insured_ind
   )]
 
   # Collapse enhanced silver plan names to SIL
   dt[, plan_name := gsub("SIL(94|73|87)", "SIL", plan_name)]
+
+  # 9. Build plan_attrs — canonical plan attribute table (post-collapse)
+  plan_attrs <- dt[plan_name != "Uninsured", .(
+    issuer         = first(issuer),
+    metal          = first(metal),
+    network_type   = first(network_type),
+    av             = min(av, na.rm = TRUE),  # base metal AV (not CSR-enhanced)
+    hmo            = as.integer(fifelse(is.na(first(network_type)), "", first(network_type)) == "HMO"),
+    hsa            = as.integer(!is.na(first(hsa)) & first(hsa) > 0),
+    premium_posted = mean(premium_posted, na.rm = TRUE),
+    cf_resid       = first(cf_resid)
+  ), by = plan_name]
+  if ("comm_pmpm" %in% names(dt)) {
+    comm_by_plan <- dt[plan_name != "Uninsured",
+                        .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_name]
+    plan_attrs <- merge(plan_attrs, comm_by_plan, by = "plan_name", all.x = TRUE)
+    plan_attrs[is.na(comm_pmpm), comm_pmpm := 0]
+  }
 
   setorder(dt, household_id, plan_name)
 
@@ -285,8 +324,9 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
                c("choice", "premium", "household_number"))
 
   # Exclusion restriction + interactions (same as build_choice_data)
-  dt[, penalty_own := fifelse(plan_name == "Uninsured", premium, 0)]
-  dt[, premium_sq := fifelse(plan_name == "Uninsured", 0, premium^2)]
+  # penalty_own identifies outside option utility separately from premium
+  dt[, penalty_own := fifelse(plan_name == "Uninsured",
+                               penalty / 12 / hh_size, 0)]
   dt[, `:=`(
     Anthem_silver = fifelse(issuer == "Anthem", 1L, 0L) * fifelse(metal == "Silver", 1L, 0L),
     BS_silver     = fifelse(issuer == "Blue_Shield", 1L, 0L) * fifelse(metal == "Silver", 1L, 0L),
@@ -318,7 +358,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
 
   if (nrow(dt) == 0) return(NULL)
 
-  as_tibble(dt)
+  list(cell_data = as_tibble(dt), plan_attrs = plan_attrs)
 }
 
 
@@ -334,17 +374,10 @@ compute_utility <- function(cell_data, coefs_cell) {
 
   V <- rep(0, nrow(cell_data))
 
-  all_terms <- c("premium", "penalty_own", "premium_sq",
-                 "silver", "bronze", "hh_size_prem", "cf_resid",
-                 "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
-                 "any_black_prem", "any_hispanic_prem",
-                 "hmo", "hsa", "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-                 "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-                 "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
-                 "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
-                 "commission_broker", "v_hat_commission")
-  for (v in all_terms) {
-    if (v %in% names(coef_map) && v %in% names(cell_data))
+  # Apply all coefficients that have matching columns in the data
+  for (v in names(coef_map)) {
+    if (v == "lambda") next
+    if (v %in% names(cell_data))
       V <- V + coef_map[[v]] * cell_data[[v]]
   }
 
@@ -358,24 +391,37 @@ compute_utility <- function(cell_data, coefs_cell) {
 # alpha_i = (beta_p + beta_h * hh_size + ...) / hh_size
 # Used by compute_shares_and_elasticities and by 2_supply.R for two-stage demand.
 
-compute_alpha_i <- function(cell_data, coefs) {
-  coef_map <- setNames(coefs$estimate, coefs$term)
-  beta_p   <- coef_map[["premium"]]
-  beta_h   <- coef_map[["hh_size_prem"]]
-  beta_0to17 <- if ("any_0to17_prem" %in% names(coef_map)) coef_map[["any_0to17_prem"]] else 0
-  beta_250   <- if ("FPL_250to400_prem" %in% names(coef_map)) coef_map[["FPL_250to400_prem"]] else 0
-  beta_400   <- if ("FPL_400plus_prem" %in% names(coef_map)) coef_map[["FPL_400plus_prem"]] else 0
-  beta_blk   <- if ("any_black_prem" %in% names(coef_map)) coef_map[["any_black_prem"]] else 0
-  beta_hisp  <- if ("any_hispanic_prem" %in% names(coef_map)) coef_map[["any_hispanic_prem"]] else 0
-  beta_psq   <- if ("premium_sq" %in% names(coef_map)) coef_map[["premium_sq"]] else 0
+# Generic: uses get_prem_interactions() from covariates.R to detect which
+# demographic x premium terms are in the spec. Adding/removing a _prem
+# variable in the spec automatically updates this derivative.
+#
+# Falls back to detecting _prem terms from coef_map if spec is NULL.
 
-  (beta_p + beta_h * cell_data$hh_size +
-     beta_0to17 * cell_data$any_0to17 +
-     beta_250 * cell_data$FPL_250to400 +
-     beta_400 * cell_data$FPL_400plus +
-     beta_blk * cell_data$any_black +
-     beta_hisp * cell_data$any_hispanic +
-     2 * beta_psq * cell_data$premium) / cell_data$hh_size
+compute_alpha_i <- function(cell_data, coefs, spec = NULL) {
+  coef_map <- setNames(coefs$estimate, coefs$term)
+  get_coef <- function(name) if (name %in% names(coef_map)) coef_map[[name]] else 0
+
+  # dV/dp = beta_premium + sum( beta_{demo_prem} * demo )
+  dVdp <- get_coef("premium")
+
+  if (!is.null(spec) && exists("get_prem_interactions", mode = "function")) {
+    prem_ints <- get_prem_interactions(spec)
+  } else {
+    # Fallback: detect _prem terms from estimated coefficients
+    prem_names <- grep("_prem$", names(coef_map), value = TRUE)
+    prem_ints <- setNames(
+      lapply(prem_names, function(nm) sub("_prem$", "", nm)),
+      prem_names
+    )
+  }
+
+  for (nm in names(prem_ints)) {
+    raw_col <- prem_ints[[nm]]
+    if (raw_col %in% names(cell_data))
+      dVdp <- dVdp + get_coef(nm) * cell_data[[raw_col]]
+  }
+
+  dVdp / cell_data$hh_size
 }
 
 
@@ -406,7 +452,7 @@ compute_alpha_i <- function(cell_data, coefs) {
 #     j == l: alpha * (-rf) * q_l * [(1 - s_lg) * ((lambda-1)/lambda - s_g)]
 
 compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan,
-                                             plans_cell, coefs_cell) {
+                                             plans_cell, coefs_cell, spec = NULL) {
 
   dt <- as.data.table(cell_data)
   dt[, V := V]
@@ -445,23 +491,8 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 
   # HH-level price sensitivity: use pre-computed if available, else derive from coefs_cell
   if (!("alpha_i" %in% names(ins_dt))) {
-    coef_map <- setNames(coefs_cell$estimate, coefs_cell$term)
-    beta_p <- coef_map[["premium"]]
-    beta_h <- coef_map[["hh_size_prem"]]
-    beta_0to17 <- if ("any_0to17_prem" %in% names(coef_map)) coef_map[["any_0to17_prem"]] else 0
-    beta_250   <- if ("FPL_250to400_prem" %in% names(coef_map)) coef_map[["FPL_250to400_prem"]] else 0
-    beta_400   <- if ("FPL_400plus_prem" %in% names(coef_map)) coef_map[["FPL_400plus_prem"]] else 0
-    beta_blk   <- if ("any_black_prem" %in% names(coef_map)) coef_map[["any_black_prem"]] else 0
-    beta_hisp  <- if ("any_hispanic_prem" %in% names(coef_map)) coef_map[["any_hispanic_prem"]] else 0
-    beta_psq   <- if ("premium_sq" %in% names(coef_map)) coef_map[["premium_sq"]] else 0
-
-    ins_dt[, alpha_i := (beta_p + beta_h * hh_size +
-                           beta_0to17 * any_0to17 +
-                           beta_250 * FPL_250to400 +
-                           beta_400 * FPL_400plus +
-                           beta_blk * any_black +
-                           beta_hisp * any_hispanic +
-                           2 * beta_psq * premium) / hh_size]
+    alpha_vec <- compute_alpha_i(ins_dt, coefs_cell, spec)
+    ins_dt[, alpha_i := alpha_vec]
   }
   ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
 
@@ -656,32 +687,21 @@ get_commission_pmpm <- function(plan_names, plans_cell, year, commission_lookup)
 #
 # Returns RA factor per plan (unitless, relative to Bronze = 0.60).
 
-get_ra_transfer <- function(plan_names, plans_cell, ...) {
+get_ra_transfer <- function(plan_names, plan_attrs) {
 
   result <- setNames(rep(0, length(plan_names)), plan_names)
 
   for (i in seq_along(plan_names)) {
     pn <- plan_names[i]
+    pa_row <- plan_attrs[plan_attrs$plan_name == pn, ]
+    if (nrow(pa_row) == 0) next
 
-    plan_info <- plans_cell %>% filter(plan_name == pn)
-    if (nrow(plan_info) == 0) next
+    av <- pa_row$av[1]
+    metal <- pa_row$metal[1]
+    if (is.na(av) || is.na(metal)) next
 
-    metal <- plan_info$metal_level[1]
-    if (is.na(metal)) next
-
-    metal_key <- if (grepl("Silver", metal)) "Silver" else metal
-    mh <- MH_FACTOR[metal_key]
+    mh <- MH_FACTOR[metal]
     if (is.na(mh)) mh <- 1.0
-
-    av <- case_when(
-      metal == "Minimum Coverage"     ~ 0.55,
-      metal == "Bronze"               ~ 0.60,
-      grepl("Silver", metal)          ~ 0.70,
-      metal == "Gold"                 ~ 0.80,
-      metal == "Platinum"             ~ 0.90,
-      TRUE ~ NA_real_
-    )
-    if (is.na(av)) next
 
     result[i] <- av * mh
   }
@@ -698,7 +718,7 @@ get_ra_transfer <- function(plan_names, plans_cell, ...) {
 
 compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
                                                     benchmark_plan, plans_cell,
-                                                    coefs_cell) {
+                                                    coefs_cell, spec = NULL) {
 
   dt <- as.data.table(cell_data)
   dt[, V := V]
@@ -729,23 +749,8 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
 
   # HH-level price sensitivity: use pre-computed if available
   if (!("alpha_i" %in% names(ins_dt))) {
-    coef_map <- setNames(coefs_cell$estimate, coefs_cell$term)
-    beta_p <- coef_map[["premium"]]
-    beta_h <- coef_map[["hh_size_prem"]]
-    beta_0to17 <- if ("any_0to17_prem" %in% names(coef_map)) coef_map[["any_0to17_prem"]] else 0
-    beta_250   <- if ("FPL_250to400_prem" %in% names(coef_map)) coef_map[["FPL_250to400_prem"]] else 0
-    beta_400   <- if ("FPL_400plus_prem" %in% names(coef_map)) coef_map[["FPL_400plus_prem"]] else 0
-    beta_blk   <- if ("any_black_prem" %in% names(coef_map)) coef_map[["any_black_prem"]] else 0
-    beta_hisp  <- if ("any_hispanic_prem" %in% names(coef_map)) coef_map[["any_hispanic_prem"]] else 0
-    beta_psq   <- if ("premium_sq" %in% names(coef_map)) coef_map[["premium_sq"]] else 0
-
-    ins_dt[, alpha_i := (beta_p + beta_h * hh_size +
-                           beta_0to17 * any_0to17 +
-                           beta_250 * FPL_250to400 +
-                           beta_400 * FPL_400plus +
-                           beta_blk * any_black +
-                           beta_hisp * any_hispanic +
-                           2 * beta_psq * premium) / hh_size]
+    alpha_vec <- compute_alpha_i(ins_dt, coefs_cell, spec)
+    ins_dt[, alpha_i := alpha_vec]
   }
   ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
 

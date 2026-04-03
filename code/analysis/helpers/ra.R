@@ -285,6 +285,97 @@ predict_mc_structural <- function(predicted_claims, ra_transfers, reins_factors)
 }
 
 
+# compute_mc ---------------------------------------------------------------
+
+#' Single entry point for the full MC chain: demographics → risk scores →
+#' claims → RA transfers → structural MC. Called identically by 2_pricing.R,
+#' 3_cost_gmm.R, and 4a_cf-worker.R.
+#'
+#' @param rs_coefs      Named vector of risk score regression coefficients
+#' @param claims_coefs  Named vector of claims regression coefficients
+#' @param plan_chars    Tibble with plan_name, Silver, Gold, Platinum, HMO,
+#'                      trend, Anthem, Blue_Shield, Health_Net, Kaiser
+#' @param demo_shares   Tibble with plan_name, share_18to34, share_35to54,
+#'                      share_hispanic (or NULL for metal-only model)
+#' @param shares        Named vector of market shares (among insured)
+#' @param avg_premium   Scalar average premium in market
+#' @param plan_avs      Named vector of actuarial values
+#' @param reins_vec     Named vector of reinsurance factors
+#' @return List with mc (named vector), predicted_claims, predicted_risk_scores,
+#'         ra_transfers, log_risk_score_hat
+
+compute_mc <- function(rs_coefs, claims_coefs, plan_chars, demo_shares,
+                       shares, avg_premium, plan_avs, reins_vec) {
+
+  rs_pred <- predict_risk_scores(rs_coefs, plan_chars, demo_shares)
+  log_rs <- setNames(rs_pred$log_risk_score_hat, rs_pred$plan_name)
+  pred_claims <- predict_claims(claims_coefs, plan_chars, log_rs)
+  ra_transfers <- compute_ra_transfers(rs_pred, shares, avg_premium, plan_avs)
+  mc <- predict_mc_structural(pred_claims, ra_transfers, reins_vec)
+
+  list(
+    mc                    = mc,
+    predicted_claims      = pred_claims,
+    predicted_risk_scores = setNames(rs_pred$predicted_risk_score, rs_pred$plan_name),
+    log_risk_score_hat    = log_rs,
+    ra_transfers          = ra_transfers
+  )
+}
+
+
+# RA derivative for FOC ----------------------------------------------------
+
+#' Compute the RA contribution to the pricing FOC.
+#'
+#' When a firm changes price p_l, market shares shift, which changes the
+#' budget-neutral RA transfers for all plans. The firm internalizes this
+#' for the plans it owns. This function computes the J-vector ra_foc where:
+#'
+#'   ra_foc_l = sum_k O[l,k] * s_k * (dRA_k / dp_l)
+#'
+#' Channel 1 only: holds risk scores fixed, captures the mechanical effect
+#' of share changes on RA denominators.
+#'
+#' @param risk_scores  Named vector of predicted risk scores (levels, not log)
+#' @param shares       Named vector of market shares
+#' @param plan_avs     Named vector of actuarial values
+#' @param avg_premium  Scalar: average premium in market
+#' @param elast_mat    J x J elasticity matrix (ds_j/dp_l)
+#' @param own_mat      J x J ownership matrix (1 if same firm)
+#' @return Named J-vector of RA FOC contributions
+
+compute_ra_foc <- function(risk_scores, shares, plan_avs, avg_premium,
+                           elast_mat, own_mat) {
+
+  pn <- names(shares)
+  J <- length(pn)
+  rs <- unname(risk_scores[pn])
+  sh <- unname(shares[pn])
+  av <- unname(plan_avs[pn])
+
+  # Moral hazard factors
+  MH_LOOKUP <- c("0.6" = 1.00, "0.7" = 1.03, "0.8" = 1.08, "0.9" = 1.15)
+  av_r <- as.character(round(av, 1))
+  mh <- MH_LOOKUP[av_r]; mh[is.na(mh)] <- 1.0
+  util_adj <- av * mh
+
+  S_rs <- sum(rs * sh, na.rm = TRUE)
+  S_u  <- sum(util_adj * sh, na.rm = TRUE)
+
+  # dRA_k/ds_m = (-rs_k * rs_m / S_rs^2 + u_k * u_m / S_u^2) * avg_premium
+  dRA_ds <- (-outer(rs, rs) / S_rs^2 + outer(util_adj, util_adj) / S_u^2) * avg_premium
+
+  # dRA_k/dp_l = sum_m dRA_k/ds_m * ds_m/dp_l = dRA_ds %*% elast_mat
+  # elast_mat and own_mat are J x J, already ordered by plan_names_cell
+  dRA_dp <- dRA_ds %*% elast_mat
+
+  # ra_foc_l = sum_k O[l,k] * s_k * dRA_dp[k,l]
+  ra_foc <- colSums(own_mat * (sh * dRA_dp))
+
+  setNames(ra_foc, pn)
+}
+
+
 # Expected OOP ------------------------------------------------------------
 
 #' Compute expected out-of-pocket costs for welfare decomposition.

@@ -21,7 +21,8 @@
 # Returns:
 #   Combined estimation + OOS tibble with `assisted` flag.
 
-build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") {
+build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
+                              spec = NULL) {
 
   # Convert inputs to data.table (copy, don't modify originals)
   hhs_dt <- as.data.table(hhs)
@@ -125,14 +126,14 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
   )]
   dt[, insured := max(plan_choice), by = household_id]
 
-  dt[, `:=`(
-    adj_subsidy = fifelse(is.na(subsidy), 0, subsidy),
-    hh_premium  = (premium / RATING_FACTOR_AGE40) * rating_factor
-  )]
-  dt[, final_premium := fcase(
-    issuer == "Outside_Option",        penalty / 12,
-    metal_level == "Minimum Coverage", hh_premium,
-    default = pmax(hh_premium - adj_subsidy, 0)
+  # Posted premium: age-adjusted posted premium (no subsidy deduction).
+  # Subsidy effects captured via FPL x premium interactions in demand model.
+  dt[, premium_hh := (premium / RATING_FACTOR_AGE40) * rating_factor]
+  # Outside option premium = 0. Penalty effect captured by penalty_own.
+  # Keeps β_premium identified only from insured plan variation.
+  dt[, premium_oop := fcase(
+    issuer == "Outside_Option",        0.0,
+    default = premium_hh
   )]
   dt[, av := fcase(
     metal_level == "Minimum Coverage",     0.55,
@@ -146,7 +147,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
     issuer == "Outside_Option",            0,
     default = NA_real_
   )]
-  dt[, c("adj_subsidy", "hh_premium", "premium") := NULL]
+  dt[, c("premium_hh", "premium") := NULL]
 
   # 6. Collapse small insurers into one per metal tier
   big_four <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net")
@@ -159,7 +160,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
 
   if (nrow(small_raw) > 0) {
     agg_exprs <- quote(.(
-      final_premium  = min(final_premium, na.rm = TRUE),
+      premium_oop  = min(premium_oop, na.rm = TRUE),
       plan_choice    = max(plan_choice, na.rm = TRUE),
       FPL            = first(FPL),
       hh_plan_name   = first(hh_plan_name),
@@ -218,16 +219,13 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
   )]
 
   # 8. Final variables
-  dt <- dt[!is.na(final_premium) & !is.na(plan_name)]
+  dt <- dt[!is.na(premium_oop) & !is.na(plan_name)]
   dt[, `:=`(
-    net_premium    = final_premium / hh_size,
+    net_premium    = premium_oop / hh_size,
     hmo            = fifelse(fifelse(is.na(network_type), "", network_type) == "HMO", 1L, 0L),
     hsa            = fifelse(is.na(hsa) | hsa <= 0, 0L, 1L),
     FPL_250to400   = fifelse(FPL > 2.50 & FPL <= 4.00, 1L, 0L),
     FPL_400plus    = fifelse(FPL > 4.00, 1L, 0L),
-    any_0to17      = fifelse(perc_0to17 > 0, 1L, 0L),
-    any_black      = fifelse(perc_black > 0, 1L, 0L),
-    any_hispanic   = fifelse(perc_hispanic > 0, 1L, 0L),
     uninsured_plan = fifelse(plan_name == "Uninsured", 1L, 0L),
     platinum       = fifelse(metal == "Platinum", 1L, 0L),
     gold           = fifelse(metal == "Gold", 1L, 0L),
@@ -245,13 +243,35 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
     dt[, ipweight := as.numeric(hh_size)]
   }
 
+  # Demographic x premium interactions (heterogeneous price sensitivity)
   dt[, `:=`(
-    hh_size_prem      = hh_size * net_premium,
-    any_0to17_prem    = any_0to17 * net_premium,
-    any_black_prem    = any_black * net_premium,
-    any_hispanic_prem = any_hispanic * net_premium,
-    FPL_250to400_prem = FPL_250to400 * net_premium,
-    FPL_400plus_prem  = FPL_400plus * net_premium
+    hh_size_prem       = hh_size * net_premium,
+    perc_0to17_prem    = perc_0to17 * net_premium,
+    perc_18to34_prem   = perc_18to34 * net_premium,
+    perc_35to54_prem   = perc_35to54 * net_premium,
+    perc_male_prem     = perc_male * net_premium,
+    perc_black_prem    = perc_black * net_premium,
+    perc_hispanic_prem = perc_hispanic * net_premium,
+    perc_asian_prem    = perc_asian * net_premium,
+    perc_other_prem    = perc_other * net_premium,
+    FPL_250to400_prem  = FPL_250to400 * net_premium,
+    FPL_400plus_prem   = FPL_400plus * net_premium
+  )]
+
+  # Demographic x insured interactions (cross-nest margin shifters)
+  insured_ind <- fifelse(dt$plan_name == "Uninsured", 0, 1)
+  dt[, `:=`(
+    hh_size_insured       = hh_size * insured_ind,
+    perc_0to17_insured    = perc_0to17 * insured_ind,
+    perc_18to34_insured   = perc_18to34 * insured_ind,
+    perc_35to54_insured   = perc_35to54 * insured_ind,
+    perc_male_insured     = perc_male * insured_ind,
+    perc_black_insured    = perc_black * insured_ind,
+    perc_hispanic_insured = perc_hispanic * insured_ind,
+    perc_asian_insured    = perc_asian * insured_ind,
+    perc_other_insured    = perc_other * insured_ind,
+    FPL_250to400_insured  = FPL_250to400 * insured_ind,
+    FPL_400plus_insured   = FPL_400plus * insured_ind
   )]
 
   # Collapse enhanced silver plan names to SIL
@@ -263,13 +283,12 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
   setnames(dt, c("plan_choice", "net_premium", "household_id"),
                c("choice", "premium", "household_number"))
 
-  # Exclusion restriction: penalty_own identifies outside option scale separately
-  dt[, penalty_own := fifelse(plan_name == "Uninsured", premium, 0)]
+  # Exclusion restriction: penalty_own identifies outside option utility separately
+  # from premium (which is 0 on uninsured row)
+  dt[, penalty_own := fifelse(plan_name == "Uninsured",
+                               penalty / 12 / hh_size, 0)]
 
-  # Nonlinear price effect (0 for uninsured)
-  dt[, premium_sq := fifelse(plan_name == "Uninsured", 0, premium^2)]
-
-  # Insurer x metal interactions (plan-level cross-alternative variation)
+  # Insurer x metal interactions
   dt[, `:=`(
     Anthem_silver = Anthem * silver,
     BS_silver     = Blue_Shield * silver,
@@ -282,22 +301,31 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
   )]
 
   # 9. Split by channel, keep valid choices, return as tibble
-  model_vars <- c("plan_name", "household_number", "choice", "premium",
-                   "penalty_own", "premium_sq",
-                   "platinum", "gold", "silver", "bronze", "hsa", "hmo",
-                   "av", "uninsured_plan", "cf_resid",
-                   "hh_size_prem", "any_0to17_prem", "FPL_250to400_prem",
-                   "FPL_400plus_prem", "any_black_prem", "any_hispanic_prem",
-                   "hh_size", "any_0to17", "FPL_250to400", "FPL_400plus",
-                   "any_black", "any_hispanic",
-                   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-                   "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-                   "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
-                   "ipweight")
+  # Build model_vars from spec (if provided) or use full set
+  always_keep <- c("plan_name", "household_number", "choice", "premium",
+                   "platinum", "gold", "silver", "bronze",
+                   "av", "uninsured_plan", "ipweight", "hh_size")
+  # Raw demographics needed downstream for recomputing _prem interactions
+  raw_demos <- c("perc_0to17", "perc_18to34", "perc_35to54",
+                 "perc_male", "perc_black", "perc_hispanic",
+                 "perc_asian", "perc_other",
+                 "FPL_250to400", "FPL_400plus")
+
+  if (!is.null(spec)) {
+    # Spec-driven: include spec covariates + always-keep + raw demos
+    model_vars <- unique(c(always_keep, raw_demos,
+                           intersect(spec, names(dt))))
+  } else {
+    # Fallback: include everything that looks like a model variable
+    model_vars <- unique(c(always_keep, raw_demos,
+                           grep("_prem$|_silver$|_bronze$|^Anthem$|^Blue_Shield$|^Kaiser$|^Health_Net$|^penalty_own$|^cf_resid$|^hmo$|^hsa$",
+                                names(dt), value = TRUE)))
+  }
   if ("comm_pmpm" %in% names(dt)) model_vars <- c(model_vars, "comm_pmpm")
   if ("v_hat" %in% names(dt)) model_vars <- c(model_vars, "v_hat")
   if ("channel_detail" %in% names(dt)) model_vars <- c(model_vars, "channel_detail")
   if ("any_agent" %in% names(dt)) model_vars <- c(model_vars, "any_agent")
+  model_vars <- unique(intersect(model_vars, names(dt)))
 
   untreated <- dt[channel == "Unassisted", ..model_vars]
   treated   <- dt[channel != "Unassisted", ..model_vars]
@@ -372,40 +400,45 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight") 
 #   Fitted mlogit object, or NULL if estimation fails.
 
 estimate_nested_logit <- function(d, nest_names, pooled = FALSE,
-                                   include_commission = FALSE) {
+                                   include_commission = FALSE,
+                                   spec = NULL) {
 
-  # Covariate selection (no cf_resid — premiums treated as exogenous in regulated market)
-  covars <- c("premium", "penalty_own", "premium_sq",
-              "silver", "bronze", "hh_size_prem",
-              "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
-              "any_black_prem", "any_hispanic_prem")
-
-  if (pooled) {
-    # Always include all covariates when pooling across cells
-    covars <- c(covars, "hmo", "hsa",
-                "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-                "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-                "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze")
+  # Covariate selection: use spec if provided, otherwise adaptive per-cell
+  if (!is.null(spec) && pooled) {
+    # Spec-driven: use all spec terms that exist in the data
+    covars <- intersect(spec, names(d))
   } else {
-    # Adaptive selection for single-cell estimation
-    tot_chosen <- sum(d$choice == 1)
+    # Adaptive selection for single-cell reduced-form estimation
+    covars <- c("premium", "penalty_own",
+                "silver", "bronze", "hh_size_prem",
+                "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
+                "perc_male_prem", "perc_black_prem", "perc_hispanic_prem",
+                "perc_asian_prem", "perc_other_prem",
+                "FPL_250to400_prem", "FPL_400plus_prem")
+    covars <- intersect(covars, names(d))
 
-    if (sum(d$hmo == 1 & d$choice == 1) / tot_chosen > 0.1)
-      covars <- c(covars, "hmo")
-    if (sum(d$hsa == 1 & d$choice == 1) / tot_chosen > 0.1)
-      covars <- c(covars, "hsa")
+    if (pooled) {
+      covars <- c(covars, "hmo", "hsa")
+    } else {
+      tot_chosen <- sum(d$choice == 1)
 
-    ins_share <- c(
-      Anthem      = sum(d$Anthem == 1 & d$choice == 1) / tot_chosen,
-      Blue_Shield = sum(d$Blue_Shield == 1 & d$choice == 1) / tot_chosen,
-      Kaiser      = sum(d$Kaiser == 1 & d$choice == 1) / tot_chosen,
-      Health_Net  = sum(d$Health_Net == 1 & d$choice == 1) / tot_chosen
-    )
-    cml <- 0
-    for (ins in names(ins_share)) {
-      cml <- cml + ins_share[ins]
-      if (ins_share[ins] > 0.4 & cml < 0.9)
-        covars <- c(covars, ins)
+      if (sum(d$hmo == 1 & d$choice == 1) / tot_chosen > 0.1)
+        covars <- c(covars, "hmo")
+      if (sum(d$hsa == 1 & d$choice == 1) / tot_chosen > 0.1)
+        covars <- c(covars, "hsa")
+
+      ins_share <- c(
+        Anthem      = sum(d$Anthem == 1 & d$choice == 1) / tot_chosen,
+        Blue_Shield = sum(d$Blue_Shield == 1 & d$choice == 1) / tot_chosen,
+        Kaiser      = sum(d$Kaiser == 1 & d$choice == 1) / tot_chosen,
+        Health_Net  = sum(d$Health_Net == 1 & d$choice == 1) / tot_chosen
+      )
+      cml <- 0
+      for (ins in names(ins_share)) {
+        cml <- cml + ins_share[ins]
+        if (ins_share[ins] > 0.4 & cml < 0.9)
+          covars <- c(covars, ins)
+      }
     }
   }
 
@@ -467,23 +500,11 @@ predict_nested_logit <- function(d, coefs, nest_names) {
   # Compute V_ij for each row
   V <- rep(0, nrow(d))
 
-  # Core covariates (always present)
-  core_terms <- c("premium", "penalty_own", "premium_sq",
-                  "silver", "bronze", "hh_size_prem",
-                  "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
-                  "any_black_prem", "any_hispanic_prem")
-  for (v in core_terms) {
-    if (v %in% names(coef_map) && v %in% names(d))
-      V <- V + coef_map[[v]] * d[[v]]
-  }
-
-  # Adaptive covariates
-  for (v in c("hmo", "hsa", "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-              "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-              "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
-              "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
-              "commission_broker", "v_hat_commission")) {
-    if (v %in% names(coef_map) && v %in% names(d))
+  # Apply all coefficients that have matching columns in the data
+  # Handles core terms, demographics, insurer x region FEs, assisted interactions, etc.
+  for (v in names(coef_map)) {
+    if (v == "lambda") next
+    if (v %in% names(d))
       V <- V + coef_map[[v]] * d[[v]]
   }
 

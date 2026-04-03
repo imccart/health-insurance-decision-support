@@ -12,16 +12,18 @@
 # Setup (idempotent — safe to re-source) -----------------------------------
 source("code/0-setup.R")
 source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/_helpers-analysis.R")
-source("code/analysis/_helpers-choice.R")
-source("code/analysis/_helpers-supply.R")
-source("code/analysis/_helpers-ra.R")
+source("code/analysis/helpers/constants.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
+source("code/analysis/helpers/ra.R")
 library(arrow)
 
 # Tuning parameters -------------------------------------------------------
 
-SAMPLE_FRAC   <- 0.20
-PARTITION_DIR <- "data/output/hh_choice_partitions"
+SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
+MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
+TEMP_DIR      <- Sys.getenv("TEMP_DIR")
+PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
 
 # =========================================================================
 # Load coefficients and reference data
@@ -34,7 +36,7 @@ lambda <- coefs %>% filter(term == "lambda") %>% pull(estimate)
 cat("  lambda =", round(lambda, 4), "\n")
 cat("  Coefficients:", nrow(coefs), "terms\n")
 
-plan_choice <- read_csv("data/output/plan_choice.csv", show_col_types = FALSE)
+plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
 
 # =========================================================================
@@ -45,7 +47,7 @@ cat("\nEstimating RA regressions...\n")
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 
 # Merge plan-level demographics from observed enrollment
-plan_demo <- read_csv("data/output/plan_demographics.csv", show_col_types = FALSE)
+plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
 rsdata <- rsdata %>%
   left_join(plan_demo, by = c("plan_name", "year"))
 n_matched <- sum(!is.na(rsdata$share_18to34))
@@ -57,14 +59,14 @@ ra_regs <- estimate_ra_regressions(rsdata)
 # Save coefficients for counterfactual worker
 rs_coefs_df <- tibble(term = names(ra_regs$rs_coefs), estimate = ra_regs$rs_coefs)
 claims_coefs_df <- tibble(term = names(ra_regs$claims_coefs), estimate = ra_regs$claims_coefs)
-write_csv(rs_coefs_df, "data/output/ra_rs_coefs.csv")
-write_csv(claims_coefs_df, "data/output/ra_claims_coefs.csv")
+write_csv(rs_coefs_df, file.path(TEMP_DIR, "ra_rs_coefs.csv"))
+write_csv(claims_coefs_df, file.path(TEMP_DIR, "ra_claims_coefs.csv"))
 
 # Reinsurance factors by plan-year (for counterfactuals)
 reins_df <- rsdata %>%
   select(plan_name, year, reins_factor) %>%
   filter(!is.na(reins_factor))
-write_csv(reins_df, "data/output/reinsurance_factors.csv")
+write_csv(reins_df, file.path(TEMP_DIR, "reinsurance_factors.csv"))
 
 cat("  RA coefficients and reinsurance factors saved.\n")
 rm(rsdata)
@@ -84,7 +86,7 @@ cells <- tibble(file = partition_files) %>%
 
 cat("  Region-year cells:", nrow(cells), "\n")
 
-set.seed(20260224)
+set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))
 
 # =========================================================================
@@ -121,10 +123,13 @@ for (i in seq_len(nrow(cells))) {
   }
 
   # Build supply choice data (same seed/sample as demand)
-  cell_data <- build_supply_choice_data(plans, hhs, SAMPLE_FRAC)
+  build_result <- build_supply_choice_data(plans, hhs, SAMPLE_FRAC, spec = STRUCTURAL_SPEC)
   rm(hhs)
 
-  if (is.null(cell_data)) { n_skip <- n_skip + 1L; rm(plans); next }
+  if (is.null(build_result)) { n_skip <- n_skip + 1L; rm(plans); next }
+  cell_data  <- build_result$cell_data
+  plan_attrs <- build_result$plan_attrs
+  rm(build_result)
 
   # Assisted x metal interactions (if not already present)
   if (!"assisted_silver" %in% names(cell_data)) {
@@ -142,15 +147,21 @@ for (i in seq_len(nrow(cells))) {
     }
   }
 
-  # Identify plans in this cell (excluding Uninsured)
-  plans_cell <- plans
-  plan_names_cell <- sort(unique(cell_data$plan_name[cell_data$plan_name != "Uninsured"]))
+  # Plan names and attributes from plan_attrs (post-collapse, always consistent)
+  plan_names_cell <- sort(plan_attrs$plan_name)
   J <- length(plan_names_cell)
 
-  if (J < 2) { n_skip <- n_skip + 1L; rm(cell_data, plans, plans_cell); next }
+  if (J < 2) { n_skip <- n_skip + 1L; rm(cell_data, plans, plan_attrs); next }
 
-  # Identify benchmark plan
-  benchmark_plan <- identify_benchmark(plans_cell)
+  # Read attributes directly from plan_attrs — no lookups against plans_cell
+  pa <- plan_attrs[match(plan_names_cell, plan_attrs$plan_name), ]
+  posted_premium <- setNames(pa$premium_posted, pa$plan_name)
+  plan_metal     <- setNames(pa$metal, pa$plan_name)
+  plan_issuer    <- setNames(pa$issuer, pa$plan_name)
+  plan_avs       <- setNames(pa$av, pa$plan_name)
+  comm_vec       <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_name) else setNames(rep(0, J), plan_names_cell)
+
+  benchmark_plan <- identify_benchmark(plan_attrs)
 
   # -----------------------------------------------------------------------
   # Step 1: Compute utility
@@ -162,7 +173,8 @@ for (i in seq_len(nrow(cells))) {
   # Step 2: Compute shares and elasticities (all HH)
   # -----------------------------------------------------------------------
   se_result <- compute_shares_and_elasticities(
-    cell_data, V, lambda, benchmark_plan, plans_cell, coefs
+    cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
+    spec = STRUCTURAL_SPEC
   )
   shares    <- se_result$shares
   elast_mat <- se_result$elast_mat
@@ -177,92 +189,34 @@ for (i in seq_len(nrow(cells))) {
   # Step 4: Broker shares and elasticities (assisted HH only)
   # -----------------------------------------------------------------------
   broker_result <- compute_broker_shares_and_elasticities(
-    cell_data, V, lambda, benchmark_plan, plans_cell, coefs
+    cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
+    spec = STRUCTURAL_SPEC
   )
   broker_elast_mat <- broker_result$broker_elast_mat
   Omega_broker <- -own_mat * broker_elast_mat
 
   # -----------------------------------------------------------------------
-  # Step 5: Commission vector
-  # -----------------------------------------------------------------------
-  comm_vec <- sapply(plan_names_cell, function(pn) {
-    vals <- cell_data$comm_pmpm[cell_data$plan_name == pn]
-    if (length(vals) == 0) return(0)
-    mean(vals, na.rm = TRUE)
-  })
-
-  # -----------------------------------------------------------------------
-  # Step 6: Commission-corrected markup
-  # -----------------------------------------------------------------------
-  # markup = solve(Omega, shares + Omega_broker * comm_vec) — POSITIVE shares
-  rhs <- shares + as.numeric(Omega_broker %*% comm_vec)
-
-  markup <- tryCatch(
-    solve(Omega, rhs),
-    error = function(e) rep(NA_real_, J)
-  )
-
-  # -----------------------------------------------------------------------
-  # Step 7: Posted premiums, MC, RA, Lerner
-  # -----------------------------------------------------------------------
-  posted_premium <- sapply(plan_names_cell, function(pn) {
-    mean(plans_cell$premium[plans_cell$plan_name == pn], na.rm = TRUE)
-  })
-
-  ra_factor_static <- get_ra_transfer(plan_names_cell, plans_cell)
-
-  mc_foc <- posted_premium - markup
-  lerner <- ifelse(posted_premium > 0, markup / posted_premium, NA_real_)
-
-  # Metal and issuer for each plan (needed by Step 7b)
-  plan_metal <- sapply(plan_names_cell, function(pn) {
-    m <- plans_cell$metal[plans_cell$plan_name == pn]
-    if (length(m) == 0) return(NA_character_)
-    m[1]
-  })
-  plan_issuer <- sapply(plan_names_cell, function(pn) {
-    ins <- plans_cell$issuer[plans_cell$plan_name == pn]
-    if (length(ins) == 0) return(NA_character_)
-    ins[1]
-  })
-
-  # -----------------------------------------------------------------------
-  # Step 7b: Structural MC from RA regressions
+  # Step 5: Risk scores and RA (needed for FOC RA derivative)
   # -----------------------------------------------------------------------
   plan_chars_cell <- tibble(
-    plan_name = plan_names_cell,
-    Silver   = as.integer(unname(plan_metal) == "Silver"),
-    Gold     = as.integer(unname(plan_metal) == "Gold"),
-    Platinum = as.integer(unname(plan_metal) == "Platinum"),
-    HMO      = as.integer(sapply(plan_names_cell, function(pn) {
-      pt <- plans_cell$network_type[plans_cell$plan_name == pn]
-      if (length(pt) == 0) return(0L)
-      as.integer(pt[1] == "HMO")
-    })),
-    trend    = y - 2014L,
+    plan_name   = plan_names_cell,
+    Silver      = as.integer(unname(plan_metal) == "Silver"),
+    Gold        = as.integer(unname(plan_metal) == "Gold"),
+    Platinum    = as.integer(unname(plan_metal) == "Platinum"),
+    HMO         = unname(setNames(pa$hmo, pa$plan_name)[plan_names_cell]),
+    trend       = y - 2014L,
     Anthem      = as.integer(grepl("^ANT", plan_names_cell)),
     Blue_Shield = as.integer(grepl("^BS", plan_names_cell)),
     Health_Net  = as.integer(grepl("^HN", plan_names_cell)),
     Kaiser      = as.integer(grepl("^KA", plan_names_cell))
   )
 
-  # Demographic shares from observed choice probabilities
   demo_shares <- tryCatch(
     compute_demographic_shares(cell_data, V, lambda),
     error = function(e) NULL
   )
-  rs_pred <- predict_risk_scores(ra_regs$rs_coefs, plan_chars_cell, demo_shares)
-  log_rs <- setNames(rs_pred$log_risk_score_hat, rs_pred$plan_name)
-  pred_claims <- predict_claims(ra_regs$claims_coefs, plan_chars_cell, log_rs)
 
-  plan_avs <- sapply(plan_names_cell, function(pn) {
-    av <- plans_cell$metal[plans_cell$plan_name == pn]
-    if (length(av) == 0) return(0.7)
-    switch(av[1], Platinum = 0.90, Gold = 0.80, Silver = 0.70, Bronze = 0.60, 0.70)
-  })
   avg_prem <- mean(posted_premium, na.rm = TRUE)
-  ra_transfers <- compute_ra_transfers(rs_pred, shares, avg_prem, plan_avs)
-
   rf_cell <- reins_df %>% filter(year == y)
   reins_vec <- sapply(plan_names_cell, function(pn) {
     rf <- rf_cell$reins_factor[rf_cell$plan_name == pn]
@@ -270,7 +224,58 @@ for (i in seq_len(nrow(cells))) {
     mean(rf, na.rm = TRUE)
   })
 
-  mc_structural <- predict_mc_structural(pred_claims, ra_transfers, reins_vec)
+  mc_result <- compute_mc(ra_regs$rs_coefs, ra_regs$claims_coefs, plan_chars_cell,
+                           demo_shares, shares, avg_prem, plan_avs, reins_vec)
+  mc_structural  <- mc_result$mc
+  pred_claims    <- mc_result$predicted_claims
+  rs_pred        <- tibble(plan_name = names(mc_result$predicted_risk_scores),
+                           predicted_risk_score = unname(mc_result$predicted_risk_scores),
+                           log_risk_score_hat = unname(mc_result$log_risk_score_hat))
+  ra_transfers   <- mc_result$ra_transfers
+
+  # -----------------------------------------------------------------------
+  # Step 6: RA derivative for FOC (adverse selection channel)
+  # -----------------------------------------------------------------------
+  # Insurers internalize that price changes shift enrollment composition,
+  # changing RA transfers. This term was previously omitted from the FOC.
+  rs_levels <- setNames(rs_pred$predicted_risk_score, rs_pred$plan_name)
+  ra_foc <- compute_ra_foc(rs_levels, shares, plan_avs, avg_prem,
+                            elast_mat, own_mat)
+
+  # -----------------------------------------------------------------------
+  # Step 7: Markup (with RA derivative and commission correction)
+  # -----------------------------------------------------------------------
+  rhs <- shares + ra_foc + as.numeric(Omega_broker %*% comm_vec)
+
+  markup <- tryCatch(
+    solve(Omega, rhs),
+    error = function(e) rep(NA_real_, J)
+  )
+
+  ra_factor_static <- get_ra_transfer(plan_names_cell, plan_attrs)
+
+  mc_foc <- posted_premium - markup
+  lerner <- ifelse(posted_premium > 0, markup / posted_premium, NA_real_)
+
+  # -----------------------------------------------------------------------
+  # Step 8: Save FOC inputs for cost-side GMM
+  # -----------------------------------------------------------------------
+  foc_inputs_dir <- file.path(Sys.getenv("TEMP_DIR"), "foc_inputs")
+  if (!dir.exists(foc_inputs_dir)) dir.create(foc_inputs_dir, recursive = TRUE)
+
+  saveRDS(list(
+    region         = r,
+    year           = y,
+    plan_names     = plan_names_cell,
+    Omega          = Omega,
+    Omega_broker   = Omega_broker,
+    shares         = shares,
+    comm_vec       = comm_vec,
+    posted_premium = posted_premium,
+    reins_vec      = reins_vec,
+    plan_avs       = plan_avs,
+    ra_foc         = ra_foc
+  ), file.path(foc_inputs_dir, paste0("foc_", r, "_", y, ".rds")))
 
   # -----------------------------------------------------------------------
   # Step 8: Collect results
@@ -297,12 +302,13 @@ for (i in seq_len(nrow(cells))) {
   results_list[[i]] <- cell_result
   n_done <- n_done + 1L
 
-  rm(cell_data, plans, plans_cell, V, se_result, broker_result,
+  rm(cell_data, plans, plan_attrs, pa, V, se_result, broker_result,
      shares, elast_mat, own_mat, Omega, broker_elast_mat, Omega_broker,
      comm_vec, rhs, markup, posted_premium, ra_factor_static, mc_foc, lerner,
      plan_metal, plan_issuer, cell_result, util_result,
      plan_chars_cell, rs_pred, log_rs, pred_claims, plan_avs,
-     ra_transfers, reins_vec, mc_structural, demo_shares)
+     ra_transfers, reins_vec, mc_structural, demo_shares, build_result,
+     ra_foc, rs_levels, avg_prem, rf_cell)
   gc(verbose = FALSE)
 
   if (i %% 20 == 0) {

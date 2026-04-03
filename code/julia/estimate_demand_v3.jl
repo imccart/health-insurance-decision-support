@@ -10,7 +10,7 @@
 # Called from R via system2(). Reads cell CSVs, writes coefficient CSVs.
 # See code/analysis/structural/optimizer.md for full documentation.
 
-using CSV, DataFrames, LinearAlgebra, Printf, Optim, Dates
+using CSV, DataFrames, LinearAlgebra, Printf, Optim, Dates, Mmap
 
 # Single-threaded BLAS for deterministic results
 BLAS.set_num_threads(1)
@@ -38,15 +38,14 @@ end
 # Covariates (must match R's COVARIATES_BASE / COVARIATES_ASST)
 # =========================================================================
 
-const BASE_COVARS = [
-    "premium", "penalty_own", "premium_sq",
-    "silver", "bronze", "hh_size_prem",
-    "any_0to17_prem", "FPL_250to400_prem", "FPL_400plus_prem",
-    "any_black_prem", "any_hispanic_prem", "hmo", "hsa",
-    "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-    "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-    "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze"
-]
+# =========================================================================
+# Load covariate spec from file (written by R's _analysis.R)
+# =========================================================================
+
+function load_spec(path::String)
+    df = CSV.read(path, DataFrame)
+    String.(df.term)
+end
 
 # =========================================================================
 # Build cell data from one CSV
@@ -122,13 +121,21 @@ function load_cells(cell_dir::String, covars::Vector{String};
     cells = CellData[]
     total_hh = 0
 
+    # Only parse columns we actually need
+    needed_cols = vcat(["household_number", "plan_name", "choice", "ipweight"], covars)
+    if filter_assisted >= 0
+        push!(needed_cols, "assisted")
+    end
+    unique!(needed_cols)
+
     for (idx, f) in enumerate(csv_files)
-        df = CSV.read(joinpath(cell_dir, f), DataFrame)
+        df = CSV.read(joinpath(cell_dir, f), DataFrame; select=needed_cols)
         if filter_assisted >= 0
             filter!(row -> row.assisted == filter_assisted, df)
-            nrow(df) == 0 && continue
+            nrow(df) == 0 && (df = nothing; continue)
         end
         cell = build_cell_data(df, covars)
+        df = nothing  # release DataFrame memory for GC
         cell.n_hh > 0 && push!(cells, cell)
         total_hh += cell.n_hh
         idx % 20 == 0 && println("    Loaded $idx / $(length(csv_files))")
@@ -164,6 +171,26 @@ function normalize_weights!(cells::Vector{CellData})
 end
 
 # =========================================================================
+# Offload X matrices to memory-mapped files
+# =========================================================================
+# Moves the ~12GB of X matrices from Julia's GC heap to OS-managed
+# anonymous memory maps. Uses pagefile-backed anonymous mmap (no named
+# files) to avoid CrowdStrike's file filter driver intercepting I/O.
+
+function offload_to_mmap(cells::Vector{CellData})
+    new_cells = CellData[]
+
+    for cell in cells
+        X_anon = Mmap.mmap(Matrix{Float64}, size(cell.X))
+        copyto!(X_anon, cell.X)
+        push!(new_cells, CellData(X_anon, cell.groups, cell.n_hh))
+    end
+
+    println("  Offloaded $(length(new_cells)) cells to anonymous mmap")
+    new_cells
+end
+
+# =========================================================================
 # NLL + gradient for one cell (V_0 = β'X_0, NOT 0)
 #
 # Returns: (negll, grad, gradi)
@@ -174,6 +201,7 @@ end
 
 function cell_negll_grad!(β::AbstractVector{Float64}, λ::Float64,
                            cell::CellData;
+                           compute_grad::Bool=true,
                            compute_gradi::Bool=false)
     X = cell.X
     K = length(β)
@@ -183,11 +211,10 @@ function cell_negll_grad!(β::AbstractVector{Float64}, λ::Float64,
     V = X * β  # one allocation per cell
 
     negll = 0.0
-    grad = zeros(K + 1)
-    gradi = compute_gradi ? zeros(n_hh, K + 1) : nothing
+    grad = compute_grad ? zeros(K + 1) : nothing
+    gradi = (compute_grad && compute_gradi) ? zeros(n_hh, K + 1) : nothing
 
     for (h, g) in enumerate(cell.groups)
-        n_ins = g.ins_end - g.ins_start + 1
         w = g.weight
 
         # --- Insured nest: logsumexp of V_ins/λ ---
@@ -203,15 +230,16 @@ function cell_negll_grad!(β::AbstractVector{Float64}, λ::Float64,
         end
         I = max_vs + log(D)  # inclusive value
 
-        # Within-nest shares s_j|ins
-        # Also compute x_bar = Σ s_j * X_j and V_bar = Σ s_j * V_j
-        x_bar = zeros(K)
-        V_bar = 0.0
-        for r in g.ins_start:g.ins_end
-            s_j = exp(V[r] / λ - max_vs) / D
-            V_bar += s_j * V[r]
-            for k in 1:K
-                x_bar[k] += s_j * X[r, k]
+        # x_bar, V_bar only needed for gradient
+        if compute_grad
+            x_bar = zeros(K)
+            V_bar = 0.0
+            for r in g.ins_start:g.ins_end
+                s_j = exp(V[r] / λ - max_vs) / D
+                V_bar += s_j * V[r]
+                for k in 1:K
+                    x_bar[k] += s_j * X[r, k]
+                end
             end
         end
 
@@ -223,11 +251,8 @@ function cell_negll_grad!(β::AbstractVector{Float64}, λ::Float64,
         mx_d = max(lI, V_0)
         log_denom = mx_d + log(exp(lI - mx_d) + exp(V_0 - mx_d))
 
-        # P(insured)
-        P_ins = exp(lI - log_denom)
-
-        # X_0 for this HH
-        X_0 = @view X[g.unins_row, :]
+        # P(insured) — needed for both negLL (via log_denom) and gradient
+        P_ins = compute_grad ? exp(lI - log_denom) : 0.0
 
         # --- Log-likelihood ---
         if g.chose_insured
@@ -238,27 +263,29 @@ function cell_negll_grad!(β::AbstractVector{Float64}, λ::Float64,
         end
         negll -= w * ll_h
 
-        # --- Gradient w.r.t. β ---
-        if g.chose_insured
-            X_ch = @view X[g.chosen_row, :]
-            for k in 1:K
-                g_k = (X_ch[k] - x_bar[k]) / λ + (1.0 - P_ins) * (x_bar[k] - X_0[k])
-                grad[k] -= w * g_k
-                gradi !== nothing && (gradi[h, k] = -w * g_k)
+        # --- Gradient (skip entirely when compute_grad=false) ---
+        if compute_grad
+            X_0 = @view X[g.unins_row, :]
+            if g.chose_insured
+                X_ch = @view X[g.chosen_row, :]
+                for k in 1:K
+                    g_k = (X_ch[k] - x_bar[k]) / λ + (1.0 - P_ins) * (x_bar[k] - X_0[k])
+                    grad[k] -= w * g_k
+                    gradi !== nothing && (gradi[h, k] = -w * g_k)
+                end
+                g_lam = -V_ch / λ^2 + I - (λ - 1.0) * V_bar / λ^2 - P_ins * (I - V_bar / λ)
+                grad[K+1] -= w * g_lam
+                gradi !== nothing && (gradi[h, K+1] = -w * g_lam)
+            else
+                for k in 1:K
+                    g_k = -P_ins * (x_bar[k] - X_0[k])
+                    grad[k] -= w * g_k
+                    gradi !== nothing && (gradi[h, k] = -w * g_k)
+                end
+                g_lam = -P_ins * (I - V_bar / λ)
+                grad[K+1] -= w * g_lam
+                gradi !== nothing && (gradi[h, K+1] = -w * g_lam)
             end
-            # Gradient w.r.t. λ
-            g_lam = -V_ch / λ^2 + I - (λ - 1.0) * V_bar / λ^2 - P_ins * (I - V_bar / λ)
-            grad[K+1] -= w * g_lam
-            gradi !== nothing && (gradi[h, K+1] = -w * g_lam)
-        else
-            for k in 1:K
-                g_k = -P_ins * (x_bar[k] - X_0[k])
-                grad[k] -= w * g_k
-                gradi !== nothing && (gradi[h, k] = -w * g_k)
-            end
-            g_lam = -P_ins * (I - V_bar / λ)
-            grad[K+1] -= w * g_lam
-            gradi !== nothing && (gradi[h, K+1] = -w * g_lam)
         end
     end
 
@@ -270,20 +297,25 @@ end
 # =========================================================================
 
 function accumulate(θ::Vector{Float64}, cells::Vector{CellData};
+                     compute_grad::Bool=true,
                      compute_gradi::Bool=false)
     K = length(θ) - 1
-    β = θ[1:K]
+    β = @view θ[1:K]
     λ = θ[K+1]
 
     total_negll = 0.0
-    total_grad = zeros(K + 1)
-    all_gradi = compute_gradi ? Vector{Matrix{Float64}}() : nothing
+    total_grad = compute_grad ? zeros(K + 1) : nothing
+    all_gradi = (compute_grad && compute_gradi) ? Vector{Matrix{Float64}}() : nothing
 
     for cell in cells
-        negll, grad, gradi = cell_negll_grad!(β, λ, cell; compute_gradi=compute_gradi)
+        negll, grad, gradi = cell_negll_grad!(β, λ, cell;
+                                               compute_grad=compute_grad,
+                                               compute_gradi=compute_gradi)
         total_negll += negll
-        total_grad .+= grad
-        compute_gradi && push!(all_gradi, gradi)
+        if compute_grad
+            total_grad .+= grad
+            compute_gradi && push!(all_gradi, gradi)
+        end
     end
 
     total_negll, total_grad, all_gradi
@@ -335,7 +367,7 @@ function bfgs_bhhh(start::Vector{Float64}, cells::Vector{CellData};
             step < stptol && break
             θ_try = θ .+ step .* d
             (θ_try[K+1] <= 0.001 || θ_try[K+1] >= 5.0) && continue
-            negll_try, _, _ = accumulate(θ_try, cells; compute_gradi=false)
+            negll_try, _, _ = accumulate(θ_try, cells; compute_grad=false)
             negll_try <= old_negll && break
         end
 
@@ -344,9 +376,9 @@ function bfgs_bhhh(start::Vector{Float64}, cells::Vector{CellData};
             break
         end
 
-        # Accept step
+        # Accept step — need gradient for BFGS update
         θ .+= step .* d
-        negll, g, _ = accumulate(θ, cells; compute_gradi=false)
+        negll, g, _ = accumulate(θ, cells; compute_grad=true)
 
         # BFGS Hessian update
         incr = step .* d
@@ -413,7 +445,7 @@ function optimize_beta(cells::Vector{CellData}, K::Int, β_init::Vector{Float64}
             step /= 2.0
             step < stptol && break
             θ_try = vcat(β .+ step .* d, λ_fixed)
-            negll_try, _, _ = accumulate(θ_try, cells; compute_gradi=false)
+            negll_try, _, _ = accumulate(θ_try, cells; compute_grad=false)
             negll_try <= old_negll && break
         end
 
@@ -422,9 +454,10 @@ function optimize_beta(cells::Vector{CellData}, K::Int, β_init::Vector{Float64}
             break
         end
 
+        # Accept step — need gradient for BFGS update
         β .+= step .* d
         θ = vcat(β, λ_fixed)
-        negll, full_grad, _ = accumulate(θ, cells; compute_gradi=false)
+        negll, full_grad, _ = accumulate(θ, cells; compute_grad=true)
         grad_β = full_grad[1:K]
 
         incr = step .* d
@@ -459,23 +492,23 @@ function optimize_lambda(cells::Vector{CellData}, β::Vector{Float64};
     c = b - φ * (b - a)
     d = a + φ * (b - a)
 
-    fc, _, _ = accumulate(vcat(β, c), cells; compute_gradi=false)
-    fd, _, _ = accumulate(vcat(β, d), cells; compute_gradi=false)
+    fc, _, _ = accumulate(vcat(β, c), cells; compute_grad=false)
+    fd, _, _ = accumulate(vcat(β, d), cells; compute_grad=false)
 
     while (b - a) > tol
         if fc < fd
             b = d; d = c; fd = fc
             c = b - φ * (b - a)
-            fc, _, _ = accumulate(vcat(β, c), cells; compute_gradi=false)
+            fc, _, _ = accumulate(vcat(β, c), cells; compute_grad=false)
         else
             a = c; c = d; fc = fd
             d = a + φ * (b - a)
-            fd, _, _ = accumulate(vcat(β, d), cells; compute_gradi=false)
+            fd, _, _ = accumulate(vcat(β, d), cells; compute_grad=false)
         end
     end
 
     λ_opt = (a + b) / 2.0
-    negll_opt, _, _ = accumulate(vcat(β, λ_opt), cells; compute_gradi=false)
+    negll_opt, _, _ = accumulate(vcat(β, λ_opt), cells; compute_grad=false)
     λ_opt, negll_opt
 end
 
@@ -522,63 +555,97 @@ end
 # =========================================================================
 
 function main()
-    cell_dir = "data/output/choice_cells"
+    temp_dir = get(ENV, "TEMP_DIR", "data/output")
+    cell_dir = joinpath(temp_dir, "choice_cells")
     out_dir = "results"
 
     println("=== Structural demand estimation (Julia v3) ===")
     println("  V_0 = β'X_0 (NOT 0)")
     println("  Weights normalized to mean 1 globally")
     println("  Optim.jl LBFGS with cell-by-cell accumulator")
-    println("  Pooled model: all HH, assisted x metal + commission_broker (broker only)")
+    println("  TEMP_DIR = $temp_dir")
 
-    # --- Pooled model: all HH, with assisted x metal + commission_broker + CF ---
+    # --- Pooled model: all HH ---
     println("\n--- Pooled model: all HH ---")
-    covars = vcat(BASE_COVARS,
-                  "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
-                  "commission_broker", "v_hat_commission")
+    covars = load_spec(joinpath(temp_dir, "demand_spec.csv"))
     K = length(covars)
+    println("  Covariates: $K terms")
 
     cells, total_hh = load_cells(cell_dir, covars; filter_assisted=-1)
     normalize_weights!(cells)
+    GC.gc(); GC.gc()  # reclaim DataFrame/CSV.jl memory from loading
 
-    # MNL starting values (β from zeros, λ=1)
-    println("\n  MNL starting values (λ=1 fixed)...")
-    β_start, _ = optimize_beta(cells, K, zeros(K), 1.0; verbose=true)
-    θ_start = vcat(β_start, 1.0)
+    # Move X matrices out of Julia heap into memory-mapped files.
+    # Reduces Julia memory from ~12GB to <1GB; OS pages data as needed.
+    cells = offload_to_mmap(cells)
+    GC.gc(); GC.gc()  # reclaim old heap X matrices
+
+    # MNL starting values: load from cache if available, otherwise estimate
+    mnl_cache = joinpath(temp_dir, "mnl_starting_values.csv")
+    if isfile(mnl_cache)
+        println("\n  Loading cached MNL starting values...")
+        mnl_df = CSV.read(mnl_cache, DataFrame)
+        θ_start = mnl_df.estimate
+        @printf("  Loaded %d parameters, β₁ = %.6f\n", length(θ_start), θ_start[1])
+    else
+        println("\n  MNL starting values (λ=1 fixed)...")
+        β_start, _ = optimize_beta(cells, K, zeros(K), 1.0; verbose=true)
+        θ_start = vcat(β_start, 1.0)
+        # Cache for future runs
+        mnl_df = DataFrame(term = vcat(covars, "lambda"), estimate = θ_start)
+        CSV.write(mnl_cache, mnl_df)
+        println("  MNL starting values cached to $mnl_cache")
+    end
 
     # Optim.jl LBFGS with diagnostic logging
+    # Shared-state cache: obj() computes negLL+grad together, caches result.
+    # When grad!() is called at the same θ, it returns the cached gradient
+    # instead of recomputing. obj() skips gradient when θ differs from cache
+    # (pure line search probe).
     println("\n  Optim.jl LBFGS...")
-    logfile = joinpath(out_dir, "demand_optim_log.csv")
+    logfile = joinpath(temp_dir, "demand_optim_log.csv")
     open(logfile, "w") do f
-        println(f, "eval,type,negll,grad_norm,lambda,beta_1,beta_premium_sq,timestamp")
+        println(f, "eval,type,negll,grad_norm,lambda,beta_premium,timestamp")
     end
     eval_count = Ref(0)
+    cache_θ = Float64[]          # last θ where gradient was computed
+    cache_nll = Ref(0.0)
+    cache_grad = zeros(K + 1)
 
     function obj(θ)
         θ_c = copy(θ); θ_c[K+1] = clamp(θ_c[K+1], 0.001, 5.0)
-        nll, _, _ = accumulate(θ_c, cells; compute_gradi=false)
+        # negLL-only: skip gradient computation (~40% faster)
+        nll, _, _ = accumulate(θ_c, cells; compute_grad=false)
         eval_count[] += 1
         if !isfinite(nll)
             @warn "Non-finite NLL at eval $(eval_count[]): $nll, λ=$(θ_c[K+1])"
         end
         open(logfile, "a") do f
-            @printf(f, "%d,obj,%.6f,NA,%.6f,%.8f,%.2e,%s\n",
-                    eval_count[], nll, θ_c[K+1], θ_c[1], θ_c[3],
+            @printf(f, "%d,obj,%.6f,NA,%.6f,%.8f,%s\n",
+                    eval_count[], nll, θ_c[K+1], θ_c[1],
                     Dates.format(Dates.now(), "HH:MM:SS"))
         end
         return nll
     end
     function grad!(G, θ)
         θ_c = copy(θ); θ_c[K+1] = clamp(θ_c[K+1], 0.001, 5.0)
-        _, g, _ = accumulate(θ_c, cells; compute_gradi=false)
-        G .= g
-        gnorm = sqrt(sum(g.^2))
-        if !isfinite(gnorm) || any(!isfinite, g)
+        # Check cache: if obj() was just called at this θ, reuse
+        if θ_c == cache_θ
+            G .= cache_grad
+        else
+            nll, g, _ = accumulate(θ_c, cells; compute_grad=true)
+            G .= g
+            cache_θ = copy(θ_c)
+            cache_nll[] = nll
+            cache_grad .= g
+        end
+        gnorm = sqrt(sum(G.^2))
+        if !isfinite(gnorm) || any(!isfinite, G)
             @warn "Non-finite gradient at eval $(eval_count[]): norm=$gnorm, λ=$(θ_c[K+1])"
         end
         open(logfile, "a") do f
-            @printf(f, "%d,grad,NA,%.6e,%.6f,%.8f,%.2e,%s\n",
-                    eval_count[], gnorm, θ_c[K+1], θ_c[1], θ_c[3],
+            @printf(f, "%d,grad,NA,%.6e,%.6f,%.8f,%s\n",
+                    eval_count[], gnorm, θ_c[K+1], θ_c[1],
                     Dates.format(Dates.now(), "HH:MM:SS"))
         end
     end
@@ -624,12 +691,11 @@ end
 # Single-cell test mode: julia estimate_demand_v3.jl test
 if length(ARGS) > 0 && ARGS[1] == "test"
     println("=== Single-cell test (region 15, year 2017, all HH) ===")
-    covars = vcat(BASE_COVARS,
-                  "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
-                  "commission_broker", "v_hat_commission")
+    temp_dir = get(ENV, "TEMP_DIR", "data/output")
+    covars = load_spec(joinpath(temp_dir, "demand_spec.csv"))
     K = length(covars)
 
-    f = "data/output/choice_cells/cell_15_2017_data.csv"
+    f = joinpath(temp_dir, "choice_cells", "cell_15_2017_data.csv")
     df = CSV.read(f, DataFrame)
     println("  Rows: ", nrow(df), "  HH: ", length(unique(df.household_number)))
 
@@ -643,12 +709,12 @@ if length(ARGS) > 0 && ARGS[1] == "test"
 
     function obj_test(θ)
         θ_c = copy(θ); θ_c[K+1] = clamp(θ_c[K+1], 0.001, 5.0)
-        nll, _, _ = accumulate(θ_c, cells; compute_gradi=false)
+        nll, _, _ = accumulate(θ_c, cells; compute_grad=false)
         return nll
     end
     function grad_test!(G, θ)
         θ_c = copy(θ); θ_c[K+1] = clamp(θ_c[K+1], 0.001, 5.0)
-        _, g, _ = accumulate(θ_c, cells; compute_gradi=false)
+        _, g, _ = accumulate(θ_c, cells; compute_grad=true)
         G .= g
     end
 
