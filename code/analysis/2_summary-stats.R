@@ -2,8 +2,8 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-21
-## Description:   Summary statistics, propensity scores, IPW, covariate balance.
-##                Port of _old-repo/analysis/decision-support/_SummaryStats.R
+## Description:   Summary statistics, covariate balance, and figures.
+##                IPW weights computed in 2_ipw.R (must run first).
 
 # Load from disk if not already in memory -----------------------------------
 if (!exists("hh_full")) {
@@ -11,6 +11,14 @@ if (!exists("hh_full")) {
   hh_clean <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE)
   hh_ins   <- read_csv("data/output/hh_ins.csv", show_col_types = FALSE)
   cat("  Loaded hh_full/hh_clean/hh_ins from disk\n")
+}
+# Join IPW weights if not already present (from 2_ipw.R)
+if (!"ipweight" %in% names(hh_ins)) {
+  ipweights <- read_csv("data/output/ipweights.csv", show_col_types = FALSE)
+  hh_full  <- hh_full %>% left_join(ipweights, by = "household_year")
+  hh_clean <- hh_clean %>% left_join(ipweights, by = "household_year")
+  hh_ins   <- hh_ins %>% left_join(ipweights, by = "household_year")
+  rm(ipweights)
 }
 
 # Grayscale theme for all figures ------------------------------------------
@@ -127,42 +135,6 @@ plot_enroll <- ggplot(enroll_ts, aes(x = year, y = n, linetype = channel)) +
   theme_paper
 ggsave("results/figures/enrollee_count.png", plot_enroll, width = 7, height = 4, bg = "white")
 
-# Propensity score estimation (nest by year) ------------------------------
-
-ps_formula <- assisted ~ FPL + perc_0to17 + perc_18to25 + perc_65plus +
-  perc_black + perc_hispanic + perc_asian + perc_male + household_size
-
-estimate_ps <- function(df) {
-  df %>%
-    nest(data = -year) %>%
-    mutate(
-      model = map(data, ~ glm(ps_formula, data = .x, family = binomial)),
-      pred  = map2(model, data, ~ predict(.x, newdata = .y, type = "response"))
-    ) %>%
-    select(year, data, pred) %>%
-    unnest(cols = c(data, pred)) %>%
-    rename(pred_assist = pred)
-}
-
-# Drop any existing PS/IPW columns from prior runs (CSVs carry them forward)
-for (df_name in c("hh_ins", "hh_full", "hh_clean")) {
-  df <- get(df_name)
-  drop_cols <- intersect(c("pred_assist", "ipweight"), names(df))
-  if (length(drop_cols) > 0) assign(df_name, df %>% select(-all_of(drop_cols)))
-}
-
-# Estimate PS on insured only — the population used in downstream regressions
-hh_ins <- estimate_ps(hh_ins) %>%
-  mutate(ipweight = if_else(assisted == 1, 1, pred_assist / (1 - pred_assist)))
-
-# Propagate weights to hh_full and hh_clean via join
-hh_full <- hh_full %>%
-  left_join(hh_ins %>% select(household_year, pred_assist, ipweight),
-            by = "household_year")
-
-hh_clean <- hh_clean %>%
-  left_join(hh_ins %>% select(household_year, pred_assist, ipweight),
-            by = "household_year")
 
 # Propensity score histograms (grayscale) ---------------------------------
 
@@ -281,11 +253,5 @@ tex_lines <- c(
   "\\end{tabular}"
 )
 writeLines(tex_lines, "results/tables/summary_stats.tex")
-
-# Save datasets with IPW weights for downstream scripts
-write_csv(hh_full, "data/output/hh_full.csv")
-write_csv(hh_clean, "data/output/hh_clean.csv")
-write_csv(hh_ins, "data/output/hh_ins.csv")
-cat("  Updated: hh_full.csv, hh_clean.csv, hh_ins.csv (with IPW weights)\n")
 
 cat("Summary statistics complete.\n")

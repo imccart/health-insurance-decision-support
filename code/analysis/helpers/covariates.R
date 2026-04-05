@@ -87,7 +87,17 @@ get_covariate_menu <- function() {
 
     # --- Commission / CF ---
     commission_broker  = list(type = "commission"),
-    v_hat_commission   = list(type = "commission")
+    v_hat_commission   = list(type = "commission"),
+
+    # --- CF interactions (reduced-form selection correction) ---
+    # v_hat × plan indicators, used for reduced-form CF approach
+    cf_anthem      = list(type = "cf_interaction", raw_demo = "Anthem",      cf_var = "v_hat"),
+    cf_blue_shield = list(type = "cf_interaction", raw_demo = "Blue_Shield", cf_var = "v_hat"),
+    cf_kaiser      = list(type = "cf_interaction", raw_demo = "Kaiser",      cf_var = "v_hat"),
+    cf_health_net  = list(type = "cf_interaction", raw_demo = "Health_Net",  cf_var = "v_hat"),
+    cf_silver      = list(type = "cf_interaction", raw_demo = "silver",      cf_var = "v_hat"),
+    cf_bronze      = list(type = "cf_interaction", raw_demo = "bronze",      cf_var = "v_hat"),
+    cf_premium     = list(type = "cf_interaction", raw_demo = "premium",     cf_var = "v_hat")
   )
 }
 

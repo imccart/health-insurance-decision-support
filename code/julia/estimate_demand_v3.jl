@@ -556,22 +556,29 @@ end
 
 function main()
     temp_dir = get(ENV, "TEMP_DIR", "data/output")
-    cell_dir = joinpath(temp_dir, "choice_cells")
+    cell_dir = get(ENV, "DEMAND_CELL_DIR", joinpath(temp_dir, "choice_cells"))
     out_dir = "results"
+    spec_path = get(ENV, "DEMAND_SPEC_PATH", joinpath(temp_dir, "demand_spec.csv"))
+    out_path = get(ENV, "DEMAND_OUTPUT_PATH", joinpath(out_dir, "choice_coefficients_structural.csv"))
+    filter_assisted = parse(Int, get(ENV, "DEMAND_FILTER_ASSISTED", "-1"))
 
-    println("=== Structural demand estimation (Julia v3) ===")
+    println("=== Demand estimation (Julia v3) ===")
     println("  V_0 = β'X_0 (NOT 0)")
     println("  Weights normalized to mean 1 globally")
     println("  Optim.jl LBFGS with cell-by-cell accumulator")
     println("  TEMP_DIR = $temp_dir")
+    println("  CELL_DIR = $cell_dir")
+    println("  SPEC = $spec_path")
+    println("  OUTPUT = $out_path")
+    println("  FILTER_ASSISTED = $filter_assisted")
 
-    # --- Pooled model: all HH ---
-    println("\n--- Pooled model: all HH ---")
-    covars = load_spec(joinpath(temp_dir, "demand_spec.csv"))
+    # --- Pooled model ---
+    println("\n--- Loading data ---")
+    covars = load_spec(spec_path)
     K = length(covars)
     println("  Covariates: $K terms")
 
-    cells, total_hh = load_cells(cell_dir, covars; filter_assisted=-1)
+    cells, total_hh = load_cells(cell_dir, covars; filter_assisted=filter_assisted)
     normalize_weights!(cells)
     GC.gc(); GC.gc()  # reclaim DataFrame/CSV.jl memory from loading
 
@@ -659,7 +666,7 @@ function main()
 
     # Save
     coefs = DataFrame(term = vcat(covars, "lambda"), estimate = θ_opt)
-    CSV.write(joinpath(out_dir, "choice_coefficients_structural.csv"), coefs)
+    CSV.write(out_path, coefs)
 
     @printf("\n  Done: negLL = %.2f  λ = %.4f  converged = %s\n",
             negll, θ_opt[K+1], Optim.converged(result))
@@ -669,13 +676,17 @@ function main()
     end
     @printf("    %-25s = %12.6f\n", "lambda", θ_opt[K+1])
 
-    # Headline: commission-premium ratio and assisted effects
-    β_p = θ_opt[findfirst(==("premium"), covars)]
-    β_c = θ_opt[findfirst(==("commission_broker"), covars)]
-    if abs(β_p) > 1e-10
-        @printf("\n  β_commission / |β_premium| = %.4f\n", β_c / abs(β_p))
-        @printf("  Interpretation: \$1 commission ≈ \$%.2f premium equivalent for broker HH\n",
-                β_c / abs(β_p))
+    # Headline: commission-premium ratio and assisted effects (structural only)
+    comm_idx = findfirst(==("commission_broker"), covars)
+    prem_idx = findfirst(==("premium"), covars)
+    if comm_idx !== nothing && prem_idx !== nothing
+        β_p = θ_opt[prem_idx]
+        β_c = θ_opt[comm_idx]
+        if abs(β_p) > 1e-10
+            @printf("\n  β_commission / |β_premium| = %.4f\n", β_c / abs(β_p))
+            @printf("  Interpretation: \$1 commission ≈ \$%.2f premium equivalent for broker HH\n",
+                    β_c / abs(β_p))
+        end
     end
     for m in ["assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat"]
         idx = findfirst(==(m), covars)
@@ -684,7 +695,7 @@ function main()
         end
     end
 
-    println("  -> results/choice_coefficients_structural.csv")
+    println("  -> $out_path")
     println("\nDone.")
 end
 

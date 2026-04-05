@@ -71,10 +71,16 @@ if (prep_done) {
 
   cat("Reading analysis data from disk...\n")
   hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
+  ipweights  <- read_csv("data/output/ipweights.csv", show_col_types = FALSE)
   plan_data  <- read_csv("data/input/Covered California/plan_data.csv",
                           show_col_types = FALSE, name_repair = "minimal")
   broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
   commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+
+  # Join IPW weights (from 2_ipw.R)
+  hh_full <- hh_full %>%
+    left_join(ipweights, by = "household_year")
+  rm(ipweights)
 
   cat("  hh_full:", nrow(hh_full), "rows\n")
 

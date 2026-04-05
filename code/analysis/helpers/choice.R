@@ -300,6 +300,20 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     HN_bronze     = Health_Net * bronze
   )]
 
+  # CF interactions (v_hat × plan indicators, for reduced-form selection correction)
+  # Only fires when cf_* terms are in the spec
+  if (!is.null(spec) && "v_hat" %in% names(dt)) {
+    menu <- get_covariate_menu()
+    cf_terms <- intersect(spec, names(menu))
+    cf_terms <- cf_terms[sapply(cf_terms, function(s) identical(menu[[s]]$type, "cf_interaction"))]
+    for (cf_term in cf_terms) {
+      raw_col <- menu[[cf_term]]$raw_demo
+      if (raw_col %in% names(dt)) {
+        dt[, (cf_term) := v_hat * get(raw_col)]
+      }
+    }
+  }
+
   # 9. Split by channel, keep valid choices, return as tibble
   # Build model_vars from spec (if provided) or use full set
   always_keep <- c("plan_name", "household_number", "choice", "premium",

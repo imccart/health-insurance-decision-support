@@ -52,9 +52,9 @@ dom_models <- list(
   "New + CF"      = mod3
 )
 
-modelsummary(
+dom_tab <- modelsummary(
   dom_models,
-  output = "results/tables/dominated_choice_regression.tex",
+  output = "kableExtra",
   stars = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
   gof_omit = "AIC|BIC|Log|Std|RMSE",
   coef_map = c(
@@ -67,6 +67,7 @@ modelsummary(
     "new_enrollee"   = "New Enrollee"
   )
 )
+save_kable(dom_tab, "results/tables/dominated_choice_regression.tex")
 
 plot_dom_reg <- modelplot(dom_models,
                           coef_map = c("assisted" = "Assisted")) +

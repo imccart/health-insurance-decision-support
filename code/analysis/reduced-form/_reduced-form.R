@@ -21,32 +21,53 @@ source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
 source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
 
 # Reduced-form specification
 REDUCED_FORM_SPEC <- c(
   "premium", "penalty_own",
   "silver", "bronze", "hmo", "hsa",
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
   "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
   "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
   "FPL_250to400_prem", "FPL_400plus_prem"
 )
 
+# CF interaction terms (v_hat × plan indicators for selection correction)
+REDUCED_FORM_CF <- c(
+  "cf_anthem", "cf_blue_shield", "cf_kaiser", "cf_health_net",
+  "cf_silver", "cf_bronze", "cf_premium"
+)
 
+# Full spec for cell building and Julia estimation
+REDUCED_FORM_FULL <- c(REDUCED_FORM_SPEC, REDUCED_FORM_CF)
+
+# Write spec for Julia
+write_demand_spec(REDUCED_FORM_FULL, character(0),
+                  "data/output/demand_spec_reduced.csv")
 
 # =========================================================================
 # Read data
 # =========================================================================
 
 cat("Reading analysis data from disk...\n")
-hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
-hh_clean   <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE)
+hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE) %>%
+  mutate(region = as.integer(region), year = as.integer(year))
+hh_clean   <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE) %>%
+  mutate(region = as.integer(region), year = as.integer(year))
+ipweights  <- read_csv("data/output/ipweights.csv", show_col_types = FALSE)
 plan_data  <- read_csv("data/input/Covered California/plan_data.csv",
                         show_col_types = FALSE, name_repair = "minimal")
-broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
+broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE) %>%
+  mutate(region = as.integer(region), year = as.integer(year))
 commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+
+# Join IPW weights (from 2_ipw.R)
+hh_full  <- hh_full %>%
+  left_join(ipweights, by = "household_year")
+hh_clean <- hh_clean %>%
+  left_join(ipweights, by = "household_year")
+rm(ipweights)
 
 cat("  hh_full:", nrow(hh_full), "rows\n")
 cat("  hh_clean:", nrow(hh_clean), "rows\n")
@@ -154,11 +175,7 @@ cat("  plan_choice saved -> data/output/plan_choice.csv\n")
 
 hh_choice <- hh_full %>%
   filter(!grepl("_CAT$", plan_name) | is.na(plan_name)) %>%
-  mutate(
-    region = as.integer(region),
-    year   = as.integer(year),
-    cutoff = AFFORD_THRESHOLDS[as.character(year)]
-  ) %>%
+  mutate(cutoff = AFFORD_THRESHOLDS[as.character(year)]) %>%
   select(region, year, household_id, FPL, subsidized_members, rating_factor,
          plan_number_nocsr, plan_name, previous_plan_number,
          oldest_member, cheapest_premium,
