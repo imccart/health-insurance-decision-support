@@ -36,7 +36,7 @@ REDUCED_FORM_SPEC <- c(
 # CF interaction terms (v_hat × plan indicators for selection correction)
 REDUCED_FORM_CF <- c(
   "cf_anthem", "cf_blue_shield", "cf_kaiser", "cf_health_net",
-  "cf_silver", "cf_bronze", "cf_premium"
+  "cf_silver", "cf_bronze"
 )
 
 # Full spec for cell building and Julia estimation

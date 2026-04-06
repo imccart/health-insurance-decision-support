@@ -582,10 +582,10 @@ function main()
     normalize_weights!(cells)
     GC.gc(); GC.gc()  # reclaim DataFrame/CSV.jl memory from loading
 
-    # Move X matrices out of Julia heap into memory-mapped files.
-    # Reduces Julia memory from ~12GB to <1GB; OS pages data as needed.
-    cells = offload_to_mmap(cells)
-    GC.gc(); GC.gc()  # reclaim old heap X matrices
+    # Skip mmap — anonymous mmap still triggers CrowdStrike BSODs via pagefile I/O.
+    # Regular arrays are fine: 5% ≈ 0.6GB, 20% ≈ 2.4GB, well within RAM.
+    # cells = offload_to_mmap(cells)
+    GC.gc(); GC.gc()
 
     # MNL starting values: load from cache if available, otherwise estimate
     mnl_cache = joinpath(temp_dir, "mnl_starting_values.csv")

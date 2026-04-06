@@ -5,7 +5,7 @@
 ## Date Edited:   2026-03-24
 ## Description:   Structural demand estimation.
 ##                Phase 1 (R): build cell CSVs from parquet partitions.
-##                Phase 2 (Julia): BFGS-BHHH nested logit via estimate_demand_v3.jl.
+##                Phase 2 (R): L-BFGS-B nested logit via estimate_demand.R.
 ##                See docs/optimizer.md for algorithm details.
 
 # Dependencies (arrow for read_parquet, not in 0-setup.R) -----------------
@@ -91,42 +91,20 @@ cat("  Built:", n_built, "  Skipped:", n_skip, "\n")
 
 
 # =========================================================================
-# PHASE 2: Run Julia estimator
+# PHASE 2: Estimate demand (R)
 # =========================================================================
 
-cat("\nPhase 2: Running Julia demand estimation...\n")
+cat("\nPhase 2: Running demand estimation...\n")
 
-julia_script <- "code/julia/estimate_demand_v3.jl"
+source("code/analysis/helpers/estimate_demand.R")
 
-julia_exe <- Sys.which("julia")
-if (julia_exe == "") {
-  julia_candidates <- c(
-    "C:/Users/immccar/AppData/Local/Microsoft/WindowsApps/julia.exe",
-    "C:/Users/immccar/.juliaup/bin/julia.exe"
-  )
-  for (jc in julia_candidates) {
-    if (file.exists(jc)) { julia_exe <- jc; break }
-  }
-}
-
-if (julia_exe == "") {
-  cat("  Julia not found. Run manually:\n")
-  cat("    julia --threads=auto", julia_script, "\n")
-} else {
-  cat("  Julia executable:", julia_exe, "\n")
-  # Retry loop: Julia LLVM JIT crashes intermittently on Windows.
-  # Non-deterministic — usually succeeds within 2-3 attempts.
-  max_attempts <- 3
-  for (attempt in seq_len(max_attempts)) {
-    cat("  Attempt", attempt, "of", max_attempts, "\n")
-    exit_code <- system2(julia_exe,
-                          args = c("+release", "--threads=auto", julia_script),
-                          stdout = "", stderr = "")
-    if (exit_code == 0) break
-    cat("  Julia exited with code", exit_code, "— retrying...\n")
-  }
-  if (exit_code != 0) cat("  Julia failed after", max_attempts, "attempts\n")
-}
+estimate_demand(
+  cell_dir        = CELL_DIR,
+  spec_path       = file.path(TEMP_DIR, "demand_spec.csv"),
+  out_path        = "results/choice_coefficients_structural.csv",
+  filter_assisted = -1L,  # all HH for structural
+  temp_dir        = TEMP_DIR  # cache MNL starting values
+)
 
 
 # =========================================================================

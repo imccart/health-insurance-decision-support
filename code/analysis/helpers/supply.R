@@ -647,7 +647,7 @@ build_commission_lookup <- function(commission_raw) {
 #
 # For each plan, look up insurer's commission rate and convert to PMPM.
 
-get_commission_pmpm <- function(plan_names, plans_cell, year, commission_lookup) {
+get_commission_pmpm <- function(plan_names, plans_cell, yr, commission_lookup) {
 
   result <- setNames(rep(0, length(plan_names)), plan_names)
 
@@ -656,7 +656,7 @@ get_commission_pmpm <- function(plan_names, plans_cell, year, commission_lookup)
     prefix <- sub("_.*", "", pn)
 
     cl <- commission_lookup %>%
-      filter(insurer_prefix == prefix, year == !!year)
+      filter(insurer_prefix == prefix, year == !!yr)
 
     if (nrow(cl) == 0) next
 

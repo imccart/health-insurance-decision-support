@@ -4,7 +4,7 @@
 ## Date Created:  2026-02-24
 ## Date Edited:   2026-04-05
 ## Description:   Pooled nested logit choice model ATT with control function.
-##                Estimate on unassisted HH via Julia estimator (same as structural),
+##                Estimate on unassisted HH via R estimator (optim L-BFGS-B),
 ##                predict counterfactual for assisted HH, compute ATT.
 ##                Expects plan_choice, partitioned parquets, and v_hat
 ##                available from _reduced-form.R runner.
@@ -16,7 +16,8 @@ library(arrow)
 
 SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
-CELL_DIR      <- "data/output/choice_cells"
+TEMP_DIR      <- Sys.getenv("TEMP_DIR")
+CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
 PARTITION_DIR <- "data/output/hh_choice_partitions"
 
 # Read plan data (runner already saved plan_choice.csv)
@@ -91,54 +92,26 @@ rm(plan_choice)
 gc(verbose = FALSE)
 cat("  Built:", n_built, "  Skipped:", n_skip, "\n")
 
+# Free cell_cache before estimation — 3GB of tibbles in memory.
+# Rebuilt from CSVs in Phase 4 if needed.
+rm(cell_cache)
+gc(verbose = FALSE)
 
 # =========================================================================
-# Phase 2: Run Julia estimator (unassisted only)
+# Phase 2: Estimate demand (R, unassisted only)
 # =========================================================================
 
-cat("\nPhase 2: Running Julia demand estimation (unassisted HH)...\n")
+cat("\nPhase 2: Running demand estimation (unassisted HH)...\n")
 
-julia_script <- "code/julia/estimate_demand_v3.jl"
+source("code/analysis/helpers/estimate_demand.R")
 
-julia_exe <- Sys.which("julia")
-if (julia_exe == "") {
-  julia_candidates <- c(
-    "C:/Users/immccar/AppData/Local/Microsoft/WindowsApps/julia.exe",
-    "C:/Users/immccar/.juliaup/bin/julia.exe"
-  )
-  for (jc in julia_candidates) {
-    if (file.exists(jc)) { julia_exe <- jc; break }
-  }
-}
-
-# Set env vars for Julia to read
-Sys.setenv(DEMAND_SPEC_PATH = "data/output/demand_spec_reduced.csv")
-Sys.setenv(DEMAND_OUTPUT_PATH = "results/choice_coefficients.csv")
-Sys.setenv(DEMAND_FILTER_ASSISTED = "0")
-Sys.setenv(DEMAND_CELL_DIR = CELL_DIR)
-
-if (julia_exe == "") {
-  cat("  Julia not found. Run manually:\n")
-  cat("    julia --threads=auto", julia_script, "\n")
-} else {
-  cat("  Julia executable:", julia_exe, "\n")
-  max_attempts <- 3
-  for (attempt in seq_len(max_attempts)) {
-    cat("  Attempt", attempt, "of", max_attempts, "\n")
-    exit_code <- system2(julia_exe,
-                          args = c("+release", "--threads=auto", julia_script),
-                          stdout = "", stderr = "")
-    if (exit_code == 0) break
-    cat("  Julia exited with code", exit_code, "— retrying...\n")
-  }
-  if (exit_code != 0) cat("  Julia failed after", max_attempts, "attempts\n")
-}
-
-# Clean up env vars
-Sys.unsetenv("DEMAND_SPEC_PATH")
-Sys.unsetenv("DEMAND_OUTPUT_PATH")
-Sys.unsetenv("DEMAND_FILTER_ASSISTED")
-Sys.unsetenv("DEMAND_CELL_DIR")
+estimate_demand(
+  cell_dir        = CELL_DIR,
+  spec_path       = "data/output/demand_spec_reduced.csv",
+  out_path        = "results/choice_coefficients.csv",
+  filter_assisted = 0L,
+  temp_dir        = NULL  # no MNL caching for reduced-form
+)
 
 
 # =========================================================================
@@ -150,7 +123,7 @@ cat("\nPhase 3: Reading coefficient estimates...\n")
 coefs_path <- "results/choice_coefficients.csv"
 if (!file.exists(coefs_path)) {
   cat("  Coefficients not found at", coefs_path, "\n")
-  stop("Julia estimation failed — no output file.", call. = FALSE)
+  stop("Demand estimation failed — no output file.", call. = FALSE)
 }
 
 coefs <- read_csv(coefs_path, show_col_types = FALSE)
@@ -169,14 +142,14 @@ pred_list <- list()
 for (i in seq_len(nrow(cells))) {
   r <- cells$region[i]
   y <- cells$year[i]
-  key <- paste0(r, "_", y)
 
-  if (!key %in% names(cell_cache)) next
-  cell_data <- cell_cache[[key]]
+  csv_path <- file.path(CELL_DIR, paste0("cell_", r, "_", y, "_data.csv"))
+  if (!file.exists(csv_path)) next
+  cell_data <- read_csv(csv_path, show_col_types = FALSE)
 
   # Assisted HH only for OOS prediction
   cell_oos <- cell_data %>% filter(assisted == 1)
-  if (nrow(cell_oos) == 0) next
+  if (nrow(cell_oos) == 0) { rm(cell_data, cell_oos); next }
 
   preds <- predict_nested_logit(cell_oos, coefs,
                                 unique(cell_data$plan_name[cell_data$plan_name != "Uninsured"]))
@@ -192,10 +165,8 @@ for (i in seq_len(nrow(cells))) {
   plan_summary[, `:=`(region = r, year = y)]
 
   pred_list[[length(pred_list) + 1]] <- plan_summary
-  rm(cell_oos, preds, cell_oos_dt, plan_summary)
+  rm(cell_data, cell_oos, preds, cell_oos_dt, plan_summary)
 }
-
-rm(cell_cache)
 
 all_prob <- bind_rows(pred_list)
 write_csv(all_prob, "results/choice_point_estimates.csv")
