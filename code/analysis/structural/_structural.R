@@ -31,18 +31,11 @@ STRUCTURAL_SPEC <- c(
   "premium", "penalty_own",
   "silver", "bronze", "hmo", "hsa",
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
-  "hh_size_prem",
-  "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
-  "perc_male_prem",
-  "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
-  "FPL_250to400_prem", "FPL_400plus_prem",
-  "FPL_250to400_insured", "FPL_400plus_insured",
-  "hh_size_insured", 
-  "perc_0to17_insured", "perc_18to34_insured", "perc_35to54_insured",
-  "perc_male_insured",
-  "perc_black_insured", "perc_hispanic_insured", "perc_asian_insured", "perc_other_insured"
+#  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
+#  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
+  "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
+  "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
+  "FPL_250to400_prem", "FPL_400plus_prem"
 )
 
 STRUCTURAL_ASST <- c(
@@ -262,6 +255,9 @@ source("code/analysis/structural/2_pricing.R")
 
 rm(list = ls(all.names = TRUE))
 gc(full = TRUE, verbose = FALSE)
+
+# Detach arrow before GMM — arrow interferes with readRDS()
+if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
 
 # =========================================================================
 # COST-SIDE GMM

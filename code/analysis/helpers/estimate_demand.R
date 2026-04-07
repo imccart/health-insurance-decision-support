@@ -365,6 +365,7 @@ bfgs_bhhh <- function(theta_start, cells, max_iter = 500, ftol = 1e-8,
     diag(K + 1)
   })
   rm(bhhh)
+  gc(verbose = FALSE)
 
   cat(sprintf("  Init: negLL = %.2f  lambda = %.4f  beta1 = %.6f\n",
               negll, theta[K + 1], theta[1]))
@@ -422,6 +423,9 @@ bfgs_bhhh <- function(theta_start, cells, max_iter = 500, ftol = 1e-8,
 
     if (abs(negll - old_negll) < ftol) { cat("  Converged (ftol)\n"); break }
     if (abs(chi2) < 1e-6) { cat("  Converged (chi2)\n"); break }
+
+    # Prevent memory accumulation from temporaries
+    if (iter %% 5 == 0) gc(verbose = FALSE)
   }
 
   theta

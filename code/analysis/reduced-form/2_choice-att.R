@@ -18,10 +18,10 @@ SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR      <- Sys.getenv("TEMP_DIR")
 CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
-PARTITION_DIR <- "data/output/hh_choice_partitions"
+PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions_rf")
 
 # Read plan data (runner already saved plan_choice.csv)
-plan_choice <- read_csv("data/output/plan_choice.csv", show_col_types = FALSE)
+plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 
 if (!dir.exists(CELL_DIR)) dir.create(CELL_DIR, recursive = TRUE)
 
@@ -107,7 +107,7 @@ source("code/analysis/helpers/estimate_demand.R")
 
 estimate_demand(
   cell_dir        = CELL_DIR,
-  spec_path       = "data/output/demand_spec_reduced.csv",
+  spec_path       = file.path(TEMP_DIR, "demand_spec_reduced.csv"),
   out_path        = "results/choice_coefficients.csv",
   filter_assisted = 0L,
   temp_dir        = NULL  # no MNL caching for reduced-form

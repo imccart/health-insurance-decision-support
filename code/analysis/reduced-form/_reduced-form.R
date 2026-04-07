@@ -11,6 +11,7 @@
 # Pipeline parameters (set in _analysis.R, recovered via env vars)
 SAMPLE_FRAC <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED <- as.integer(Sys.getenv("MASTER_SEED"))
+TEMP_DIR    <- Sys.getenv("TEMP_DIR")
 
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")
@@ -44,7 +45,7 @@ REDUCED_FORM_FULL <- c(REDUCED_FORM_SPEC, REDUCED_FORM_CF)
 
 # Write spec for Julia
 write_demand_spec(REDUCED_FORM_FULL, character(0),
-                  "data/output/demand_spec_reduced.csv")
+                  file.path(TEMP_DIR, "demand_spec_reduced.csv"))
 
 # =========================================================================
 # Read data
@@ -166,8 +167,8 @@ for (y in unique(plan_choice$year)) {
   )
 }
 
-write_csv(plan_choice, "data/output/plan_choice.csv")
-cat("  plan_choice saved -> data/output/plan_choice.csv\n")
+write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
+cat("  plan_choice saved ->", file.path(TEMP_DIR, "plan_choice.csv"), "\n")
 
 # =========================================================================
 # Partition HH data for choice model
@@ -187,7 +188,7 @@ hh_choice <- hh_full %>%
 
 cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice), "cols\n")
 
-partition_dir <- "data/output/hh_choice_partitions"
+partition_dir <- file.path(TEMP_DIR, "hh_choice_partitions_rf")
 if (dir.exists(partition_dir)) unlink(partition_dir, recursive = TRUE)
 dir.create(partition_dir, recursive = TRUE)
 

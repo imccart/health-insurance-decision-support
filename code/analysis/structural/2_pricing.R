@@ -100,6 +100,7 @@ n_done <- 0L
 n_skip <- 0L
 
 for (i in seq_len(nrow(cells))) {
+  tryCatch({
   r <- cells$region[i]
   y <- cells$year[i]
 
@@ -306,14 +307,20 @@ for (i in seq_len(nrow(cells))) {
      shares, elast_mat, own_mat, Omega, broker_elast_mat, Omega_broker,
      comm_vec, rhs, markup, posted_premium, ra_factor_static, mc_foc, lerner,
      plan_metal, plan_issuer, cell_result, util_result,
-     plan_chars_cell, rs_pred, log_rs, pred_claims, plan_avs,
-     ra_transfers, reins_vec, mc_structural, demo_shares, build_result,
+     plan_chars_cell, rs_pred, pred_claims, plan_avs,
+     ra_transfers, reins_vec, mc_structural, demo_shares,
      ra_foc, rs_levels, avg_prem, rf_cell)
   gc(verbose = FALSE)
 
   if (i %% 20 == 0) {
     cat("  Cell", i, "of", nrow(cells), "(done:", n_done, " skip:", n_skip, ")\n")
   }
+  }, error = function(e) {
+    cat("  ERROR at cell", i, "(region", r, "year", y, "):", conditionMessage(e), "\n")
+    cat("  Traceback:\n")
+    traceback(4)
+    stop(e)
+  })
 }
 
 rm(plan_choice, commission_lookup)
