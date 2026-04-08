@@ -7,12 +7,7 @@
 ##                subprocess per region-year cell (avoids memory accumulation
 ##                from nleqslv copies), then collects and summarizes results.
 
-# Setup (idempotent — safe to re-source) -----------------------------------
-source("code/0-setup.R")
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
+# Setup (packages and helpers already loaded by _structural.R) ---------------
 library(arrow)
 
 # Tuning parameters --------------------------------------------------------

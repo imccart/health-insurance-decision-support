@@ -15,6 +15,7 @@ MASTER_SEED  <- as.integer(Sys.getenv("MASTER_SEED"))
 source("code/0-setup.R")
 library(arrow)
 
+
 # Helpers -----------------------------------------------------------------
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
@@ -209,8 +210,7 @@ if (prep_done) {
 # =========================================================================
 rm(list = setdiff(ls(), c("prep_done")))
 gc(full = TRUE, verbose = FALSE)
-source("code/0-setup.R")
-library(arrow)
+suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
@@ -240,8 +240,7 @@ gc(full = TRUE, verbose = FALSE)
 # PRICING
 # =========================================================================
 cat("\n--- Pricing (markups, FOC inputs) ---\n")
-source("code/0-setup.R")
-library(arrow)
+suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
@@ -263,7 +262,7 @@ if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
 # COST-SIDE GMM
 # =========================================================================
 cat("\n--- Cost-side GMM ---\n")
-source("code/0-setup.R")
+suppressPackageStartupMessages({ library(tidyverse); library(data.table) })
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/supply.R")
@@ -279,8 +278,7 @@ print(gc())
 # COUNTERFACTUALS
 # =========================================================================
 cat("\n--- Counterfactual simulation ---\n")
-source("code/0-setup.R")
-library(arrow)
+suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")

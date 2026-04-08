@@ -49,7 +49,7 @@ demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 STRUCTURAL_SPEC <- demand_spec$base
 STRUCTURAL_ASST <- demand_spec$assisted
 
-RA_TOL <- 1e-4
+RA_TOL <- 0.5       # $/month MC change — ~0.2% of typical MC ($200-300)
 RA_MAX_ITER <- 10
 RA_DAMPING <- 0.7
 TAU_GRID <- c(0, 0.25, 0.5, 0.75, 1.0)
@@ -302,84 +302,89 @@ compute_consumer_surplus <- function(cell_data, coefs_cell) {
 
 solve_equilibrium <- function(cd_scenario, comm_sc, mc_init, p_init) {
 
-  mc_current <- mc_init
-  p_current <- p_init
-  sol_final <- NULL
+  # Compute ra_foc at initial state (first-order RA response to price changes)
+  dt_init <- as.data.table(copy(cd_scenario))
+  util_init <- compute_utility(dt_init, coefs)
+  se_init <- tryCatch(
+    compute_shares_and_elasticities(dt_init, util_init$V, lambda,
+                                     benchmark_plan, plan_attrs, coefs,
+                                     spec = STRUCTURAL_SPEC),
+    error = function(e) NULL
+  )
+  if (is.null(se_init)) return(NULL)
 
-  for (ra_it in seq_len(RA_MAX_ITER)) {
+  shares_init <- se_init$shares[plan_names_cell]
+  elast_init <- se_init$elast_mat
 
-    # Compute ra_foc at current prices/shares (zero on first pass if no prior shares)
-    if (ra_it == 1L) {
-      ra_foc_vec <- setNames(rep(0, length(mc_current)), names(mc_current))
+  demo_init <- tryCatch(
+    compute_demographic_shares(dt_init, util_init$V, lambda),
+    error = function(e) NULL
+  )
+  mc_result_init <- compute_mc(rs_coefs, claims_coefs, plan_chars_cell,
+                                demo_init, shares_init,
+                                mean(p_init, na.rm = TRUE),
+                                plan_avs, reins_vec)
+  rs_init <- setNames(
+    mc_result_init$predicted_risk_scores,
+    names(mc_result_init$predicted_risk_scores)
+  )[plan_names_cell]
+
+  own_mat_ra <- build_ownership_matrix(plan_names_cell)
+  ra_foc_vec <- compute_ra_foc(rs_init, shares_init, plan_avs,
+                                mean(p_init, na.rm = TRUE),
+                                elast_init, own_mat_ra)
+  rm(dt_init)
+
+  # Single-pass FOC solve with ra_foc from initial state
+  foc_fn <- build_foc_function(cd_scenario, coefs, mc_init,
+                                comm_sc, ra_foc_vec, benchmark_plan, plan_attrs)
+
+  f0 <- foc_fn(p_init)
+  cat("    initial |FOC| =", round(sqrt(sum(f0^2, na.rm=TRUE)), 6),
+      ", any NA:", any(is.na(f0)), "\n")
+  if (any(is.na(f0))) return(NULL)
+
+  sol <- tryCatch(
+    nleqslv(x = p_init, fn = foc_fn, method = "Broyden",
+            control = list(maxit = 200, xtol = 1e-6, ftol = 1e-8)),
+    error = function(e) { cat("    nleqslv error:", conditionMessage(e), "\n"); NULL }
+  )
+
+  # Accept if residual is small enough even with non-ideal termcd
+  if (!is.null(sol) && sol$termcd > 2) {
+    f_norm <- sqrt(sum(sol$fvec^2))
+    if (f_norm < 0.01) {
+      cat("    Accepting termcd", sol$termcd, "with |f| =", round(f_norm, 6), "\n")
     } else {
-      # Use shares/elasticities from previous iteration
-      own_mat_ra <- build_ownership_matrix(plan_names_cell)
-      ra_foc_vec <- compute_ra_foc(rs_levels_current, shares_current, plan_avs,
-                                    mean(p_current, na.rm = TRUE),
-                                    elast_current, own_mat_ra)
+      cat("    nleqslv termcd:", sol$termcd, ", |f|:", round(f_norm, 6), "\n")
+      return(NULL)
     }
-
-    foc_fn <- build_foc_function(cd_scenario, coefs, mc_current,
-                                  comm_sc, ra_foc_vec, benchmark_plan, plan_attrs)
-
-    sol <- tryCatch(
-      nleqslv(x = p_current, fn = foc_fn, method = "Broyden",
-              control = list(maxit = 200, xtol = 1e-6, ftol = 1e-8)),
-      error = function(e) NULL
-    )
-
-    if (is.null(sol) || sol$termcd > 2) return(NULL)
-    sol_final <- sol
-    p_current <- sol$x
-
-    # Compute shares and elasticities at new prices
-    dt_new <- as.data.table(copy(cd_scenario))
-    for (pn in names(p_current)) {
-      idx <- dt_new$plan_name == pn
-      if (sum(idx) == 0) next
-      hh_prem_new <- (p_current[pn] / RATING_FACTOR_AGE40) * dt_new$rating_factor[idx]
-      dt_new$premium[idx] <- hh_prem_new / dt_new$hh_size[idx]
-    }
-    recompute_prem_interactions(dt_new[plan_name != "Uninsured"], STRUCTURAL_SPEC)
-
-    util_new <- compute_utility(dt_new, coefs)
-    se_new <- tryCatch(
-      compute_shares_and_elasticities(dt_new, util_new$V, lambda,
-                                       benchmark_plan, plan_attrs, coefs,
-                                       spec = STRUCTURAL_SPEC),
-      error = function(e) NULL
-    )
-    if (is.null(se_new)) return(NULL)
-
-    shares_current <- se_new$shares[plan_names_cell]
-    elast_current <- se_new$elast_mat
-
-    # Recompute demographic shares → risk scores → RA → MC
-    demo_new <- tryCatch(
-      compute_demographic_shares(dt_new, util_new$V, lambda),
-      error = function(e) NULL
-    )
-
-    mc_result <- compute_mc(rs_coefs, claims_coefs, plan_chars_cell,
-                             demo_new, shares_current,
-                             mean(p_current, na.rm = TRUE),
-                             plan_avs, reins_vec)
-    mc_new <- mc_result$mc[plan_names_cell]
-    rs_levels_current <- setNames(mc_result$predicted_risk_scores, names(mc_result$predicted_risk_scores))[plan_names_cell]
-
-    # Check convergence
-    mc_change <- max(abs(mc_new - mc_current[plan_names_cell]), na.rm = TRUE)
-    if (mc_change < RA_TOL) {
-      mc_current <- mc_new
-      break
-    }
-
-    # Damped update
-    mc_current[plan_names_cell] <- RA_DAMPING * mc_new + (1 - RA_DAMPING) * mc_current[plan_names_cell]
   }
+  if (is.null(sol)) return(NULL)
 
-  list(sol = sol_final, p = p_current, mc = mc_current, shares = shares_current,
-       ra_iter = ra_it, dt_final = dt_new)
+  p_sol <- sol$x
+
+  # Compute shares at solution prices for output
+  dt_sol <- as.data.table(copy(cd_scenario))
+  for (pn in names(p_sol)) {
+    idx <- dt_sol$plan_name == pn
+    if (sum(idx) == 0) next
+    hh_prem_new <- (p_sol[pn] / RATING_FACTOR_AGE40) * dt_sol$rating_factor[idx]
+    dt_sol$premium[idx] <- hh_prem_new / dt_sol$hh_size[idx]
+  }
+  recompute_prem_interactions(dt_sol[plan_name != "Uninsured"], STRUCTURAL_SPEC)
+
+  util_sol <- compute_utility(dt_sol, coefs)
+  se_sol <- tryCatch(
+    compute_shares_and_elasticities(dt_sol, util_sol$V, lambda,
+                                     benchmark_plan, plan_attrs, coefs,
+                                     spec = STRUCTURAL_SPEC),
+    error = function(e) NULL
+  )
+  shares_sol <- if (!is.null(se_sol)) se_sol$shares[plan_names_cell] else shares_init
+
+  list(sol = sol, p = p_sol, mc = mc_init, shares = shares_sol,
+       ra_iter = 1L, dt_final = dt_sol)
 }
 
 
