@@ -237,7 +237,7 @@ compute_g_bar <- function(theta) {
     # FOC residual: s + ra_foc + Omega * (p - mc) + Omega_broker * comm
     # Includes RA derivative (adverse selection in pricing)
     ra_foc_cell <- if (!is.null(fc$ra_foc)) fc$ra_foc else rep(0, J)
-    foc_resid <- fc$shares + ra_foc_cell +
+    foc_resid <- fc$shares + ra_foc_cell -
                  as.vector(fc$Omega %*% (fc$posted_premium - mc)) +
                  as.vector(fc$Omega_broker %*% fc$comm_vec)
 

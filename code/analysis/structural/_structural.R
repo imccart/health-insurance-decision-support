@@ -40,7 +40,7 @@ STRUCTURAL_SPEC <- c(
 )
 
 STRUCTURAL_ASST <- c(
-  "assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
+  "assisted_silver", "assisted_bronze",
   "commission_broker", "v_hat_commission"
 )
 
@@ -262,7 +262,7 @@ if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
 # COST-SIDE GMM
 # =========================================================================
 cat("\n--- Cost-side GMM ---\n")
-suppressPackageStartupMessages({ library(tidyverse); library(data.table) })
+source("code/0-setup.R")
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/supply.R")
@@ -278,7 +278,8 @@ print(gc())
 # COUNTERFACTUALS
 # =========================================================================
 cat("\n--- Counterfactual simulation ---\n")
-suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
+source("code/0-setup.R")
+library(arrow)
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
