@@ -28,12 +28,13 @@ source("code/analysis/helpers/covariates.R")
 # Build analysis data -----------------------------------------------------
 source("code/analysis/1_decision-analysis.R")
 source("code/analysis/2_ipw.R")
-# source("code/analysis/2_summary-stats.R")  # figures/tables, skip for test runs
+source("code/analysis/3_summary-stats.R")
 
 # Run reduced-form analysis ------------------------------------------------
 source('code/analysis/reduced-form/_reduced-form.R')
 
-
 # Run structural analysis ------------------------------------------------
 source('code/analysis/structural/_structural.R')
 
+# Numbers in paper --------------------------------------------------------
+source("code/analysis/4_paper-results.R")

@@ -9,14 +9,7 @@
 ##                broker-commission correction. Also estimates structural RA
 ##                regressions and validates FOC-implied MC against predicted MC.
 
-# Setup (idempotent — safe to re-source) -----------------------------------
-source("code/0-setup.R")
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
-source("code/analysis/helpers/ra.R")
-library(arrow)
+# Dependencies: tidyverse, data.table, arrow, helpers (loaded by _structural.R)
 
 # Tuning parameters -------------------------------------------------------
 

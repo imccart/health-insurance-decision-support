@@ -4,36 +4,26 @@
 ## Date Created:  2026-03-16
 ## Description:   Master runner for structural estimation (demand + supply).
 ##                Data prep runs only when intermediate files are missing.
-##                Aggressive memory cleanup between stages.
+##                Packages and helpers loaded once by _analysis.R.
 
-# Pipeline parameters (set in _analysis.R, recovered via env vars)
-TEMP_DIR     <- Sys.getenv("TEMP_DIR")
-SAMPLE_FRAC  <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
-MASTER_SEED  <- as.integer(Sys.getenv("MASTER_SEED"))
+# Packages: all loaded by _analysis.R via 0-setup.R except arrow
+library(arrow)
 
-# Setup -------------------------------------------------------------------
-if (!any(grepl("renv/library", .libPaths()))) source("code/0-setup.R")
-suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
-
-
-# Helpers -----------------------------------------------------------------
+# Helpers
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
 source("code/analysis/helpers/choice.R")
 source("code/analysis/helpers/supply.R")
+source("code/analysis/helpers/ra.R")
 
-
-# Covariate spec: insurer FEs, insurer x metal, demo x premium/insured.
-# Commission and assisted x metal appended in STRUCTURAL_ASST.
-# Spec written to TEMP_DIR/demand_spec.csv for Julia and cf_worker.
+# Covariate spec
+TEMP_DIR <- Sys.getenv("TEMP_DIR")
 
 STRUCTURAL_SPEC <- c(
   "premium",
   "silver", "bronze", "hmo", "hsa",
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
-#  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
-#  "Anthem_bronze", "BS_bronze", "Kaiser_bronze", "HN_bronze",
   "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
   "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
   "FPL_250to400_prem", "FPL_400plus_prem"
@@ -56,9 +46,8 @@ prep_files <- c(
   file.path(TEMP_DIR, "plan_demographics.csv"),
   file.path(TEMP_DIR, "hh_choice_partitions")
 )
-prep_done <- all(file.exists(prep_files))
 
-if (prep_done) {
+if (all(file.exists(prep_files))) {
   cat("Data prep files found — skipping to estimation.\n\n")
 } else {
   cat("Building intermediate files...\n\n")
@@ -71,11 +60,9 @@ if (prep_done) {
   broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
   commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
 
-  # Join IPW weights (from 2_ipw.R)
   hh_full <- hh_full %>%
     left_join(ipweights, by = "household_year")
   rm(ipweights)
-
   cat("  hh_full:", nrow(hh_full), "rows\n")
 
   # Control function
@@ -206,23 +193,6 @@ if (prep_done) {
 }
 
 # =========================================================================
-# Clear environment before estimation
-# =========================================================================
-rm(list = setdiff(ls(), c("prep_done")))
-gc(full = TRUE, verbose = FALSE)
-suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/covariates.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
-
-# Recover spec from file (survives rm(list=ls()) via env var)
-demand_spec <- read_demand_spec(file.path(Sys.getenv("TEMP_DIR"), "demand_spec.csv"))
-STRUCTURAL_SPEC <- demand_spec$base
-STRUCTURAL_ASST <- demand_spec$assisted
-
-# =========================================================================
 # DEMAND
 # =========================================================================
 if (file.exists("results/choice_coefficients_structural.csv")) {
@@ -230,64 +200,32 @@ if (file.exists("results/choice_coefficients_structural.csv")) {
 } else {
   cat("--- Demand estimation ---\n")
   source("code/analysis/structural/1_demand.R")
+  gc(full = TRUE, verbose = FALSE)
 }
-
-# Full cleanup: drop ALL objects (data AND functions), force GC
-rm(list = ls(all.names = TRUE))
-gc(full = TRUE, verbose = FALSE)
 
 # =========================================================================
 # PRICING
 # =========================================================================
 cat("\n--- Pricing (markups, FOC inputs) ---\n")
-suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/covariates.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
-source("code/analysis/helpers/ra.R")
-demand_spec <- read_demand_spec(file.path(Sys.getenv("TEMP_DIR"), "demand_spec.csv"))
-STRUCTURAL_SPEC <- demand_spec$base
-STRUCTURAL_ASST <- demand_spec$assisted
 source("code/analysis/structural/2_pricing.R")
-
-rm(list = ls(all.names = TRUE))
 gc(full = TRUE, verbose = FALSE)
-
-# Detach arrow before GMM — arrow interferes with readRDS()
-if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
 
 # =========================================================================
 # COST-SIDE GMM
 # =========================================================================
-cat("\n--- Cost-side GMM ---\n")
-suppressPackageStartupMessages({ library(tidyverse); library(data.table) })
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/supply.R")
-source("code/analysis/helpers/ra.R")
-source("code/analysis/structural/3_cost_gmm.R")
+# Detach arrow before GMM — arrow interferes with readRDS()
+if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
 
-rm(list = ls(all.names = TRUE))
+cat("\n--- Cost-side GMM ---\n")
+source("code/analysis/structural/3_cost_gmm.R")
 gc(full = TRUE, verbose = FALSE)
-cat("  Memory after GMM cleanup:\n")
-print(gc())
 
 # =========================================================================
 # COUNTERFACTUALS
 # =========================================================================
+library(arrow)  # reattach after GMM detach
+
 cat("\n--- Counterfactual simulation ---\n")
-suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/covariates.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
-source("code/analysis/helpers/ra.R")
-demand_spec <- read_demand_spec(file.path(Sys.getenv("TEMP_DIR"), "demand_spec.csv"))
-STRUCTURAL_SPEC <- demand_spec$base
-STRUCTURAL_ASST <- demand_spec$assisted
 source("code/analysis/structural/4_counterfactuals.R")
 
 cat("\n=== Structural pipeline complete ===\n")

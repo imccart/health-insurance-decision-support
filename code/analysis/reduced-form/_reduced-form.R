@@ -13,9 +13,8 @@ SAMPLE_FRAC <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR    <- Sys.getenv("TEMP_DIR")
 
-# Setup -------------------------------------------------------------------
-source("code/0-setup.R")
-library(arrow)
+# Packages (renv already activated by _analysis.R)
+suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
 
 # Helpers -----------------------------------------------------------------
 source("code/data-build/_helpers-enrollment.R")

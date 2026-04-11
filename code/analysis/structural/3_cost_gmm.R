@@ -11,12 +11,7 @@
 ##                Two-step feasible GMM. Produces cost parameters consistent
 ##                with both rate filing data and the pricing FOC.
 
-# Setup (idempotent — safe to re-source) -----------------------------------
-source("code/0-setup.R")
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/supply.R")
-source("code/analysis/helpers/ra.R")
+# Dependencies: tidyverse, data.table, helpers (loaded by _structural.R)
 
 # =========================================================================
 # LOAD DATA
