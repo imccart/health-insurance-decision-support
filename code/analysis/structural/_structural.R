@@ -12,8 +12,8 @@ SAMPLE_FRAC  <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED  <- as.integer(Sys.getenv("MASTER_SEED"))
 
 # Setup -------------------------------------------------------------------
-source("code/0-setup.R")
-library(arrow)
+if (!any(grepl("renv/library", .libPaths()))) source("code/0-setup.R")
+suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
 
 
 # Helpers -----------------------------------------------------------------
@@ -262,7 +262,7 @@ if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
 # COST-SIDE GMM
 # =========================================================================
 cat("\n--- Cost-side GMM ---\n")
-source("code/0-setup.R")
+suppressPackageStartupMessages({ library(tidyverse); library(data.table) })
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/supply.R")
@@ -278,8 +278,7 @@ print(gc())
 # COUNTERFACTUALS
 # =========================================================================
 cat("\n--- Counterfactual simulation ---\n")
-source("code/0-setup.R")
-library(arrow)
+suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
