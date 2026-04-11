@@ -65,7 +65,8 @@ for (i in seq_len(nrow(cells))) {
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
   cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, weight_var = "hh_size",
-                          spec = c(STRUCTURAL_SPEC, STRUCTURAL_ASST))
+                          spec = c(STRUCTURAL_SPEC, STRUCTURAL_ASST),
+                          premium_type = "net")
   rm(hhs, plans)
 
   if (!is.null(cd)) {

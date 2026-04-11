@@ -26,7 +26,7 @@ source("code/analysis/helpers/supply.R")
 
 # Reduced-form specification
 REDUCED_FORM_SPEC <- c(
-  "premium", "penalty_own",
+  "premium",
   "silver", "bronze", "hmo", "hsa",
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
   "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",

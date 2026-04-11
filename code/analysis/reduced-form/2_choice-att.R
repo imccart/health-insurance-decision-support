@@ -68,7 +68,8 @@ for (i in seq_len(nrow(cells))) {
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
   # Pass full spec including CF terms — build_choice_data creates cf_* columns
-  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, spec = REDUCED_FORM_FULL)
+  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, spec = REDUCED_FORM_FULL,
+                          premium_type = "net")
   rm(hhs, plans)
 
   if (!is.null(cd)) {

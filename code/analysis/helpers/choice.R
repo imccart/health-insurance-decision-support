@@ -22,7 +22,7 @@
 #   Combined estimation + OOS tibble with `assisted` flag.
 
 build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
-                              spec = NULL) {
+                              spec = NULL, premium_type = "net") {
 
   # Convert inputs to data.table (copy, don't modify originals)
   hhs_dt <- as.data.table(hhs)
@@ -126,15 +126,28 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   )]
   dt[, insured := max(plan_choice), by = household_id]
 
-  # Posted premium: age-adjusted posted premium (no subsidy deduction).
-  # Subsidy effects captured via FPL x premium interactions in demand model.
+  # Premium construction depends on premium_type:
+  #   "posted" — gross age-adjusted premium (current default)
+  #   "oop"    — max(gross - subsidy, 0), keeps penalty_own separate
+  #   "evan"   — max(gross - subsidy, 0) - penalty/12 (Saltzman JHE 2019 eq 3)
+  dt[, adj_subsidy := fifelse(is.na(subsidy), 0, subsidy)]
   dt[, premium_hh := (premium / RATING_FACTOR_AGE40) * rating_factor]
-  # Outside option premium = 0. Penalty effect captured by penalty_own.
-  # Keeps β_premium identified only from insured plan variation.
-  dt[, premium_oop := fcase(
-    issuer == "Outside_Option",        0.0,
-    default = premium_hh
-  )]
+  if (premium_type == "posted") {
+    dt[, premium_oop := fcase(
+      issuer == "Outside_Option",  0.0,
+      default = premium_hh
+    )]
+  } else if (premium_type == "oop") {
+    dt[, premium_oop := fcase(
+      issuer == "Outside_Option",  0.0,
+      default = pmax(premium_hh - adj_subsidy, 0)
+    )]
+  } else if (premium_type == "net") {
+    dt[, premium_oop := fcase(
+      issuer == "Outside_Option",  0.0,
+      default = pmax(premium_hh - adj_subsidy, 0) - penalty / 12
+    )]
+  }
   dt[, av := fcase(
     metal_level == "Minimum Coverage",     0.55,
     metal_level == "Bronze",               0.60,
@@ -147,7 +160,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     issuer == "Outside_Option",            0,
     default = NA_real_
   )]
-  dt[, c("premium_hh", "premium") := NULL]
+  dt[, c("premium_hh", "adj_subsidy", "premium") := NULL]
 
   # 6. Collapse small insurers into one per metal tier
   big_four <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net")
@@ -258,8 +271,11 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     FPL_400plus_prem   = FPL_400plus * net_premium
   )]
 
-  # Demographic x insured interactions (cross-nest margin shifters)
+  # Insured intercept (= 1 for all insured plans, 0 for uninsured)
   insured_ind <- fifelse(dt$plan_name == "Uninsured", 0, 1)
+  dt[, insured_intercept := insured_ind]
+
+  # Demographic x insured interactions (cross-nest margin shifters)
   dt[, `:=`(
     hh_size_insured       = hh_size * insured_ind,
     perc_0to17_insured    = perc_0to17 * insured_ind,

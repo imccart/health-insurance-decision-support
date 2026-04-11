@@ -29,7 +29,7 @@ source("code/analysis/helpers/supply.R")
 # Spec written to TEMP_DIR/demand_spec.csv for Julia and cf_worker.
 
 STRUCTURAL_SPEC <- c(
-  "premium", "penalty_own",
+  "premium",
   "silver", "bronze", "hmo", "hsa",
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
 #  "Anthem_silver", "BS_silver", "Kaiser_silver", "HN_silver",
