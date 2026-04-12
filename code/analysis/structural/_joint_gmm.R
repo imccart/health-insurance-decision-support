@@ -15,7 +15,6 @@ if (TEMP_DIR == "" || is.na(SAMPLE_FRAC)) {
 
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")
-library(arrow)
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
@@ -49,7 +48,7 @@ if (!file.exists("results/choice_coefficients_structural.csv")) {
   rm(list = setdiff(ls(), c("TEMP_DIR", "SAMPLE_FRAC", "MASTER_SEED",
                               "STRUCTURAL_SPEC", "STRUCTURAL_ASST")))
   gc(full = TRUE, verbose = FALSE)
-  suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
+  suppressPackageStartupMessages({ library(tidyverse); library(data.table) })
   source("code/data-build/_helpers-enrollment.R")
   source("code/analysis/helpers/constants.R")
   source("code/analysis/helpers/covariates.R")
@@ -77,8 +76,6 @@ if (!ols_coefs_exist) {
   cat("--- Pricing: OLS cost coefs found, skipping ---\n")
 }
 
-# Detach arrow before GMM — arrow interferes with readRDS()
-if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
 
 # =========================================================================
 # STEP 3: Joint GMM

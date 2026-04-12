@@ -8,8 +8,7 @@
 ##                Phase 2 (R): L-BFGS-B nested logit via estimate_demand.R.
 ##                See docs/optimizer.md for algorithm details.
 
-# Dependencies (arrow for read_parquet, not in 0-setup.R) -----------------
-library(arrow)
+# Dependencies: all loaded by _structural.R
 
 # Tuning parameters -------------------------------------------------------
 
@@ -25,7 +24,7 @@ PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
 
 plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.parquet$",
+partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.csv$",
                               full.names = FALSE)
 cells <- tibble(file = partition_files) %>%
   mutate(
@@ -56,7 +55,7 @@ for (i in seq_len(nrow(cells))) {
 
   set.seed(cell_seeds[i])
   hhs <- tryCatch(
-    read_parquet(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".parquet"))),
+    read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
     error = function(e) NULL
   )
   if (is.null(hhs) || nrow(hhs) == 0) { n_skip <- n_skip + 1L; next }

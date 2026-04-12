@@ -8,7 +8,6 @@
 ##                from nleqslv copies), then collects and summarizes results.
 
 # Setup (packages and helpers already loaded by _structural.R) ---------------
-library(arrow)
 
 # Tuning parameters --------------------------------------------------------
 SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))

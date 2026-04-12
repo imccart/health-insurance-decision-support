@@ -14,7 +14,7 @@ MASTER_SEED <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR    <- Sys.getenv("TEMP_DIR")
 
 # Packages (renv already activated by _analysis.R)
-suppressPackageStartupMessages({ library(tidyverse); library(data.table); library(arrow) })
+suppressPackageStartupMessages({ library(tidyverse); library(data.table) })
 
 # Helpers -----------------------------------------------------------------
 source("code/data-build/_helpers-enrollment.R")
@@ -201,7 +201,7 @@ rm(hh_dt)
 gc(verbose = FALSE)
 
 for (nm in names(split_list)) {
-  write_parquet(split_list[[nm]], file.path(partition_dir, paste0(nm, ".parquet")))
+  write.csv(split_list[[nm]], file.path(partition_dir, paste0(nm, ".csv")), row.names = FALSE)
 }
 n_cells <- length(split_list)
 rm(split_list)

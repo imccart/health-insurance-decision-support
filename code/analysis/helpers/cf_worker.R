@@ -31,7 +31,6 @@ sample_frac <- as.numeric(args[4])
 suppressPackageStartupMessages({
   library(tidyverse)
   library(data.table)
-  library(arrow)
   library(nleqslv)
 })
 
@@ -84,8 +83,8 @@ if (nrow(plans_cell) == 0) {
 
 set.seed(seed)
 hhs_raw <- tryCatch(
-  read_parquet(file.path(TEMP_DIR, "hh_choice_partitions",
-                          paste0("hh_", r, "_", y, ".parquet"))),
+  read.csv(file.path(TEMP_DIR, "hh_choice_partitions",
+                      paste0("hh_", r, "_", y, ".csv"))),
   error = function(e) NULL
 )
 if (is.null(hhs_raw) || nrow(hhs_raw) == 0) {

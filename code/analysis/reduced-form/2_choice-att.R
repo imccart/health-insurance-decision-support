@@ -9,9 +9,6 @@
 ##                Expects plan_choice, partitioned parquets, and v_hat
 ##                available from _reduced-form.R runner.
 
-# Dependencies ------------------------------------------------------------
-library(arrow)
-
 # Tuning ------------------------------------------------------------------
 
 SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
@@ -29,7 +26,7 @@ if (!dir.exists(CELL_DIR)) dir.create(CELL_DIR, recursive = TRUE)
 # Phase 1: Build cell data (with CF interaction columns)
 # =========================================================================
 
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.parquet$",
+partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.csv$",
                               full.names = FALSE)
 cells <- tibble(file = partition_files) %>%
   mutate(
@@ -59,7 +56,7 @@ for (i in seq_len(nrow(cells))) {
 
   set.seed(cell_seeds[i])
   hhs <- tryCatch(
-    read_parquet(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".parquet"))),
+    read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
     error = function(e) NULL
   )
   if (is.null(hhs) || nrow(hhs) == 0) { n_skip <- n_skip + 1L; next }

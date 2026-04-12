@@ -6,8 +6,7 @@
 ##                Data prep runs only when intermediate files are missing.
 ##                Packages and helpers loaded once by _analysis.R.
 
-# Packages: all loaded by _analysis.R via 0-setup.R except arrow
-library(arrow)
+# Packages: all loaded by _analysis.R via 0-setup.R
 
 # Helpers
 source("code/data-build/_helpers-enrollment.R")
@@ -184,7 +183,7 @@ if (all(file.exists(prep_files))) {
   rm(hh_dt); gc(full = TRUE, verbose = FALSE)
 
   for (nm in names(split_list)) {
-    write_parquet(split_list[[nm]], file.path(partition_dir, paste0(nm, ".parquet")))
+    write.csv(split_list[[nm]], file.path(partition_dir, paste0(nm, ".csv")), row.names = FALSE)
   }
   cat("  Partitioned:", length(split_list), "cells\n")
   rm(split_list)
@@ -213,9 +212,6 @@ gc(full = TRUE, verbose = FALSE)
 # =========================================================================
 # COST-SIDE GMM
 # =========================================================================
-# Detach arrow before GMM — arrow interferes with readRDS()
-if ("package:arrow" %in% search()) detach("package:arrow", unload = TRUE)
-
 cat("\n--- Cost-side GMM ---\n")
 source("code/analysis/structural/3_cost_gmm.R")
 gc(full = TRUE, verbose = FALSE)
@@ -223,7 +219,6 @@ gc(full = TRUE, verbose = FALSE)
 # =========================================================================
 # COUNTERFACTUALS
 # =========================================================================
-library(arrow)  # reattach after GMM detach
 
 cat("\n--- Counterfactual simulation ---\n")
 source("code/analysis/structural/4_counterfactuals.R")

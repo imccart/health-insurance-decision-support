@@ -5,9 +5,6 @@
 ## Date Edited:   2026-02-19
 ## Description:   Activates renv and loads packages.
 
-# renv activation ---------------------------------------------------------
-source("renv/activate.R")
-
 # Packages ----------------------------------------------------------------
 library(tidyverse)
 library(data.table)

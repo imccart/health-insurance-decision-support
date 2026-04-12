@@ -22,7 +22,6 @@
 
 # Setup (idempotent — safe to re-source) -----------------------------------
 source("code/0-setup.R")
-library(arrow)
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
@@ -74,7 +73,7 @@ reins_df <- rsdata_reins %>%
   filter(!is.na(reins_factor))
 rm(rsdata_reins)
 
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.parquet$",
+partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.csv$",
                                full.names = FALSE)
 cells_meta <- tibble(file = partition_files) %>%
   mutate(
@@ -95,7 +94,7 @@ for (i in seq_len(nrow(cells_meta))) {
 
   set.seed(cell_seeds[i])
   hhs <- tryCatch(
-    read_parquet(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".parquet"))),
+    read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
     error = function(e) NULL
   )
   if (is.null(hhs) || nrow(hhs) == 0) next

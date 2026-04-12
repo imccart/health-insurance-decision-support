@@ -18,6 +18,7 @@ Sys.setenv(MASTER_SEED = MASTER_SEED)
 ##source("code/analysis/structural/demand_sensitivity.R")
 
 # Setup -------------------------------------------------------------------
+source("renv/activate.R")
 source("code/0-setup.R")
 
 # Helpers -----------------------------------------------------------------
@@ -29,6 +30,10 @@ source("code/analysis/helpers/covariates.R")
 source("code/analysis/1_decision-analysis.R")
 source("code/analysis/2_ipw.R")
 source("code/analysis/3_summary-stats.R")
+
+# Free summary stats objects before reduced-form
+rm(hh_full, hh_clean, hh_ins)
+gc(full = TRUE, verbose = FALSE)
 
 # Run reduced-form analysis ------------------------------------------------
 source('code/analysis/reduced-form/_reduced-form.R')

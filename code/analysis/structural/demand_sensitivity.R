@@ -17,7 +17,6 @@
 
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")
-library(arrow)
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
@@ -175,7 +174,7 @@ if (prep_done) {
   rm(hh_dt); gc(full = TRUE, verbose = FALSE)
 
   for (nm in names(split_list)) {
-    write_parquet(split_list[[nm]], file.path(partition_dir, paste0(nm, ".parquet")))
+    write.csv(split_list[[nm]], file.path(partition_dir, paste0(nm, ".csv")), row.names = FALSE)
   }
   cat("  Partitioned:", length(split_list), "cells\n")
   rm(split_list)
@@ -324,7 +323,7 @@ for (pt in premium_types) {
     if (!any(TARGET_CELLS$region == r & TARGET_CELLS$year == y)) next
 
     set.seed(all_seeds[i])
-    hhs <- tryCatch(read_parquet(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".parquet"))),
+    hhs <- tryCatch(read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
                      error = function(e) NULL)
     if (is.null(hhs) || nrow(hhs) == 0) next
 

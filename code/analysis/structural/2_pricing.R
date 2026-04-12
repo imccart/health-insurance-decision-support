@@ -9,7 +9,7 @@
 ##                broker-commission correction. Also estimates structural RA
 ##                regressions and validates FOC-implied MC against predicted MC.
 
-# Dependencies: tidyverse, data.table, arrow, helpers (loaded by _structural.R)
+# Dependencies: tidyverse, data.table, helpers (loaded by _structural.R)
 
 # Tuning parameters -------------------------------------------------------
 
@@ -68,7 +68,7 @@ rm(rsdata)
 # Identify cells and set seeds (same as demand)
 # =========================================================================
 
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.parquet$",
+partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.csv$",
                               full.names = FALSE)
 cells <- tibble(file = partition_files) %>%
   mutate(
@@ -99,7 +99,7 @@ for (i in seq_len(nrow(cells))) {
 
   set.seed(cell_seeds[i])
   hhs <- tryCatch(
-    read_parquet(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".parquet"))),
+    read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
     error = function(e) NULL
   )
   if (is.null(hhs) || nrow(hhs) == 0) { n_skip <- n_skip + 1L; next }
