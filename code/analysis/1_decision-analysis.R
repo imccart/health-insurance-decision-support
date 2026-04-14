@@ -31,10 +31,37 @@ ind_hh_vars <- ind %>%
 
 # Join individual-derived vars and plan characteristics -------------------
 
+# Channel variables
 hh <- hh %>%
   left_join(ind_hh_vars, by = c("household_id", "year")) %>%
-  derive_channel_vars() %>%
-  derive_plan_characteristics(plan_data)
+  mutate(
+    assisted  = if_else(navigator == 1 | broker == 1 | agent == 1, 1L, 0L),
+    any_agent = if_else(broker == 1 | agent == 1, 1L, 0L),
+    channel   = if_else(assisted == 1, "Assisted", "Unassisted"),
+    channel_detail = case_when(
+      navigator == 1            ~ "Navigator",
+      broker == 1 | agent == 1  ~ "Agent",
+      TRUE                      ~ "Unassisted"
+    )
+  )
+
+# Plan characteristics
+plan_lookup <- plan_data %>%
+  distinct(HIOSYR, .keep_all = TRUE) %>%
+  select(HIOSYR, insurer = Issuer_Name, plan_network_type = PLAN_NETWORK_TYPE,
+         metal = metal_level)
+
+hh <- hh %>%
+  left_join(plan_lookup, by = c("plan_unique_id" = "HIOSYR")) %>%
+  mutate(
+    metal = case_when(
+      metal %in% c("Silver - Enhanced 73", "Silver - Enhanced 87",
+                    "Silver - Enhanced 94") ~ "Silver",
+      metal == "Minimum Coverage" ~ "Catastrophic",
+      TRUE ~ metal
+    )
+  )
+rm(plan_lookup)
 
 # Derive analysis variables -----------------------------------------------
 
@@ -108,3 +135,7 @@ write_csv(hh_full, "data/output/hh_full.csv")
 write_csv(hh_clean, "data/output/hh_clean.csv")
 write_csv(hh_ins, "data/output/hh_ins.csv")
 cat("  Saved: hh_full.csv, hh_clean.csv, hh_ins.csv\n")
+
+# Free intermediates (hh_full, hh_clean, hh_ins kept for downstream scripts)
+rm(hh_raw, ind_raw, hh, ind, ind_hh_vars, sipp_logit, plan_data)
+gc(verbose = FALSE)

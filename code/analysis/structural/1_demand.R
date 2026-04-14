@@ -16,27 +16,10 @@ SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR      <- Sys.getenv("TEMP_DIR")
 CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
-PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
 
-# =========================================================================
-# PHASE 1: Build cell CSVs (R)
-# =========================================================================
-
-plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
-
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.csv$",
-                              full.names = FALSE)
-cells <- tibble(file = partition_files) %>%
-  mutate(
-    region = as.integer(str_extract(file, "(?<=hh_)\\d+")),
-    year   = as.integer(str_extract(file, "(?<=_)\\d{4}"))
-  ) %>%
-  arrange(region, year)
+# hh_split, cells, cell_seeds, plan_choice loaded by _structural.R
 
 cat("Region-year cells:", nrow(cells), "\n")
-
-set.seed(MASTER_SEED)
-cell_seeds <- sample.int(1e7, nrow(cells))
 
 # Clean and recreate cell directory to ensure fresh data
 if (dir.exists(CELL_DIR)) unlink(CELL_DIR, recursive = TRUE)
@@ -54,11 +37,10 @@ for (i in seq_len(nrow(cells))) {
   if (file.exists(out_file)) { n_skip <- n_skip + 1L; next }
 
   set.seed(cell_seeds[i])
-  hhs <- tryCatch(
-    read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
-    error = function(e) NULL
-  )
+  cell_key <- paste0(r, ".", y)
+  hhs <- hh_split[[cell_key]]
   if (is.null(hhs) || nrow(hhs) == 0) { n_skip <- n_skip + 1L; next }
+  hhs <- as.data.frame(hhs)
 
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
@@ -85,18 +67,17 @@ for (i in seq_len(nrow(cells))) {
   }
 }
 
-rm(plan_choice)
 gc(verbose = FALSE)
 cat("  Built:", n_built, "  Skipped:", n_skip, "\n")
 
+# Free hh_split before estimation (estimate_demand loads cells from CSVs)
+rm(hh_split); gc(full = TRUE, verbose = FALSE)
 
 # =========================================================================
 # PHASE 2: Estimate demand (R)
 # =========================================================================
 
 cat("\nPhase 2: Running demand estimation...\n")
-
-source("code/analysis/helpers/estimate_demand.R")
 
 estimate_demand(
   cell_dir        = CELL_DIR,
@@ -133,5 +114,11 @@ if (file.exists(coefs_path)) {
 } else {
   cat("  Coefficients not found.\n")
 }
+
+# Reload hh_split for downstream scripts (pricing, counterfactuals)
+cat("Reloading shared HH data...\n")
+hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
+hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
+rm(hh_all); gc(verbose = FALSE)
 
 cat("\nStructural demand estimation complete.\n")

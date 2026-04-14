@@ -13,15 +13,7 @@ SAMPLE_FRAC <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR    <- Sys.getenv("TEMP_DIR")
 
-# Packages (renv already activated by _analysis.R)
-suppressPackageStartupMessages({ library(tidyverse); library(data.table) })
-
-# Helpers -----------------------------------------------------------------
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/covariates.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
+# Packages and helpers loaded by _analysis.R
 
 # Reduced-form specification
 REDUCED_FORM_SPEC <- c(
@@ -101,11 +93,13 @@ fs_model <- lm(assisted ~ n_agents + FPL + perc_0to17 + perc_18to25 +
 
 hh_full$v_hat <- residuals(fs_model)
 
-cat("  First-stage F:", round(summary(fs_model)$fstatistic[1], 1), "\n")
+fs_summary <- summary(fs_model)
+cat("  First-stage F:", round(fs_summary$fstatistic[1], 1), "\n")
 cat("  n_agents coef:", round(coef(fs_model)["n_agents"], 6),
-    " (SE:", round(summary(fs_model)$coefficients["n_agents", "Std. Error"], 6), ")\n")
+    " (SE:", round(fs_summary$coefficients["n_agents", "Std. Error"], 6), ")\n")
 cat("  v_hat mean (unassisted):", round(mean(hh_full$v_hat[hh_full$assisted == 0]), 4), "\n")
 cat("  v_hat mean (assisted):  ", round(mean(hh_full$v_hat[hh_full$assisted == 1]), 4), "\n")
+rm(fs_model, fs_summary, broker_density)
 
 # Propagate to hh_clean
 hh_clean <- hh_clean %>%
@@ -153,21 +147,25 @@ plan_choice <- plan_choice %>%
 first_stage <- lm(premium ~ hausman_iv + metal + network_type + factor(year),
                   data = plan_choice)
 plan_choice$cf_resid <- residuals(first_stage)
+cat("  Premium first-stage F:", round(summary(first_stage)$fstatistic[1], 1), "\n")
+rm(first_stage)
 
-fs_summary <- summary(first_stage)
-fs_fstat <- fs_summary$fstatistic
-cat("  Premium first-stage F:", round(fs_fstat[1], 1), "\n")
-
-plan_choice$comm_pmpm <- 0
-for (y in unique(plan_choice$year)) {
-  idx <- plan_choice$year == y
-  plan_choice$comm_pmpm[idx] <- get_commission_pmpm(
-    plan_choice$plan_name[idx], plan_choice[idx, ], y, commission_lookup
-  )
-}
+# Commission PMPM: join lookup, compute flat or pct-of-premium
+plan_choice <- plan_choice %>%
+  mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+  left_join(commission_lookup, by = c("insurer_prefix", "year")) %>%
+  mutate(
+    comm_pmpm = case_when(
+      is.na(rate) ~ 0,
+      is_pct ~ rate * premium,
+      TRUE ~ rate
+    )
+  ) %>%
+  select(-insurer_prefix, -rate, -is_pct)
 
 write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
 cat("  plan_choice saved ->", file.path(TEMP_DIR, "plan_choice.csv"), "\n")
+rm(commission_lookup)
 
 # =========================================================================
 # Partition HH data for choice model
@@ -187,27 +185,13 @@ hh_choice <- hh_full %>%
 
 cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice), "cols\n")
 
-partition_dir <- file.path(TEMP_DIR, "hh_choice_partitions_rf")
-if (dir.exists(partition_dir)) unlink(partition_dir, recursive = TRUE)
-dir.create(partition_dir, recursive = TRUE)
-
-hh_dt <- as.data.table(hh_choice)
+hh_choice_path <- file.path(TEMP_DIR, "hh_choice_rf.csv")
+write.csv(hh_choice, hh_choice_path, row.names = FALSE)
+n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))
 rm(hh_choice)
 gc(verbose = FALSE)
 
-hh_dt[, cell_key := paste0("hh_", region, "_", year)]
-split_list <- split(hh_dt, by = "cell_key", keep.by = FALSE)
-rm(hh_dt)
-gc(verbose = FALSE)
-
-for (nm in names(split_list)) {
-  write.csv(split_list[[nm]], file.path(partition_dir, paste0(nm, ".csv")), row.names = FALSE)
-}
-n_cells <- length(split_list)
-rm(split_list)
-gc(verbose = FALSE)
-
-cat("  Partitioned:", n_cells, "cells -> ", partition_dir, "\n")
+cat("  Written:", n_cells, "cells -> ", hh_choice_path, "\n")
 
 # =========================================================================
 # Run reduced-form analysis

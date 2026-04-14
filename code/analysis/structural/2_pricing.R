@@ -16,21 +16,17 @@
 SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR      <- Sys.getenv("TEMP_DIR")
-PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
-
 # =========================================================================
 # Load coefficients and reference data
 # =========================================================================
 
 cat("\nLoading demand coefficients and reference data...\n")
 
+# plan_choice, commission_lookup loaded by _structural.R
 coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
 lambda <- coefs %>% filter(term == "lambda") %>% pull(estimate)
 cat("  lambda =", round(lambda, 4), "\n")
 cat("  Coefficients:", nrow(coefs), "terms\n")
-
-plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
-commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
 
 # =========================================================================
 # Estimate RA regressions from rate filing data
@@ -68,19 +64,8 @@ rm(rsdata)
 # Identify cells and set seeds (same as demand)
 # =========================================================================
 
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.csv$",
-                              full.names = FALSE)
-cells <- tibble(file = partition_files) %>%
-  mutate(
-    region = as.integer(str_extract(file, "(?<=hh_)\\d+")),
-    year   = as.integer(str_extract(file, "(?<=_)\\d{4}"))
-  ) %>%
-  arrange(region, year)
-
+# hh_split, cells, cell_seeds loaded by _structural.R
 cat("  Region-year cells:", nrow(cells), "\n")
-
-set.seed(MASTER_SEED)
-cell_seeds <- sample.int(1e7, nrow(cells))
 
 # =========================================================================
 # Loop over cells: build data, compute markups
@@ -98,22 +83,23 @@ for (i in seq_len(nrow(cells))) {
   y <- cells$year[i]
 
   set.seed(cell_seeds[i])
-  hhs <- tryCatch(
-    read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
-    error = function(e) NULL
-  )
+  cell_key <- paste0(r, ".", y)
+  hhs <- hh_split[[cell_key]]
   if (is.null(hhs) || nrow(hhs) == 0) { n_skip <- n_skip + 1L; next }
+  hhs <- as.data.frame(hhs)
 
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; rm(hhs); next }
 
   # Add commission PMPM if not already present
   if (!"comm_pmpm" %in% names(plans)) {
-    plan_names_unique <- unique(plans$plan_name)
-    comm_vec <- get_commission_pmpm(plan_names_unique, plans, y, commission_lookup)
-    comm_df <- tibble(plan_name = names(comm_vec), comm_pmpm = unname(comm_vec))
+    comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
     plans <- plans %>%
-      left_join(comm_df, by = "plan_name")
+      mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+      left_join(comm_yr, by = "insurer_prefix") %>%
+      mutate(comm_pmpm = case_when(is.na(rate) ~ 0, is_pct ~ rate * premium, TRUE ~ rate)) %>%
+      select(-insurer_prefix, -rate, -is_pct)
+    rm(comm_yr)
   }
 
   # Build supply choice data (same seed/sample as demand)
@@ -155,7 +141,11 @@ for (i in seq_len(nrow(cells))) {
   plan_avs       <- setNames(pa$av, pa$plan_name)
   comm_vec       <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_name) else setNames(rep(0, J), plan_names_cell)
 
-  benchmark_plan <- identify_benchmark(plan_attrs)
+  # 2nd cheapest Silver by posted premium (ACA benchmark)
+  silver_bp <- plan_attrs[plan_attrs$metal == "Silver", ]
+  silver_bp <- silver_bp[order(silver_bp$premium_posted), ]
+  benchmark_plan <- if (nrow(silver_bp) == 0) NA_character_ else if (nrow(silver_bp) == 1) silver_bp$plan_name[1] else silver_bp$plan_name[2]
+  rm(silver_bp)
 
   # -----------------------------------------------------------------------
   # Step 1: Compute utility
@@ -246,7 +236,12 @@ for (i in seq_len(nrow(cells))) {
     error = function(e) rep(NA_real_, J)
   )
 
-  ra_factor_static <- get_ra_transfer(plan_names_cell, plan_attrs)
+  # RA factor = AV * moral hazard adjustment per plan
+  MH_FACTOR <- c("Minimum Coverage" = 1.00, "Bronze" = 1.00, "Silver" = 1.03, "Gold" = 1.08, "Platinum" = 1.15)
+  ra_factor_static <- setNames(
+    pa$av * ifelse(is.na(MH_FACTOR[pa$metal]), 1.0, MH_FACTOR[pa$metal]),
+    pa$plan_name
+  )
 
   mc_foc <- posted_premium - markup
   lerner <- ifelse(posted_premium > 0, markup / posted_premium, NA_real_)
@@ -316,7 +311,6 @@ for (i in seq_len(nrow(cells))) {
   })
 }
 
-rm(plan_choice, commission_lookup)
 gc(verbose = FALSE)
 
 cat("  Completed:", n_done, "  Skipped:", n_skip, "\n")
@@ -361,6 +355,9 @@ if (nrow(mc_valid) > 0) {
 # Figures
 # =========================================================================
 
+gc(full = TRUE, verbose = FALSE)
+graphics.off()
+
 if (!dir.exists("results/figures")) dir.create("results/figures", recursive = TRUE)
 
 plot_data <- supply_results
@@ -374,6 +371,7 @@ p_markup_insurer <- plot_data %>%
   coord_flip() +
   labs(x = NULL, y = "Markup ($/month)") +
   theme_bw()
+cat("  Saving markup_insurer...\n")
 ggsave("results/figures/supply_markup_insurer.png", p_markup_insurer, width = 6, height = 4)
 
 # 2. Marginal cost vs posted premium
@@ -383,6 +381,7 @@ p_mc_premium <- plot_data %>%
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   labs(x = "Posted Premium ($/month)", y = "Marginal Cost ($/month)", color = "Metal") +
   theme_bw()
+cat("  Saving mc_vs_premium...\n")
 ggsave("results/figures/supply_mc_vs_premium.png", p_mc_premium, width = 7, height = 5)
 
 # 3. Commission cost vs margin by insurer
@@ -400,6 +399,7 @@ p_comm_margin <- plot_data %>%
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   labs(x = "Average Commission ($/month)", y = "Average Markup ($/month)") +
   theme_bw()
+cat("  Saving comm_vs_margin...\n")
 ggsave("results/figures/supply_comm_vs_margin.png", p_comm_margin, width = 6, height = 5)
 
 # 4. Lerner index by metal tier
@@ -411,6 +411,7 @@ p_lerner_metal <- plot_data %>%
   geom_boxplot(outlier.size = 0.5) +
   labs(x = "Metal Tier", y = "Lerner Index") +
   theme_bw()
+cat("  Saving lerner_metal...\n")
 ggsave("results/figures/supply_lerner_metal.png", p_lerner_metal, width = 6, height = 4)
 
 # 5. MC validation: FOC vs structural
@@ -421,6 +422,7 @@ p_mc_compare <- plot_data %>%
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   labs(x = "MC (Structural RA Model)", y = "MC (FOC Inversion)", color = "Metal") +
   theme_bw()
+cat("  Saving mc_foc_vs_structural...\n")
 ggsave("results/figures/supply_mc_foc_vs_structural.png", p_mc_compare, width = 7, height = 5)
 
 cat("Figures saved to results/figures/.\n")

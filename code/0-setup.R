@@ -6,13 +6,12 @@
 ## Description:   Activates renv and loads packages.
 
 # Packages ----------------------------------------------------------------
+options(vsc.rstudioapi = FALSE)
 library(tidyverse)
 library(data.table)
-library(SAScii)
 library(fixest)
 library(kableExtra)
 library(cobalt)
 library(modelsummary)
-library(broom)
-library(mlogit)
+library(nleqslv)
 options(modelsummary_factory_default = "kableExtra")

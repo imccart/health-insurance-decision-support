@@ -8,31 +8,39 @@
 
 # Pipeline parameters (defined once, used by both reduced-form and structural)
 TEMP_DIR     <- "D:/temp-research-data/health-insurance-decision-support"
-SAMPLE_FRAC  <- 0.20
+SAMPLE_FRAC  <- 0.05
 MASTER_SEED  <- 20260224
 
 if (!dir.exists(TEMP_DIR)) dir.create(TEMP_DIR, recursive = TRUE)
 Sys.setenv(TEMP_DIR = TEMP_DIR)
 Sys.setenv(SAMPLE_FRAC = SAMPLE_FRAC)
 Sys.setenv(MASTER_SEED = MASTER_SEED)
-##source("code/analysis/structural/demand_sensitivity.R")
 
 # Setup -------------------------------------------------------------------
 source("renv/activate.R")
 source("code/0-setup.R")
 
-# Helpers -----------------------------------------------------------------
+
+# Helpers (loaded once, used by all downstream scripts) -------------------
 source("code/data-build/_helpers-enrollment.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
+source("code/analysis/helpers/choice.R")
+source("code/analysis/helpers/supply.R")
+source("code/analysis/helpers/ra.R")
+source("code/analysis/helpers/estimate_demand.R")
+source("code/analysis/helpers/cf_worker.R")
+source("code/analysis/S2-demand-specs.R")
+
 
 # Build analysis data -----------------------------------------------------
 source("code/analysis/1_decision-analysis.R")
 source("code/analysis/2_ipw.R")
 source("code/analysis/3_summary-stats.R")
 
-# Free summary stats objects before reduced-form
+# Free data objects before reduced-form (functions/constants stay loaded)
 rm(hh_full, hh_clean, hh_ins)
+if (exists("hh_ins_ps")) rm(hh_ins_ps)
 gc(full = TRUE, verbose = FALSE)
 
 # Run reduced-form analysis ------------------------------------------------
@@ -43,3 +51,4 @@ source('code/analysis/structural/_structural.R')
 
 # Numbers in paper --------------------------------------------------------
 source("code/analysis/4_paper-results.R")
+

@@ -15,25 +15,21 @@ SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR      <- Sys.getenv("TEMP_DIR")
 CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
-PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions_rf")
 
 # Read plan data (runner already saved plan_choice.csv)
 plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
+
+# Read all HH partitions (single file, split in memory)
+hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice_rf.csv")))
+hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
+cells <- unique(hh_all[, .(region, year)])[order(region, year)]
+rm(hh_all); gc(verbose = FALSE)
 
 if (!dir.exists(CELL_DIR)) dir.create(CELL_DIR, recursive = TRUE)
 
 # =========================================================================
 # Phase 1: Build cell data (with CF interaction columns)
 # =========================================================================
-
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.csv$",
-                              full.names = FALSE)
-cells <- tibble(file = partition_files) %>%
-  mutate(
-    region = as.integer(str_extract(file, "(?<=hh_)\\d+")),
-    year   = as.integer(str_extract(file, "(?<=_)\\d{4}"))
-  ) %>%
-  arrange(region, year)
 
 cat("Phase 1: Building cell data (", nrow(cells), "cells)...\n")
 
@@ -46,7 +42,6 @@ dir.create(CELL_DIR, recursive = TRUE)
 
 n_built <- 0L
 n_skip  <- 0L
-cell_cache <- list()  # keep in memory for OOS prediction in Phase 4
 
 for (i in seq_len(nrow(cells))) {
   r <- cells$region[i]
@@ -55,11 +50,10 @@ for (i in seq_len(nrow(cells))) {
   out_file <- file.path(CELL_DIR, paste0("cell_", r, "_", y, "_data.csv"))
 
   set.seed(cell_seeds[i])
-  hhs <- tryCatch(
-    read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
-    error = function(e) NULL
-  )
+  cell_key <- paste0(r, ".", y)
+  hhs <- hh_split[[cell_key]]
   if (is.null(hhs) || nrow(hhs) == 0) { n_skip <- n_skip + 1L; next }
+  hhs <- as.data.frame(hhs)
 
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
@@ -73,7 +67,6 @@ for (i in seq_len(nrow(cells))) {
     cd$region <- r
     cd$year <- y
     write_csv(cd, out_file)
-    cell_cache[[paste0(r, "_", y)]] <- cd
     n_built <- n_built + 1L
   } else {
     n_skip <- n_skip + 1L
@@ -86,22 +79,15 @@ for (i in seq_len(nrow(cells))) {
   }
 }
 
-rm(plan_choice)
+rm(plan_choice, hh_split)
 gc(verbose = FALSE)
 cat("  Built:", n_built, "  Skipped:", n_skip, "\n")
-
-# Free cell_cache before estimation — 3GB of tibbles in memory.
-# Rebuilt from CSVs in Phase 4 if needed.
-rm(cell_cache)
-gc(verbose = FALSE)
 
 # =========================================================================
 # Phase 2: Estimate demand (R, unassisted only)
 # =========================================================================
 
 cat("\nPhase 2: Running demand estimation (unassisted HH)...\n")
-
-source("code/analysis/helpers/estimate_demand.R")
 
 estimate_demand(
   cell_dir        = CELL_DIR,

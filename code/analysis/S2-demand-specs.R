@@ -2,36 +2,22 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-04-09
+## Date Edited:   2026-04-12
 ## Description:   Demand sensitivity analysis — systematic build-up of
-##                specification components to assess what moves β_premium.
-##                Self-contained: includes data prep if intermediate files
-##                are missing. Each spec runs as a SUBPROCESS to avoid
-##                memory accumulation.
+##                specification components to assess what moves beta_premium.
+##                Fully standalone: run after the preliminaries portion of
+##                _analysis.R (env vars set, packages/helpers loaded).
 ##
-##                Evan's JHE 2019 reports β = -0.429 per $100/month.
+##                Evan's JHE 2019 reports beta = -0.429 per $100/month.
 ##                Our estimates are per $1/month; multiply by 100 to compare.
-##
-##                Usage (from _analysis.R or standalone):
-##                  Sys.setenv(TEMP_DIR = "...", SAMPLE_FRAC = "0.05", MASTER_SEED = "20260224")
-##                  source("code/analysis/structural/demand_sensitivity.R")
 
-# Setup -------------------------------------------------------------------
-source("code/0-setup.R")
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/covariates.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
-
+# Pipeline parameters
 SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR      <- Sys.getenv("TEMP_DIR")
-PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
 SENS_DIR      <- file.path(TEMP_DIR, "demand_sensitivity")
 
 if (!dir.exists(SENS_DIR)) dir.create(SENS_DIR, recursive = TRUE)
-
-RSCRIPT <- file.path(R.home("bin"), "Rscript.exe")
 
 cat("=== Demand Sensitivity Analysis ===\n")
 cat("  Start time:", format(Sys.time(), "%Y-%m-%d %H:%M"), "\n")
@@ -43,7 +29,7 @@ cat("  Start time:", format(Sys.time(), "%Y-%m-%d %H:%M"), "\n")
 prep_files <- c(
   file.path(TEMP_DIR, "plan_choice.csv"),
   file.path(TEMP_DIR, "plan_demographics.csv"),
-  file.path(TEMP_DIR, "hh_choice_partitions")
+  file.path(TEMP_DIR, "hh_choice.csv")
 )
 prep_done <- all(file.exists(prep_files))
 
@@ -138,17 +124,21 @@ if (prep_done) {
   plan_choice$cf_resid <- residuals(first_stage)
   rm(first_stage)
 
-  plan_choice$comm_pmpm <- 0
-  for (y in unique(plan_choice$year)) {
-    idx <- plan_choice$year == y
-    plan_choice$comm_pmpm[idx] <- get_commission_pmpm(
-      plan_choice$plan_name[idx], plan_choice[idx, ], y, commission_lookup)
-  }
+  plan_choice <- plan_choice %>%
+    mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+    left_join(commission_lookup, by = c("insurer_prefix", "year")) %>%
+    mutate(
+      comm_pmpm = case_when(
+        is.na(rate) ~ 0,
+        is_pct ~ rate * premium,
+        TRUE ~ rate
+      )
+    ) %>%
+    select(-insurer_prefix, -rate, -is_pct)
   write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
   cat("  plan_choice:", nrow(plan_choice), "rows\n")
 
-  # Partition HH
-  cat("Partitioning HH data...\n")
+  # Write HH data
   hh_choice <- hh_full %>%
     filter(!grepl("_CAT$", plan_name) | is.na(plan_name)) %>%
     mutate(region = as.integer(region), year = as.integer(year),
@@ -161,23 +151,11 @@ if (prep_done) {
            perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
            channel, channel_detail, any_agent, p_nav)
 
-  partition_dir <- file.path(TEMP_DIR, "hh_choice_partitions")
-  if (dir.exists(partition_dir)) unlink(partition_dir, recursive = TRUE)
-  dir.create(partition_dir, recursive = TRUE)
-
-  hh_dt <- as.data.table(hh_choice)
+  hh_choice_path <- file.path(TEMP_DIR, "hh_choice.csv")
+  write.csv(hh_choice, hh_choice_path, row.names = FALSE)
+  n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))
+  cat("  Written:", n_cells, "cells ->", hh_choice_path, "\n")
   rm(hh_choice, hh_full, plan_data, plan_choice, commission_lookup)
-  gc(full = TRUE, verbose = FALSE)
-
-  hh_dt[, cell_key := paste0("hh_", region, "_", year)]
-  split_list <- split(hh_dt, by = "cell_key", keep.by = FALSE)
-  rm(hh_dt); gc(full = TRUE, verbose = FALSE)
-
-  for (nm in names(split_list)) {
-    write.csv(split_list[[nm]], file.path(partition_dir, paste0(nm, ".csv")), row.names = FALSE)
-  }
-  cat("  Partitioned:", length(split_list), "cells\n")
-  rm(split_list)
   gc(full = TRUE, verbose = FALSE)
   cat("  Data prep complete.\n\n")
 }
@@ -217,219 +195,150 @@ DEMO_INSURED <- c(
   "perc_asian_insured", "perc_other_insured"
 )
 
-# Comprehensive comparison: posted vs evan × specification components
+# Outside option types:
+#   "exchange" — uninsured are exchange non-enrollees (SIPP-filtered)
+#   "acs"      — uninsured are ACS-eligible uninsured (Evan's approach)
+
 specs <- list(
-  # --- Group A: Posted premium (our current approach) ---
-  # A1: Minimal baseline
-  list(name = "A1_posted_base",
-       premium_type = "posted",
-       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE),
-       asst = ASST_TERMS),
-  # A2: + demo x premium (our current structural spec)
-  list(name = "A2_posted_dprem",
-       premium_type = "posted",
-       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE, DEMO_PREM),
-       asst = ASST_TERMS),
-  # A3: + insured intercept + demo x insured (Evan's approach with posted premium)
-  list(name = "A3_posted_icept_dins",
-       premium_type = "posted",
-       base = c("premium", "penalty_own", "insured_intercept", DEMO_INSURED,
-                 PLAN_ATTRS, INSURER_FE),
-       asst = ASST_TERMS),
-
-  # --- Group B: Net premium (net of subsidy, penalty baked in) ---
-  # --- Group C: OOP premium (net of subsidy, penalty_own separate) ---
-  list(name = "C1_oop_base",
-       premium_type = "oop",
-       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE),
-       asst = ASST_TERMS),
-
-  # --- Group B: Net premium (net of subsidy, penalty baked in) ---
-  # B1: Minimal baseline
-  list(name = "B1_net_base",
-       premium_type = "net",
+  # ---------------------------------------------------------------
+  # Group A: Net premium, exchange uninsured (current approach)
+  # ---------------------------------------------------------------
+  list(name = "A1_net_exch",
+       premium_type = "net", outside_option = "exchange",
        base = c("premium", PLAN_ATTRS, INSURER_FE),
        asst = ASST_TERMS),
-  # B2: + insured intercept (warm-start from B1)
-  list(name = "B2_net_icept",
-       premium_type = "net",
-       base = c("premium", "insured_intercept", PLAN_ATTRS, INSURER_FE),
-       asst = ASST_TERMS,
-       warm_start = "B1_net_base"),
-  # B3: + insured intercept + demo x insured (warm-start from B2)
-  list(name = "B3_net_icept_dins",
-       premium_type = "net",
-       base = c("premium", "insured_intercept", DEMO_INSURED, PLAN_ATTRS, INSURER_FE),
-       asst = ASST_TERMS,
-       warm_start = "B2_net_icept"),
-  # B4: + demo x premium (no intercept — shows demo×prem effect with evan premium)
-  list(name = "B4_net_dprem",
-       premium_type = "net",
-       base = c("premium", DEMO_PREM, PLAN_ATTRS, INSURER_FE),
+  list(name = "A2_net_exch_dprem",
+       premium_type = "net", outside_option = "exchange",
+       base = c("premium", PLAN_ATTRS, INSURER_FE, DEMO_PREM),
        asst = ASST_TERMS),
-  # B5: + insured intercept + demo x insured + demo x premium (warm-start from B3)
-  list(name = "B5_net_full",
-       premium_type = "net",
-       base = c("premium", "insured_intercept", DEMO_INSURED, DEMO_PREM,
-                 PLAN_ATTRS, INSURER_FE),
-       asst = ASST_TERMS,
-       warm_start = "B3_net_icept_dins")
+
+  # ---------------------------------------------------------------
+  # Group B: OOP premium + penalty on outside, exchange uninsured
+  # ---------------------------------------------------------------
+  list(name = "B1_oop_exch",
+       premium_type = "oop", outside_option = "exchange",
+       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE),
+       asst = ASST_TERMS),
+  list(name = "B2_oop_exch_dprem",
+       premium_type = "oop", outside_option = "exchange",
+       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE, DEMO_PREM),
+       asst = ASST_TERMS),
+
+  # ---------------------------------------------------------------
+  # Group C: Net premium, ACS uninsured (Evan's outside option)
+  # ---------------------------------------------------------------
+  list(name = "C1_net_acs",
+       premium_type = "net", outside_option = "acs",
+       base = c("premium", PLAN_ATTRS, INSURER_FE),
+       asst = ASST_TERMS),
+  list(name = "C2_net_acs_dprem",
+       premium_type = "net", outside_option = "acs",
+       base = c("premium", PLAN_ATTRS, INSURER_FE, DEMO_PREM),
+       asst = ASST_TERMS),
+
+  # ---------------------------------------------------------------
+  # Group D: OOP premium + penalty on outside, ACS uninsured
+  # (closest to Evan RAND 2021)
+  # ---------------------------------------------------------------
+  list(name = "D1_oop_acs",
+       premium_type = "oop", outside_option = "acs",
+       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE),
+       asst = ASST_TERMS),
+  list(name = "D2_oop_acs_dprem",
+       premium_type = "oop", outside_option = "acs",
+       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE, DEMO_PREM),
+       asst = ASST_TERMS)
 )
 
 cat("  Specifications:", length(specs), "\n\n")
 
 # =========================================================================
-# BUILD CELL DATA (once per premium_type)
+# BUILD CELL DATA (once per premium_type x outside_option combination)
 # =========================================================================
 
 plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 
-all_cells_meta <- tibble(
-  file = list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.parquet$", full.names = FALSE)
-) %>%
-  mutate(
-    region = as.integer(str_extract(file, "(?<=hh_)\\d+")),
-    year   = as.integer(str_extract(file, "(?<=_)\\d{4}"))
-  ) %>%
-  arrange(region, year)
+# Exchange HH (current outside option)
+hh_exch <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
+
+# ACS uninsured HH (Evan's outside option)
+acs_hh <- as.data.table(read.csv("data/output/demand_acs_households.csv"))
+acs_hh[, `:=`(
+  region = as.integer(rating_area),
+  plan_number_nocsr = NA_integer_,
+  plan_name = NA_character_,
+  previous_plan_number = NA_integer_,
+  oldest_member = NA_real_,
+  subsidy = fifelse(is.na(subsidy), 0, subsidy),
+  ipweight = weight,
+  v_hat = 0,
+  channel = "Unassisted",
+  channel_detail = "Unassisted",
+  any_agent = 0L,
+  p_nav = 0,
+  assisted = 0L,
+  navigator = 0L,
+  broker = 0L,
+  agent = 0L,
+  perc_18to34 = perc_18to25 + perc_26to34,
+  perc_35to54 = perc_35to44 + perc_45to54
+)]
+
+# Compute penalty for ACS HH (same formula as data build)
+penalty_flat <- c("2014" = 95, "2015" = 325, "2016" = 695, "2017" = 695, "2018" = 695, "2019" = 0)
+penalty_pct  <- c("2014" = 0.01, "2015" = 0.02, "2016" = 0.025, "2017" = 0.025, "2018" = 0.025, "2019" = 0)
+penalty_cap  <- c("2014" = 204, "2015" = 207, "2016" = 223, "2017" = 272, "2018" = 283, "2019" = 0) * 12
+acs_hh[, penalty := pmin(
+  pmax(household_size * penalty_flat[as.character(year)],
+       penalty_pct[as.character(year)] * pmax(FPL * poverty_threshold - 10150, 0)),
+  household_size * penalty_cap[as.character(year)]
+)]
+
+# Select common columns
+keep_cols <- intersect(names(hh_exch), names(acs_hh))
+acs_slim <- acs_hh[, ..keep_cols]
+
+# Build exchange+ACS combined dataset (insured from exchange, uninsured from ACS)
+hh_insured <- hh_exch[!is.na(plan_number_nocsr)]
+hh_acs_combined <- rbind(hh_insured, acs_slim, fill = TRUE)
+n_acs <- nrow(acs_slim)
+rm(acs_hh, acs_slim, hh_insured)
+
+cat("  Exchange HH:", nrow(hh_exch), "\n")
+cat("  ACS uninsured:", n_acs, "\n")
+cat("  Combined (insured + ACS uninsured):", nrow(hh_acs_combined), "\n")
+
+# Split both datasets by region x year
+hh_split_exch <- split(hh_exch, by = c("region", "year"), keep.by = FALSE)
+hh_split_acs  <- split(hh_acs_combined, by = c("region", "year"), keep.by = FALSE)
+all_cells_meta <- unique(hh_exch[, .(region, year)])[order(region, year)]
+rm(hh_exch, hh_acs_combined); gc(verbose = FALSE)
 
 set.seed(MASTER_SEED)
 all_seeds <- sample.int(1e7, nrow(all_cells_meta))
 
-# All covariates across all specs (union)
 all_covars_union <- unique(unlist(lapply(specs, function(s) c(s$base, s$asst))))
 
-premium_types <- unique(sapply(specs, function(s) s$premium_type))
-
-for (pt in premium_types) {
-  pt_dir <- file.path(SENS_DIR, paste0("cells_", pt))
-
-  # Skip if cells already exist with the right count
-  existing <- list.files(pt_dir, pattern = "^cell_.*_data\\.csv$")
-  if (length(existing) == nrow(TARGET_CELLS)) {
-    cat("  Cells for", pt, "already exist (", length(existing), "files) — skipping.\n")
-    next
-  }
-
-  if (dir.exists(pt_dir)) unlink(pt_dir, recursive = TRUE)
-  dir.create(pt_dir, recursive = TRUE)
-
-  cat("  Building cells for premium_type =", pt, "...\n")
-  n_built <- 0L
-
-  for (i in seq_len(nrow(all_cells_meta))) {
-    r <- all_cells_meta$region[i]
-    y <- all_cells_meta$year[i]
-    if (!any(TARGET_CELLS$region == r & TARGET_CELLS$year == y)) next
-
-    set.seed(all_seeds[i])
-    hhs <- tryCatch(read.csv(file.path(PARTITION_DIR, paste0("hh_", r, "_", y, ".csv"))),
-                     error = function(e) NULL)
-    if (is.null(hhs) || nrow(hhs) == 0) next
-
-    plans <- plan_choice %>% filter(region == r, year == y)
-    if (nrow(plans) == 0) { rm(hhs); next }
-
-    cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, weight_var = "hh_size",
-                            spec = all_covars_union, premium_type = pt)
-    rm(hhs, plans)
-
-    if (!is.null(cd)) {
-      cd$region <- r; cd$year <- y
-      write_csv(cd, file.path(pt_dir, paste0("cell_", r, "_", y, "_data.csv")))
-      n_built <- n_built + 1L
-      cat("    Cell", r, y, ":", nrow(cd), "rows\n")
-    }
-    rm(cd); gc(verbose = FALSE)
-  }
-  cat("  Built", n_built, "cells for", pt, "\n\n")
-}
-rm(plan_choice, all_cells_meta, all_seeds)
-gc(verbose = FALSE)
+# Unique (premium_type, outside_option) combos
+spec_combos <- unique(data.frame(
+  premium_type = sapply(specs, function(s) s$premium_type),
+  outside_option = sapply(specs, function(s) s$outside_option),
+  stringsAsFactors = FALSE
+))
 
 # =========================================================================
-# WRITE WORKER SCRIPT
+# BUILD CELLS + ESTIMATE (one spec at a time)
 # =========================================================================
 
-worker_path <- file.path(SENS_DIR, "worker.R")
-writeLines(con = worker_path, text = '
-# Demand sensitivity worker — runs ONE spec in isolated R process
-args <- commandArgs(trailingOnly = TRUE)
-spec_csv   <- args[1]
-cell_dir   <- args[2]
-out_csv    <- args[3]
-spec_name  <- args[4]
-start_csv  <- if (length(args) >= 5) args[5] else ""
-
-# Set renv library path directly (activate.R crashes in subprocesses)
-.libPaths(c("renv/library/windows/R-4.5/x86_64-w64-mingw32", .libPaths()))
-library(data.table)
-library(readr)
-
-source("code/analysis/helpers/estimate_demand.R")
-
-spec_df <- read.csv(spec_csv, stringsAsFactors = FALSE)
-covars <- spec_df$term
-K <- length(covars)
-
-cat("  Worker:", spec_name, " K =", K, "\\n")
-
-loaded <- load_all_cells(cell_dir, covars, filter_assisted = -1L)
-cells <- loaded$cells
-total_hh <- loaded$total_hh
-rm(loaded)
-cells <- normalize_weights(cells)
-
-cat("  HH:", total_hh, "\\n")
-
-# Starting values: use warm-start CSV if provided, else zeros + lambda=1
-theta0 <- c(rep(0, K), 1.0)
-if (start_csv != "" && file.exists(start_csv)) {
-  sv <- read.csv(start_csv, stringsAsFactors = FALSE)
-  for (i in seq_along(covars)) {
-    m <- match(covars[i], sv$term)
-    if (!is.na(m)) theta0[i] <- sv$estimate[m]
-  }
-  m_lam <- match("lambda", sv$term)
-  if (!is.na(m_lam)) theta0[K + 1] <- sv$estimate[m_lam]
-  cat("  Warm-started from:", start_csv, "\\n")
-}
-
-theta_opt <- tryCatch(
-  bfgs_bhhh(theta0, cells, max_iter = 500, print_every = 100),
-  error = function(e) { cat("  ERROR:", e$message, "\\n"); NULL }
-)
-
-if (is.null(theta_opt)) {
-  cat("  FAILED\\n")
-  quit(save = "no", status = 1)
-}
-
-negll <- accumulate(theta_opt, cells, compute_grad = FALSE)$negll
-
-coefs <- data.frame(term = c(covars, "lambda"), estimate = theta_opt)
-write.csv(coefs, out_csv, row.names = FALSE)
-
-cat(sprintf("  beta_prem = %.6f  lambda = %.4f  negLL = %.1f\\n",
-            theta_opt[1], theta_opt[K + 1], negll))
-
-summary_path <- sub("\\\\.csv$", "_summary.txt", out_csv)
-writeLines(sprintf("%.8f,%.6f,%.2f", theta_opt[1], theta_opt[K + 1], negll),
-           summary_path)
-')
-
-cat("  Worker script written.\n\n")
-
-# =========================================================================
-# DISPATCH EACH SPEC AS SUBPROCESS
-# =========================================================================
-
-cat("Dispatching", length(specs), "specifications...\n\n")
+# Track which cell dirs are already built
+built_combos <- character(0)
 
 for (si in seq_along(specs)) {
   sp <- specs[[si]]
   all_terms <- c(sp$base, sp$asst)
   K_spec <- length(all_terms)
+  pt <- sp$premium_type
+  oo <- sp$outside_option
 
   out_csv <- file.path(SENS_DIR, paste0("coefs_", sp$name, ".csv"))
   summary_path <- sub("\\.csv$", "_summary.txt", out_csv)
@@ -442,51 +351,111 @@ for (si in seq_along(specs)) {
   }
 
   cat("--- Spec", si, "/", length(specs), ":", sp$name,
-      "(", K_spec + 1, "params) ---\n")
+      "(", K_spec + 1, "params,", pt, "+", oo, ") ---\n")
 
-  # Write spec CSV
-  spec_csv <- file.path(SENS_DIR, paste0("spec_", sp$name, ".csv"))
-  spec_df <- data.frame(
-    term  = all_terms,
-    group = c(rep("base", length(sp$base)), rep("assisted", length(sp$asst))),
-    stringsAsFactors = FALSE
-  )
-  write.csv(spec_df, spec_csv, row.names = FALSE)
+  # Build cells if not already built for this (premium_type, outside_option) combo
+  combo_key <- paste0(pt, "_", oo)
+  combo_dir <- file.path(SENS_DIR, paste0("cells_", combo_key))
 
-  cell_dir <- file.path(SENS_DIR, paste0("cells_", sp$premium_type))
+  if (!(combo_key %in% built_combos)) {
+    existing <- list.files(combo_dir, pattern = "^cell_.*_data\\.csv$")
+    if (length(existing) == nrow(TARGET_CELLS)) {
+      cat("  Cells for", pt, "+", oo, "already exist — skipping build.\n")
+    } else {
+      if (dir.exists(combo_dir)) unlink(combo_dir, recursive = TRUE)
+      dir.create(combo_dir, recursive = TRUE)
 
-  # Warm-start from a prior spec's coefficients if specified
-  start_arg <- ""
-  if (!is.null(sp$warm_start)) {
-    ws_path <- file.path(SENS_DIR, paste0("coefs_", sp$warm_start, ".csv"))
-    if (file.exists(ws_path)) start_arg <- ws_path
+      hh_split_cur <- if (oo == "acs") hh_split_acs else hh_split_exch
+
+      cat("  Building cells for", pt, "+", oo, "...\n")
+      n_built <- 0L
+      for (j in seq_len(nrow(all_cells_meta))) {
+        r_j <- all_cells_meta$region[j]
+        y_j <- all_cells_meta$year[j]
+        if (!any(TARGET_CELLS$region == r_j & TARGET_CELLS$year == y_j)) next
+
+        set.seed(all_seeds[j])
+        cell_key <- paste0(r_j, ".", y_j)
+        hhs <- hh_split_cur[[cell_key]]
+        if (is.null(hhs) || nrow(hhs) == 0) next
+        hhs <- as.data.frame(hhs)
+
+        plans <- plan_choice %>% filter(region == r_j, year == y_j)
+        if (nrow(plans) == 0) { rm(hhs); next }
+
+        cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, weight_var = "hh_size",
+                                spec = all_covars_union, premium_type = pt)
+        rm(hhs, plans)
+
+        if (!is.null(cd)) {
+          cd$region <- r_j; cd$year <- y_j
+          write.csv(cd, file.path(combo_dir, paste0("cell_", r_j, "_", y_j, "_data.csv")),
+                    row.names = FALSE)
+          n_built <- n_built + 1L
+          cat("    Cell", r_j, y_j, ":", nrow(cd), "rows\n")
+        }
+        rm(cd); gc(verbose = FALSE)
+      }
+      cat("  Built", n_built, "cells\n")
+    }
+    built_combos <- c(built_combos, combo_key)
   }
 
-  log_file <- file.path(SENS_DIR, paste0("log_", sp$name, ".log"))
+  # Estimate
+  loaded <- load_all_cells(combo_dir, all_terms, filter_assisted = -1L)
+  demand_cells <- loaded$cells
+  total_hh <- loaded$total_hh
+  rm(loaded)
+  demand_cells <- normalize_weights(demand_cells)
+
+  cat("  HH:", total_hh, "\n")
+
+  theta0 <- c(rep(0, K_spec), 1.0)
+  if (!is.null(sp$warm_start)) {
+    ws_path <- file.path(SENS_DIR, paste0("coefs_", sp$warm_start, ".csv"))
+    if (file.exists(ws_path)) {
+      sv <- read.csv(ws_path, stringsAsFactors = FALSE)
+      for (k in seq_along(all_terms)) {
+        m <- match(all_terms[k], sv$term)
+        if (!is.na(m)) theta0[k] <- sv$estimate[m]
+      }
+      m_lam <- match("lambda", sv$term)
+      if (!is.na(m_lam)) theta0[K_spec + 1] <- sv$estimate[m_lam]
+      cat("  Warm-started from:", sp$warm_start, "\n")
+    }
+  }
 
   t0 <- proc.time()
-  exit_code <- system2(
-    RSCRIPT,
-    args = c(shQuote(worker_path), shQuote(spec_csv), shQuote(cell_dir),
-             shQuote(out_csv), shQuote(sp$name), shQuote(start_arg)),
-    stdout = log_file, stderr = log_file
+  theta_opt <- tryCatch(
+    bfgs_bhhh(theta0, demand_cells, max_iter = 500, print_every = 100),
+    error = function(e) { cat("  ERROR:", e$message, "\n"); NULL }
   )
   elapsed <- round((proc.time() - t0)[3], 1)
 
-  if (file.exists(summary_path)) {
-    summ <- readLines(summary_path, n = 1)
-    cat("    Result:", summ, " (", elapsed, "sec)\n\n")
-  } else {
-    # Show last few lines of log for diagnosis
-    if (file.exists(log_file)) {
-      log_tail <- tail(readLines(log_file), 5)
-      cat("    FAILED (exit code", exit_code, ",", elapsed, "sec)\n")
-      cat("    Log tail:", paste(log_tail, collapse = "\n             "), "\n\n")
-    } else {
-      cat("    FAILED (exit code", exit_code, ",", elapsed, "sec)\n\n")
-    }
+  if (is.null(theta_opt)) {
+    cat("  FAILED (", elapsed, "sec)\n\n")
+    rm(demand_cells)
+    gc(verbose = FALSE)
+    next
   }
+
+  negll <- accumulate(theta_opt, demand_cells, compute_grad = FALSE)$negll
+
+  coefs_out <- data.frame(term = c(all_terms, "lambda"), estimate = theta_opt)
+  write.csv(coefs_out, out_csv, row.names = FALSE)
+
+  summ_str <- sprintf("%.8f,%.6f,%.2f", theta_opt[1], theta_opt[K_spec + 1], negll)
+  writeLines(summ_str, summary_path)
+
+  cat(sprintf("  beta_prem = %.6f  lambda = %.4f  negLL = %.1f  (%s sec)\n\n",
+              theta_opt[1], theta_opt[K_spec + 1], negll, elapsed))
+
+  rm(demand_cells, theta_opt, coefs_out)
+  gc(verbose = FALSE)
 }
+
+rm(plan_choice, all_cells_meta, all_seeds, hh_split_exch, hh_split_acs)
+gc(verbose = FALSE)
 
 # =========================================================================
 # COLLECT AND DISPLAY RESULTS
@@ -515,9 +484,10 @@ for (si in seq_along(specs)) {
   }
 
   results_list[[length(results_list) + 1]] <- tibble(
-    spec         = sp$name,
-    premium_type = sp$premium_type,
-    K            = nrow(coefs),
+    spec           = sp$name,
+    premium_type   = sp$premium_type,
+    outside_option = sp$outside_option,
+    K              = nrow(coefs),
     b_prem_d1    = as.numeric(summ[1]),
     b_prem_d100  = as.numeric(summ[1]) * 100,
     lambda       = as.numeric(summ[2]),
@@ -533,7 +503,7 @@ if (length(results_list) > 0) {
 
   print(summary_df %>%
     mutate(across(where(is.numeric), ~round(.x, 4))) %>%
-    select(spec, K, b_prem_d100, lambda, negLL, intercept, penalty_own, commission),
+    select(spec, outside_option, K, b_prem_d100, lambda, negLL, intercept, penalty_own, commission),
     n = Inf, width = 140)
 
   write_csv(summary_df, file.path(SENS_DIR, "sensitivity_summary.csv"))

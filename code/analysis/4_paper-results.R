@@ -11,6 +11,8 @@
 
 source("code/0-setup.R")
 
+TEMP_DIR <- Sys.getenv("TEMP_DIR")
+
 # Ensure output dirs exist
 dir.create("results/tables", recursive = TRUE, showWarnings = FALSE)
 dir.create("results/figures", recursive = TRUE, showWarnings = FALSE)
@@ -27,7 +29,7 @@ hh_clean <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE)
 hh_ins   <- read_csv("data/output/hh_ins.csv", show_col_types = FALSE)
 
 commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
-plan_choice       <- read_csv("data/output/plan_choice.csv", show_col_types = FALSE)
+plan_choice       <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 
 coefs_structural <- read_csv("results/choice_coefficients_structural.csv",
                               show_col_types = FALSE)
@@ -64,9 +66,9 @@ make_summary <- function(df, label) {
       mean_FPL = mean(FPL, na.rm = TRUE),
       mean_hh_size = mean(household_size, na.rm = TRUE),
       pct_new = mean(new_enrollee, na.rm = TRUE) * 100,
-      pct_silver = mean(metal_level == "Silver", na.rm = TRUE) * 100,
-      pct_bronze = mean(metal_level == "Bronze", na.rm = TRUE) * 100,
-      pct_gold = mean(metal_level == "Gold", na.rm = TRUE) * 100,
+      pct_silver = mean(metal == "Silver", na.rm = TRUE) * 100,
+      pct_bronze = mean(metal == "Bronze", na.rm = TRUE) * 100,
+      pct_gold = mean(metal == "Gold", na.rm = TRUE) * 100,
       pct_hmo = mean(grepl("HMO", plan_network_type, ignore.case = TRUE),
                       na.rm = TRUE) * 100,
       mean_age_oldest = mean(oldest_member, na.rm = TRUE),

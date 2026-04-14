@@ -17,6 +17,7 @@
 ##   Instrument: Z_i (broker density, excluded from utility)
 
 source("code/0-setup.R")
+library(mlogit)
 
 # =========================================================================
 # Parameters

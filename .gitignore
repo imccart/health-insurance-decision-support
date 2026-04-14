@@ -13,6 +13,7 @@ _local-files/
 _emails/
 _overleaf/
 _archive/
+code/_archived/
 
 # LaTeX intermediate files
 *.aux

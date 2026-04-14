@@ -6,17 +6,8 @@
 ##                Data prep runs only when intermediate files are missing.
 ##                Packages and helpers loaded once by _analysis.R.
 
-# Packages: all loaded by _analysis.R via 0-setup.R
+# Packages and helpers loaded by _analysis.R
 
-# Helpers
-source("code/data-build/_helpers-enrollment.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/covariates.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
-source("code/analysis/helpers/ra.R")
-
-# Covariate spec
 TEMP_DIR <- Sys.getenv("TEMP_DIR")
 
 STRUCTURAL_SPEC <- c(
@@ -43,7 +34,7 @@ write_demand_spec(STRUCTURAL_SPEC, STRUCTURAL_ASST, file.path(TEMP_DIR, "demand_
 prep_files <- c(
   file.path(TEMP_DIR, "plan_choice.csv"),
   file.path(TEMP_DIR, "plan_demographics.csv"),
-  file.path(TEMP_DIR, "hh_choice_partitions")
+  file.path(TEMP_DIR, "hh_choice.csv")
 )
 
 if (all(file.exists(prep_files))) {
@@ -147,17 +138,22 @@ if (all(file.exists(prep_files))) {
   cat("  Hausman first-stage F:", round(summary(first_stage)$fstatistic[1], 1), "\n")
   rm(first_stage)
 
-  plan_choice$comm_pmpm <- 0
-  for (y in unique(plan_choice$year)) {
-    idx <- plan_choice$year == y
-    plan_choice$comm_pmpm[idx] <- get_commission_pmpm(
-      plan_choice$plan_name[idx], plan_choice[idx, ], y, commission_lookup)
-  }
+  plan_choice <- plan_choice %>%
+    mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+    left_join(commission_lookup, by = c("insurer_prefix", "year")) %>%
+    mutate(
+      comm_pmpm = case_when(
+        is.na(rate) ~ 0,
+        is_pct ~ rate * premium,
+        TRUE ~ rate
+      )
+    ) %>%
+    select(-insurer_prefix, -rate, -is_pct)
   write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
   cat("  plan_choice:", nrow(plan_choice), "rows\n")
 
-  # Partition HH
-  cat("Partitioning HH data...\n")
+  # Write HH data (single file, split in memory by readers)
+  cat("Writing HH choice data...\n")
   hh_choice <- hh_full %>%
     filter(!grepl("_CAT$", plan_name) | is.na(plan_name)) %>%
     mutate(region = as.integer(region), year = as.integer(year),
@@ -170,26 +166,32 @@ if (all(file.exists(prep_files))) {
            perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
            channel, channel_detail, any_agent, p_nav)
 
-  partition_dir <- file.path(TEMP_DIR, "hh_choice_partitions")
-  if (dir.exists(partition_dir)) unlink(partition_dir, recursive = TRUE)
-  dir.create(partition_dir, recursive = TRUE)
-
-  hh_dt <- as.data.table(hh_choice)
+  hh_choice_path <- file.path(TEMP_DIR, "hh_choice.csv")
+  write.csv(hh_choice, hh_choice_path, row.names = FALSE)
+  n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))
+  cat("  Written:", n_cells, "cells ->", hh_choice_path, "\n")
   rm(hh_choice, hh_full, plan_data, plan_choice, commission_lookup)
-  gc(full = TRUE, verbose = FALSE)
-
-  hh_dt[, cell_key := paste0("hh_", region, "_", year)]
-  split_list <- split(hh_dt, by = "cell_key", keep.by = FALSE)
-  rm(hh_dt); gc(full = TRUE, verbose = FALSE)
-
-  for (nm in names(split_list)) {
-    write.csv(split_list[[nm]], file.path(partition_dir, paste0(nm, ".csv")), row.names = FALSE)
-  }
-  cat("  Partitioned:", length(split_list), "cells\n")
-  rm(split_list)
   gc(full = TRUE, verbose = FALSE)
   cat("  Data prep complete.\n\n")
 }
+
+# =========================================================================
+# SHARED DATA (read once, used by all structural scripts)
+# =========================================================================
+
+cat("Loading shared structural data...\n")
+hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
+hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
+cells <- unique(hh_all[, .(region, year)])[order(region, year)]
+rm(hh_all); gc(verbose = FALSE)
+
+plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
+commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+
+set.seed(MASTER_SEED)
+cell_seeds <- sample.int(1e7, nrow(cells))
+
+cat("  Cells:", nrow(cells), "\n\n")
 
 # =========================================================================
 # DEMAND
@@ -220,7 +222,14 @@ gc(full = TRUE, verbose = FALSE)
 # COUNTERFACTUALS
 # =========================================================================
 
+# Free hh_split before counterfactuals (CF reads per-cell from disk)
+rm(hh_split)
+gc(full = TRUE, verbose = FALSE)
+
 cat("\n--- Counterfactual simulation ---\n")
 source("code/analysis/structural/4_counterfactuals.R")
+
+rm(cells, cell_seeds, plan_choice, commission_lookup)
+gc(full = TRUE, verbose = FALSE)
 
 cat("\n=== Structural pipeline complete ===\n")

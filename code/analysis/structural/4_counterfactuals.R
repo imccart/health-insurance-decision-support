@@ -2,10 +2,9 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-03-16
-## Date Edited:   2026-03-24
-## Description:   Counterfactual simulation coordinator. Dispatches one Rscript
-##                subprocess per region-year cell (avoids memory accumulation
-##                from nleqslv copies), then collects and summarizes results.
+## Date Edited:   2026-04-12
+## Description:   Counterfactual simulation. Loads all data once, then calls
+##                run_cf_cell() in-process for each region-year cell.
 
 # Setup (packages and helpers already loaded by _structural.R) ---------------
 
@@ -13,54 +12,45 @@
 SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
 MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
 TEMP_DIR      <- Sys.getenv("TEMP_DIR")
-PARTITION_DIR <- file.path(TEMP_DIR, "hh_choice_partitions")
 
 # =========================================================================
-# PHASE 1: Discover cells
+# PHASE 1: Load counterfactual-specific data
 # =========================================================================
 
-cat("\nPhase 1: Discovering region-year cells...\n")
+cat("\nPhase 1: Loading counterfactual data...\n")
 
-partition_files <- list.files(PARTITION_DIR, pattern = "^hh_\\d+_\\d+\\.parquet$",
-                              full.names = FALSE)
-cells <- tibble(file = partition_files) %>%
-  mutate(
-    region = as.integer(str_extract(file, "(?<=hh_)\\d+")),
-    year   = as.integer(str_extract(file, "(?<=_)\\d{4}"))
-  ) %>%
-  arrange(region, year)
+# hh_split, cells, cell_seeds, plan_choice, commission_lookup loaded by _structural.R
+# cf_worker.R (run_cf_cell function) loaded by _analysis.R
+
+coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
+supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
+
+# Cost parameters from GMM
+rs_coefs_df <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"), show_col_types = FALSE)
+claims_coefs_df <- read_csv(file.path(TEMP_DIR, "ra_claims_coefs_gmm.csv"), show_col_types = FALSE)
+reins_df <- read_csv(file.path(TEMP_DIR, "reinsurance_factors.csv"), show_col_types = FALSE)
+
+rs_coefs <- setNames(rs_coefs_df$estimate, rs_coefs_df$term)
+claims_coefs <- setNames(claims_coefs_df$estimate, claims_coefs_df$term)
+
+demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
+STRUCTURAL_SPEC <- demand_spec$base
 
 cat("  Region-year cells:", nrow(cells), "\n")
 
-set.seed(MASTER_SEED)
-cell_seeds <- sample.int(1e7, nrow(cells))
-
 # =========================================================================
-# PHASE 2: Check prerequisites
+# PHASE 2: Run counterfactuals
 # =========================================================================
 
-cat("\nPhase 2: Checking prerequisites...\n")
+# Load HH data fresh (hh_split freed by _structural.R to save memory)
+cat("  Loading HH data for counterfactuals...\n")
+hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
+hh_split_cf <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
+rm(hh_all); gc(verbose = FALSE)
 
-if (!file.exists("results/supply_results.csv")) {
-  stop("supply_results.csv not found — run 2_pricing.R first")
-}
-if (!file.exists("results/choice_coefficients_structural.csv")) {
-  stop("choice_coefficients_structural.csv not found — run 1_demand.R first")
-}
-cat("  Prerequisites OK.\n")
+cat("\nPhase 2: Running counterfactual simulations...\n")
 
-# =========================================================================
-# PHASE 3: Dispatch workers
-# =========================================================================
-
-cat("\nPhase 3: Dispatching counterfactual workers...\n")
-
-cf_cells_dir <- file.path(TEMP_DIR, "cf_cells")
-if (!dir.exists(cf_cells_dir)) dir.create(cf_cells_dir, recursive = TRUE)
-
-rscript_exe <- file.path(R.home("bin"), "Rscript.exe")
-worker_script <- "code/analysis/helpers/cf_worker.R"
-
+results_list <- vector("list", nrow(cells))
 n_success <- 0L
 n_fail    <- 0L
 failed_cells <- character(0)
@@ -69,32 +59,48 @@ t_start <- Sys.time()
 for (i in seq_len(nrow(cells))) {
   r <- cells$region[i]
   y <- cells$year[i]
-  out_file <- file.path(cf_cells_dir, paste0("cf_", r, "_", y, ".csv"))
 
-  cmd <- paste(
-    shQuote(rscript_exe),
-    worker_script,
-    r, y, cell_seeds[i], SAMPLE_FRAC
+  cell_key <- paste0(r, ".", y)
+  hhs_raw <- hh_split_cf[[cell_key]]
+  if (is.null(hhs_raw) || nrow(hhs_raw) == 0) {
+    n_fail <- n_fail + 1L
+    failed_cells <- c(failed_cells, paste0(r, "_", y))
+    next
+  }
+  hhs_raw <- as.data.frame(hhs_raw)
+
+  cell_result <- tryCatch(
+    run_cf_cell(r, y, cell_seeds[i], SAMPLE_FRAC, hhs_raw,
+                plan_choice, supply_results, coefs,
+                commission_lookup, rs_coefs, claims_coefs,
+                reins_df, STRUCTURAL_SPEC),
+    error = function(e) {
+      cat("  ERROR in cell", r, y, ":", conditionMessage(e), "\n")
+      NULL
+    }
   )
+  rm(hhs_raw)
 
-  exit_code <- system(cmd)
-
-  if (exit_code == 0 && file.exists(out_file)) {
+  if (!is.null(cell_result)) {
+    results_list[[i]] <- cell_result
     n_success <- n_success + 1L
   } else {
     n_fail <- n_fail + 1L
     failed_cells <- c(failed_cells, paste0(r, "_", y))
-    cat("  FAILED: cell", r, y, "(exit code", exit_code, ")\n")
   }
 
+  gc(verbose = FALSE)
   if (i %% 5 == 0) {
     elapsed <- as.numeric(difftime(Sys.time(), t_start, units = "mins"))
     cat(sprintf("  Progress: %d/%d cells (%.1f min elapsed)\n", i, nrow(cells), elapsed))
   }
 }
 
+rm(hh_split_cf)
+gc(verbose = FALSE)
+
 elapsed_total <- as.numeric(difftime(Sys.time(), t_start, units = "mins"))
-cat(sprintf("\nDispatch complete: %d success, %d failed (%.1f min total)\n",
+cat(sprintf("\nComplete: %d success, %d failed (%.1f min total)\n",
             n_success, n_fail, elapsed_total))
 
 if (n_fail > 0) {
@@ -102,33 +108,27 @@ if (n_fail > 0) {
 }
 
 # =========================================================================
-# PHASE 4: Collect results
+# PHASE 3: Collect and write results
 # =========================================================================
 
-cat("\nPhase 4: Collecting results...\n")
+cat("\nPhase 3: Writing results...\n")
 
-cf_files <- list.files(cf_cells_dir, pattern = "^cf_\\d+_\\d+\\.csv$",
-                        full.names = TRUE)
+cf_results <- bind_rows(results_list)
+rm(results_list)
 
-if (length(cf_files) == 0) {
-  stop("No counterfactual cell results found in ", cf_cells_dir)
+if (nrow(cf_results) == 0) {
+  stop("No counterfactual results — all cells failed")
 }
 
-cf_results <- cf_files %>%
-  lapply(read_csv, show_col_types = FALSE) %>%
-  bind_rows()
-
 write_csv(cf_results, "results/counterfactual_results.csv")
-cat("  Collected", nrow(cf_results), "rows from", length(cf_files), "cells\n")
-cat("  Written to results/counterfactual_results.csv\n")
+cat("  Written", nrow(cf_results), "rows to results/counterfactual_results.csv\n")
 
 # =========================================================================
-# PHASE 5: Summary
+# PHASE 4: Summary
 # =========================================================================
 
 cat("\n--- Counterfactual Summary ---\n")
 
-# Summarize observed and uniform scenarios
 for (sc_name in c("observed", "uniform")) {
   sc_data <- cf_results %>% filter(scenario == sc_name)
   if (nrow(sc_data) == 0) next
@@ -141,9 +141,6 @@ for (sc_name in c("observed", "uniform")) {
       ", median =", round(median(sc_data$premium_change, na.rm = TRUE), 2), "\n")
   cat("  CS (weighted avg):", round(mean(sc_data$cs_weighted, na.rm = TRUE), 2), "\n")
   cat("  Converged:", round(converged_pct, 1), "%\n")
-  if ("ra_iter" %in% names(sc_data)) {
-    cat("  RA iterations (median):", round(median(sc_data$ra_iter, na.rm = TRUE), 1), "\n")
-  }
 }
 
 # Tau gradient summary
@@ -175,7 +172,6 @@ if (nrow(tau_scenarios) > 0) {
     n = Inf
   )
 
-  # Welfare gradient figure
   if (!dir.exists("results/figures")) dir.create("results/figures", recursive = TRUE)
 
   p_tau <- tau_summary %>%

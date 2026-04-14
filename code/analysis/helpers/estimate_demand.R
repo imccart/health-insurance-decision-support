@@ -184,11 +184,11 @@ cell_negll_grad <- function(beta, lambda, cell, compute_grad = TRUE) {
   V_scaled <- V_ins / lambda
 
   # Max per HH (for numerical stability)
-  max_per_hh <- as.numeric(rowsum(V_scaled, hh_id, reorder = FALSE))
-  # rowsum gives SUM; we need MAX. Use a trick: tapply is slow,
-  # so compute differently. Actually use a grouped max.
-  # For speed: compute in C-style with .Internal... or just use tapply
-  max_per_hh <- vapply(split(V_scaled, hh_id), max, numeric(1))
+  max_per_hh <- rep(-Inf, n_hh)
+  for (idx in seq_along(V_scaled)) {
+    h <- hh_id[idx]
+    if (V_scaled[idx] > max_per_hh[h]) max_per_hh[h] <- V_scaled[idx]
+  }
 
   # exp(V_scaled - max) per insured row
   exp_vs <- exp(V_scaled - max_per_hh[hh_id])
@@ -303,7 +303,11 @@ cell_negll_gradi <- function(beta, lambda, cell) {
   V_ch  <- as.numeric(cell$X_ch %*% beta)
 
   V_scaled <- V_ins / lambda
-  max_per_hh <- vapply(split(V_scaled, hh_id), max, numeric(1))
+  max_per_hh <- rep(-Inf, n_hh)
+  for (idx in seq_along(V_scaled)) {
+    h <- hh_id[idx]
+    if (V_scaled[idx] > max_per_hh[h]) max_per_hh[h] <- V_scaled[idx]
+  }
   exp_vs <- exp(V_scaled - max_per_hh[hh_id])
   D_per_hh <- as.numeric(rowsum(exp_vs, hh_id, reorder = FALSE))
   I_val <- max_per_hh + log(D_per_hh)
@@ -360,7 +364,10 @@ bfgs_bhhh <- function(theta_start, cells, max_iter = 500, ftol = 1e-8,
     if (ci %% 20 == 0) { cat("    BHHH cell", ci, "/", length(cells), "\n"); flush.console() }
   }
 
-  Hm1 <- tryCatch(solve(bhhh), error = function(e) {
+  if (any(!is.finite(bhhh))) {
+    cat("  BHHH contains non-finite values, using identity\n")
+    Hm1 <- diag(K + 1)
+  } else Hm1 <- tryCatch(solve(bhhh), error = function(e) {
     cat("  BHHH singular, using identity\n")
     diag(K + 1)
   })

@@ -382,18 +382,3 @@ compute_ra_foc <- function(risk_scores, shares, plan_avs, avg_premium,
 #' E[OOP_j] = (1 - AV_j) * predicted_claims_j
 #' Population-weighted: E[OOP] = sum(shares_j * E[OOP_j])
 #'
-#' @param shares            Named vector of plan shares
-#' @param plan_avs          Named vector of actuarial values
-#' @param predicted_claims  Named vector of predicted claims PMPM
-#' @return List with oop_by_plan (named vector) and oop_weighted (scalar)
-
-compute_expected_oop <- function(shares, plan_avs, predicted_claims) {
-  pn <- names(shares)
-  oop <- (1 - plan_avs[pn]) * predicted_claims[pn]
-  oop_weighted <- sum(shares[pn] * oop, na.rm = TRUE)
-
-  list(
-    oop_by_plan = setNames(oop, pn),
-    oop_weighted = oop_weighted
-  )
-}
