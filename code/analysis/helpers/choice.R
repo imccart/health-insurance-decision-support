@@ -129,7 +129,9 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   # Premium construction depends on premium_type:
   #   "posted" — gross age-adjusted premium (current default)
   #   "oop"    — max(gross - subsidy, 0), keeps penalty_own separate
-  #   "evan"   — max(gross - subsidy, 0) - penalty/12 (Saltzman JHE 2019 eq 3)
+  #   "net"    — max(gross - subsidy, 0) - penalty/12 (penalty reduces insured cost)
+  #   "evan"   — insured: max(gross - subsidy, 0), uninsured: penalty/12
+  #              (Saltzman JHE 2019: penalty is the "price" of being uninsured)
   dt[, adj_subsidy := fifelse(is.na(subsidy), 0, subsidy)]
   dt[, premium_hh := (premium / RATING_FACTOR_AGE40) * rating_factor]
   if (premium_type == "posted") {
@@ -146,6 +148,11 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     dt[, premium_oop := fcase(
       issuer == "Outside_Option",  0.0,
       default = pmax(premium_hh - adj_subsidy, 0) - penalty / 12
+    )]
+  } else if (premium_type == "evan") {
+    dt[, premium_oop := fcase(
+      issuer == "Outside_Option",  penalty / 12,
+      default = pmax(premium_hh - adj_subsidy, 0)
     )]
   }
   dt[, av := fcase(

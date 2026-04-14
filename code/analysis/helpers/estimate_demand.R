@@ -33,7 +33,11 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
                      if (filter_assisted >= 0) "assisted",
                      covars))
 
-  df <- data.table::fread(path, select = needed, data.table = TRUE)
+  # Intersect with actual columns to avoid fread crash on missing names;
+  # missing covariates are filled with 0 in the X matrix below
+  header <- names(data.table::fread(path, nrows = 0L))
+  available <- intersect(needed, header)
+  df <- data.table::fread(path, select = available, data.table = TRUE)
 
   if (filter_assisted >= 0) {
     df <- df[assisted == filter_assisted]

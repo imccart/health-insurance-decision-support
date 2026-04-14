@@ -19,8 +19,17 @@ SENS_DIR      <- file.path(TEMP_DIR, "demand_sensitivity")
 
 if (!dir.exists(SENS_DIR)) dir.create(SENS_DIR, recursive = TRUE)
 
-cat("=== Demand Sensitivity Analysis ===\n")
-cat("  Start time:", format(Sys.time(), "%Y-%m-%d %H:%M"), "\n")
+# Checkpoint log — survives terminal crashes
+S2_LOG <- file.path(SENS_DIR, "checkpoint.log")
+s2log <- function(msg) {
+  line <- paste0("[", format(Sys.time(), "%H:%M:%S"), "] ", msg, "\n")
+  cat(line, file = S2_LOG, append = TRUE)
+  cat(line)
+  flush.console()
+}
+cat("", file = S2_LOG)  # truncate
+
+s2log("=== Demand Sensitivity Analysis ===")
 
 # =========================================================================
 # DATA PREP — only when intermediate files are missing
@@ -187,6 +196,9 @@ DEMO_PREM <- c(
   "perc_other_prem", "FPL_250to400_prem", "FPL_400plus_prem"
 )
 
+# Rating area FEs (insured-only dummies, region 1 = reference)
+REGION_FE <- paste0("ra_", TARGET_REGIONS[-1])   # ra_4, ra_8, ra_13, ra_16
+
 DEMO_INSURED <- c(
   "FPL_250to400_insured", "FPL_400plus_insured",
   "perc_male_insured", "perc_0to17_insured",
@@ -196,8 +208,8 @@ DEMO_INSURED <- c(
 )
 
 # Outside option types:
-#   "exchange" — uninsured are exchange non-enrollees (SIPP-filtered)
-#   "acs"      — uninsured are ACS-eligible uninsured (Evan's approach)
+#   "exchange"      — uninsured are exchange non-enrollees (SIPP-filtered), raw weights
+#   "acs_reweight"  — same exchange HH, but uninsured reweighted to match ACS market size
 
 specs <- list(
   # ---------------------------------------------------------------
@@ -213,7 +225,7 @@ specs <- list(
        asst = ASST_TERMS),
 
   # ---------------------------------------------------------------
-  # Group B: OOP premium + penalty on outside, exchange uninsured
+  # Group B: OOP premium + penalty_own, exchange uninsured
   # ---------------------------------------------------------------
   list(name = "B1_oop_exch",
        premium_type = "oop", outside_option = "exchange",
@@ -225,32 +237,36 @@ specs <- list(
        asst = ASST_TERMS),
 
   # ---------------------------------------------------------------
-  # Group C: Net premium, ACS uninsured (Evan's outside option)
+  # Group C: Net premium, ACS-reweighted uninsured
   # ---------------------------------------------------------------
-  list(name = "C1_net_acs",
-       premium_type = "net", outside_option = "acs",
+  list(name = "C1_net_acsrw",
+       premium_type = "net", outside_option = "acs_reweight",
        base = c("premium", PLAN_ATTRS, INSURER_FE),
        asst = ASST_TERMS),
-  list(name = "C2_net_acs_dprem",
-       premium_type = "net", outside_option = "acs",
+  list(name = "C2_net_acsrw_dprem",
+       premium_type = "net", outside_option = "acs_reweight",
        base = c("premium", PLAN_ATTRS, INSURER_FE, DEMO_PREM),
        asst = ASST_TERMS),
 
+  # Groups D (evan+exchange) and E (evan+acs_reweight) dropped —
+  # proven algebraically identical to A and C respectively.
+  # Penalty placement (net vs evan) doesn't matter in nested logit
+  # when penalty enters through the same beta_prem coefficient.
+
   # ---------------------------------------------------------------
-  # Group D: OOP premium + penalty on outside, ACS uninsured
-  # (closest to Evan RAND 2021)
+  # Group D: Net premium + rating area FEs, exchange uninsured
   # ---------------------------------------------------------------
-  list(name = "D1_oop_acs",
-       premium_type = "oop", outside_option = "acs",
-       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE),
+  list(name = "D1_net_exch_raFE",
+       premium_type = "net", outside_option = "exchange",
+       base = c("premium", PLAN_ATTRS, INSURER_FE, REGION_FE),
        asst = ASST_TERMS),
-  list(name = "D2_oop_acs_dprem",
-       premium_type = "oop", outside_option = "acs",
-       base = c("premium", "penalty_own", PLAN_ATTRS, INSURER_FE, DEMO_PREM),
+  list(name = "D2_net_exch_raFE_dprem",
+       premium_type = "net", outside_option = "exchange",
+       base = c("premium", PLAN_ATTRS, INSURER_FE, REGION_FE, DEMO_PREM),
        asst = ASST_TERMS)
 )
 
-cat("  Specifications:", length(specs), "\n\n")
+s2log(paste("  Specs:", length(specs)))
 
 # =========================================================================
 # BUILD CELL DATA (once per premium_type x outside_option combination)
@@ -258,61 +274,47 @@ cat("  Specifications:", length(specs), "\n\n")
 
 plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
 
-# Exchange HH (current outside option)
+# Exchange HH (both insured and SIPP-filtered uninsured)
 hh_exch <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
 
-# ACS uninsured HH (Evan's outside option)
+# ACS uninsured — used only for market size targets (not as observations)
 acs_hh <- as.data.table(read.csv("data/output/demand_acs_households.csv"))
-acs_hh[, `:=`(
-  region = as.integer(rating_area),
-  plan_number_nocsr = NA_integer_,
-  plan_name = NA_character_,
-  previous_plan_number = NA_integer_,
-  oldest_member = NA_real_,
-  subsidy = fifelse(is.na(subsidy), 0, subsidy),
-  ipweight = weight,
-  v_hat = 0,
-  channel = "Unassisted",
-  channel_detail = "Unassisted",
-  any_agent = 0L,
-  p_nav = 0,
-  assisted = 0L,
-  navigator = 0L,
-  broker = 0L,
-  agent = 0L,
-  perc_18to34 = perc_18to25 + perc_26to34,
-  perc_35to54 = perc_35to44 + perc_45to54
-)]
+acs_hh[, region := as.integer(rating_area)]
 
-# Compute penalty for ACS HH (same formula as data build)
-penalty_flat <- c("2014" = 95, "2015" = 325, "2016" = 695, "2017" = 695, "2018" = 695, "2019" = 0)
-penalty_pct  <- c("2014" = 0.01, "2015" = 0.02, "2016" = 0.025, "2017" = 0.025, "2018" = 0.025, "2019" = 0)
-penalty_cap  <- c("2014" = 204, "2015" = 207, "2016" = 223, "2017" = 272, "2018" = 283, "2019" = 0) * 12
-acs_hh[, penalty := pmin(
-  pmax(household_size * penalty_flat[as.character(year)],
-       penalty_pct[as.character(year)] * pmax(FPL * poverty_threshold - 10150, 0)),
-  household_size * penalty_cap[as.character(year)]
-)]
+# ACS target: weighted uninsured count per region x year
+acs_targets <- acs_hh[, .(acs_uninsured = sum(weight)), by = .(region, year)]
 
-# Select common columns
-keep_cols <- intersect(names(hh_exch), names(acs_hh))
-acs_slim <- acs_hh[, ..keep_cols]
+# Exchange counts per region x year
+exch_insured_n   <- hh_exch[!is.na(plan_number_nocsr), .N, by = .(region, year)]
+exch_uninsured_n <- hh_exch[is.na(plan_number_nocsr),  .N, by = .(region, year)]
+setnames(exch_insured_n, "N", "n_insured")
+setnames(exch_uninsured_n, "N", "n_uninsured")
 
-# Build exchange+ACS combined dataset (insured from exchange, uninsured from ACS)
-hh_insured <- hh_exch[!is.na(plan_number_nocsr)]
-hh_acs_combined <- rbind(hh_insured, acs_slim, fill = TRUE)
-n_acs <- nrow(acs_slim)
-rm(acs_hh, acs_slim, hh_insured)
+reweight_tab <- merge(exch_insured_n, exch_uninsured_n, by = c("region", "year"), all.x = TRUE)
+reweight_tab <- merge(reweight_tab, acs_targets, by = c("region", "year"), all.x = TRUE)
+reweight_tab[is.na(n_uninsured), n_uninsured := 0L]
+reweight_tab[is.na(acs_uninsured), acs_uninsured := 0]
 
-cat("  Exchange HH:", nrow(hh_exch), "\n")
-cat("  ACS uninsured:", n_acs, "\n")
-cat("  Combined (insured + ACS uninsured):", nrow(hh_acs_combined), "\n")
+# Reweight factor: scale exchange uninsured ipweight so weighted count = ACS target
+# If no exchange uninsured in a cell, factor is NA (cell will use raw weights)
+reweight_tab[, rw_factor := fifelse(n_uninsured > 0, acs_uninsured / n_uninsured, NA_real_)]
 
-# Split both datasets by region x year
-hh_split_exch <- split(hh_exch, by = c("region", "year"), keep.by = FALSE)
-hh_split_acs  <- split(hh_acs_combined, by = c("region", "year"), keep.by = FALSE)
+s2log(paste("  Exchange HH:", nrow(hh_exch)))
+s2log(paste("  ACS target uninsured:", round(sum(acs_targets$acs_uninsured))))
+s2log(paste("  Exchange uninsured HH:", sum(reweight_tab$n_uninsured)))
+s2log(paste("  Median reweight factor:", round(median(reweight_tab$rw_factor, na.rm = TRUE), 1)))
+s2log(paste("  Memory:", round(as.numeric(object.size(hh_exch)) / 1e9, 2), "GB for hh_exch"))
+rm(acs_hh, acs_targets, exch_insured_n, exch_uninsured_n)
+
+# Keep reweight_tab for post-cell-build reweighting (build_choice_data
+# overwrites ipweight with hh_size, so we apply the factor after)
+
+# Split exchange data by region x year
+s2log("  Splitting exchange data...")
+hh_split_exch  <- split(hh_exch, by = c("region", "year"), keep.by = FALSE)
 all_cells_meta <- unique(hh_exch[, .(region, year)])[order(region, year)]
-rm(hh_exch, hh_acs_combined); gc(verbose = FALSE)
+rm(hh_exch); gc(verbose = FALSE)
+s2log("  Split complete. Starting estimation loop.")
 
 set.seed(MASTER_SEED)
 all_seeds <- sample.int(1e7, nrow(all_cells_meta))
@@ -350,8 +352,8 @@ for (si in seq_along(specs)) {
     next
   }
 
-  cat("--- Spec", si, "/", length(specs), ":", sp$name,
-      "(", K_spec + 1, "params,", pt, "+", oo, ") ---\n")
+  s2log(paste0("--- Spec ", si, "/", length(specs), ": ", sp$name,
+               " (", K_spec + 1, " params, ", pt, "+", oo, ") ---"))
 
   # Build cells if not already built for this (premium_type, outside_option) combo
   combo_key <- paste0(pt, "_", oo)
@@ -365,8 +367,6 @@ for (si in seq_along(specs)) {
       if (dir.exists(combo_dir)) unlink(combo_dir, recursive = TRUE)
       dir.create(combo_dir, recursive = TRUE)
 
-      hh_split_cur <- if (oo == "acs") hh_split_acs else hh_split_exch
-
       cat("  Building cells for", pt, "+", oo, "...\n")
       n_built <- 0L
       for (j in seq_len(nrow(all_cells_meta))) {
@@ -376,7 +376,7 @@ for (si in seq_along(specs)) {
 
         set.seed(all_seeds[j])
         cell_key <- paste0(r_j, ".", y_j)
-        hhs <- hh_split_cur[[cell_key]]
+        hhs <- hh_split_exch[[cell_key]]
         if (is.null(hhs) || nrow(hhs) == 0) next
         hhs <- as.data.frame(hhs)
 
@@ -388,6 +388,25 @@ for (si in seq_along(specs)) {
         rm(hhs, plans)
 
         if (!is.null(cd)) {
+          # Rating area FE columns (insured-only dummies, 0 for uninsured)
+          insured_flag <- as.integer(cd$uninsured_plan == 0)
+          for (ra in TARGET_REGIONS[-1]) {
+            cd[[paste0("ra_", ra)]] <- as.integer(r_j == ra) * insured_flag
+          }
+
+          # For acs_reweight: scale uninsured HH weights by ACS market-size factor
+          if (oo == "acs_reweight") {
+            rw <- reweight_tab[region == r_j & year == y_j, rw_factor]
+            if (length(rw) == 1 && !is.na(rw)) {
+              unins_rows <- which(cd$plan_name == "Uninsured" | cd$uninsured_plan == 1)
+              if (length(unins_rows) > 0) {
+                # Identify uninsured HH ids, scale their weight across all rows
+                unins_hh <- unique(cd$household_id[unins_rows[cd$plan_choice[unins_rows] == 1]])
+                cd$ipweight[cd$household_id %in% unins_hh] <-
+                  cd$ipweight[cd$household_id %in% unins_hh] * rw
+              }
+            }
+          }
           cd$region <- r_j; cd$year <- y_j
           write.csv(cd, file.path(combo_dir, paste0("cell_", r_j, "_", y_j, "_data.csv")),
                     row.names = FALSE)
@@ -396,19 +415,20 @@ for (si in seq_along(specs)) {
         }
         rm(cd); gc(verbose = FALSE)
       }
-      cat("  Built", n_built, "cells\n")
+      s2log(paste("  Built", n_built, "cells"))
     }
     built_combos <- c(built_combos, combo_key)
   }
 
   # Estimate
+  s2log(paste("  Loading cells from", combo_dir))
   loaded <- load_all_cells(combo_dir, all_terms, filter_assisted = -1L)
   demand_cells <- loaded$cells
   total_hh <- loaded$total_hh
   rm(loaded)
   demand_cells <- normalize_weights(demand_cells)
 
-  cat("  HH:", total_hh, "\n")
+  s2log(paste("  Cells loaded. HH:", total_hh))
 
   theta0 <- c(rep(0, K_spec), 1.0)
   if (!is.null(sp$warm_start)) {
@@ -425,15 +445,16 @@ for (si in seq_along(specs)) {
     }
   }
 
+  s2log("  Starting BFGS-BHHH...")
   t0 <- proc.time()
   theta_opt <- tryCatch(
     bfgs_bhhh(theta0, demand_cells, max_iter = 500, print_every = 100),
-    error = function(e) { cat("  ERROR:", e$message, "\n"); NULL }
+    error = function(e) { s2log(paste("  ERROR:", e$message)); NULL }
   )
   elapsed <- round((proc.time() - t0)[3], 1)
 
   if (is.null(theta_opt)) {
-    cat("  FAILED (", elapsed, "sec)\n\n")
+    s2log(paste("  FAILED (", elapsed, "sec)"))
     rm(demand_cells)
     gc(verbose = FALSE)
     next
@@ -447,14 +468,14 @@ for (si in seq_along(specs)) {
   summ_str <- sprintf("%.8f,%.6f,%.2f", theta_opt[1], theta_opt[K_spec + 1], negll)
   writeLines(summ_str, summary_path)
 
-  cat(sprintf("  beta_prem = %.6f  lambda = %.4f  negLL = %.1f  (%s sec)\n\n",
-              theta_opt[1], theta_opt[K_spec + 1], negll, elapsed))
+  s2log(sprintf("  DONE: beta_prem=%.6f lambda=%.4f negLL=%.1f (%s sec)",
+                theta_opt[1], theta_opt[K_spec + 1], negll, elapsed))
 
   rm(demand_cells, theta_opt, coefs_out)
   gc(verbose = FALSE)
 }
 
-rm(plan_choice, all_cells_meta, all_seeds, hh_split_exch, hh_split_acs)
+rm(plan_choice, all_cells_meta, all_seeds, hh_split_exch, reweight_tab)
 gc(verbose = FALSE)
 
 # =========================================================================
