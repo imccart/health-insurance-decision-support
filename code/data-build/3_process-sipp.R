@@ -24,23 +24,6 @@ sipp_dir <- "data/input/SIPP Data"
 acs_dir  <- "data/input/ACS Data"
 
 
-# read_fwf_sas(): parse SAS dictionary + read fixed-width -------------------
-# Used for SIPP 2008 Core (.zip) and TM2 / TM6 modules.
-read_fwf_sas <- function(sas_path, data_path, is_gzip = FALSE, is_zip = FALSE) {
-  input <- parse.SAScii(sas_path)
-  col_positions <- fwf_widths(input$width, col_names = input$varname)
-  if (is_gzip) {
-    read_fwf(data_path, col_positions, col_types = cols(.default = "d"))
-  } else if (is_zip) {
-    tmp <- tempdir(); extracted <- unzip(data_path, exdir = tmp)
-    df <- read_fwf(extracted[1], col_positions, col_types = cols(.default = "d"))
-    file.remove(extracted); df
-  } else {
-    read_fwf(data_path, col_positions, col_types = cols(.default = "d"))
-  }
-}
-
-
 # =============================================================================
 # (a) IMMIGRATION LOGIT — from SIPP 2008 TM2
 # =============================================================================

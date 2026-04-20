@@ -33,6 +33,13 @@ age_rating_factors  <- read.csv("data/input/Covered California/age_rating_factor
                                  stringsAsFactors = FALSE)
 poverty_guidelines  <- read.csv("data/input/Covered California/poverty_guidelines.csv",
                                  stringsAsFactors = FALSE)
+# Long form (Family_Size, year, poverty_threshold) for vectorized joins
+poverty_guidelines_long <- poverty_guidelines %>%
+  pivot_longer(cols = starts_with("YR"),
+               names_to = "year", names_prefix = "YR",
+               names_transform = list(year = as.integer),
+               values_to = "poverty_threshold")
+
 contribution_percentages <- read.csv("data/input/Covered California/contribution_percentages.csv",
                                       stringsAsFactors = FALSE)
 

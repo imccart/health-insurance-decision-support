@@ -76,3 +76,16 @@ assign_bracket <- function(fpl) {
     TRUE            ~ "400% FPL or greater"
   )
 }
+
+# Parse SAS dictionary + read fixed-width data (for SIPP / ACS / IPUMS).
+read_fwf_sas <- function(sas_path, data_path, is_gzip = FALSE, is_zip = FALSE) {
+  input <- parse.SAScii(sas_path)
+  col_positions <- fwf_widths(input$width, col_names = input$varname)
+  if (is_zip) {
+    tmp <- tempdir(); extracted <- unzip(data_path, exdir = tmp)
+    df <- read_fwf(extracted[1], col_positions, col_types = cols(.default = "d"))
+    file.remove(extracted); df
+  } else {
+    read_fwf(data_path, col_positions, col_types = cols(.default = "d"))
+  }
+}

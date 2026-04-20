@@ -60,12 +60,12 @@ enroll <- enroll %>%
     flagged = flagged | is.na(age) | age > 120 | is.na(zip3),
 
     # Race → 5 canonical categories
-    race = case_match(race_ethnicity,
+    race = recode_values(race_ethnicity,
       "Latino"          ~ "Hispanic",
       "Asian"           ~ "Asian",
       "White"           ~ "White",
       "Black or Africa" ~ "Black/African American",
-      .default          = "Other Race"
+      default           = "Other Race"
     ),
     race = ifelse(is.na(race_ethnicity) | race_ethnicity == "", NA_character_, race),
 

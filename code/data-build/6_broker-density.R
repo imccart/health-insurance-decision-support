@@ -7,7 +7,6 @@
 ##                One row per agent x region in each year sheet.
 ##                Output: data/output/broker_density.csv
 
-source("code/0-setup.R")
 library(readxl)
 
 # =========================================================================

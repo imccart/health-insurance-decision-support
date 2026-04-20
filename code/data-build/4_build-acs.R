@@ -250,12 +250,16 @@ hh <- acs %>%
     .groups = "drop"
   ) %>%
   mutate(
-    # Poverty threshold and subsidy params
-    poverty_threshold = poverty_guidelines[[paste0("YR", pmin(year, 2019))]][
-      match(household_size, poverty_guidelines$Family_Size)],
     # ACA eligibility: <138% is Medicaid, >400% is unsubsidized, rest gets subsidy
     subsidy_eligible = as.integer(FPL >= 1.38 & FPL <= 4.0)
   )
+
+# Poverty threshold (by HH size and year) — for ACA contribution formula
+hh <- hh %>%
+  mutate(year_cap = pmin(year, 2019L)) %>%
+  left_join(poverty_guidelines_long,
+            by = c("year_cap" = "year", "household_size" = "Family_Size")) %>%
+  select(-year_cap)
 
 
 # Subsidy calculation via ACA formula --------------------------------------
