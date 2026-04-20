@@ -8,7 +8,7 @@
 
 # Pipeline parameters (defined once, used by both reduced-form and structural)
 TEMP_DIR     <- "D:/temp-research-data/health-insurance-decision-support"
-SAMPLE_FRAC  <- 0.05
+SAMPLE_FRAC  <- 0.02
 MASTER_SEED  <- 20260224
 
 if (!dir.exists(TEMP_DIR)) dir.create(TEMP_DIR, recursive = TRUE)
@@ -17,12 +17,11 @@ Sys.setenv(SAMPLE_FRAC = SAMPLE_FRAC)
 Sys.setenv(MASTER_SEED = MASTER_SEED)
 
 # Setup -------------------------------------------------------------------
-source("renv/activate.R")
 source("code/0-setup.R")
 
 
 # Helpers (loaded once, used by all downstream scripts) -------------------
-source("code/data-build/_helpers-enrollment.R")
+source("code/data-build/_helpers.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
 source("code/analysis/helpers/choice.R")
@@ -52,3 +51,4 @@ source('code/analysis/structural/_structural.R')
 # Numbers in paper --------------------------------------------------------
 source("code/analysis/4_paper-results.R")
 
+source("scratch/diag_crash.R")

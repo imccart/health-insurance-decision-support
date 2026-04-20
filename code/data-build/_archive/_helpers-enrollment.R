@@ -37,6 +37,9 @@ standardize_insurer <- function(x) {
 # so inverting requires the quadratic formula. The 300-400% bracket is a
 # special case: contribution percentage is constant, so it's linear.
 #
+# FPL convention (consistent with Saltzman JHE 2019): FPL is expressed as a
+# ratio (e.g., 1.5 = 150% of poverty line), NOT a percentage (150).
+#
 # Args (all vectors, same length):
 #   slc_contribution  monthly $ the household must contribute toward SLC silver
 #   perc_LB, perc_UB  contribution percentage at lower/upper bound of bracket
@@ -51,14 +54,14 @@ invert_aca_subsidy <- function(slc_contribution, perc_LB, perc_UB,
 
   # 300-400% bracket: contribution pct is constant (perc_LB), so linear
   lin <- bracket_300_400
-  exact_fpl[lin] <- slc_contribution[lin] / (perc_LB[lin] * poverty_threshold[lin] / 12) * 100
+  exact_fpl[lin] <- slc_contribution[lin] / (perc_LB[lin] * poverty_threshold[lin] / 12)
 
-  # All other brackets: quadratic
+  # All other brackets: quadratic in FPL (ratio form)
   quad <- !bracket_300_400
   a <- poverty_threshold[quad] / 12 * (perc_UB[quad] - perc_LB[quad]) / (fpl_UB[quad] - fpl_LB[quad])
   b <- poverty_threshold[quad] / 12 * (perc_LB[quad] - (perc_UB[quad] - perc_LB[quad]) * fpl_LB[quad] / (fpl_UB[quad] - fpl_LB[quad]))
   c <- -slc_contribution[quad]
-  exact_fpl[quad] <- (-b + sqrt(b^2 - 4 * a * c)) / (2 * a) * 100
+  exact_fpl[quad] <- (-b + sqrt(b^2 - 4 * a * c)) / (2 * a)
 
   exact_fpl
 }
@@ -66,21 +69,27 @@ invert_aca_subsidy <- function(slc_contribution, perc_LB, perc_UB,
 
 # Forward ACA contribution calculation --------------------------------------
 #
-# Given a known FPL percentage, compute the monthly contribution toward SLC.
-# This is the forward direction of the inversion above.
+# Given a known FPL (as a ratio, e.g., 1.5 = 150% of poverty), compute the
+# monthly contribution toward SLC. Forward direction of the inversion above.
+#
+# Matches Saltzman JHE 2019 formula (prepare.demand.data.R line 618-627 of
+# old-repo): FPL is in ratio form, not percentage.
 
-calculate_aca_contribution <- function(fpl_pct, perc_LB, perc_UB,
+calculate_aca_contribution <- function(fpl, perc_LB, perc_UB,
                                        fpl_LB, fpl_UB, poverty_threshold,
                                        bracket_300_400 = FALSE) {
-  contribution <- rep(NA_real_, length(fpl_pct))
+  contribution <- rep(NA_real_, length(fpl))
 
+  # 300-400% bracket: contribution pct is constant at perc_LB, linear in FPL
   lin <- bracket_300_400
-  contribution[lin] <- perc_LB[lin] * (poverty_threshold[lin] / 12 * fpl_pct[lin] / 100)
+  contribution[lin] <- perc_LB[lin] * (poverty_threshold[lin] / 12 * fpl[lin])
 
+  # Other brackets: contribution pct interpolates linearly between perc_LB and
+  # perc_UB across the FPL bracket. Quadratic in FPL.
   quad <- !bracket_300_400
   contribution[quad] <- ((perc_UB[quad] - perc_LB[quad]) *
-    (fpl_pct[quad] / 100 - fpl_LB[quad]) / (fpl_UB[quad] - fpl_LB[quad]) + perc_LB[quad]) *
-    (poverty_threshold[quad] / 12 * fpl_pct[quad] / 100)
+    (fpl[quad] - fpl_LB[quad]) / (fpl_UB[quad] - fpl_LB[quad]) + perc_LB[quad]) *
+    (poverty_threshold[quad] / 12 * fpl[quad])
 
   contribution
 }
