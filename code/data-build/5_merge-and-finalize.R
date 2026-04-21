@@ -10,7 +10,6 @@
 #   data/output/enrollment_individual.csv  (CC individuals, step 2)
 #   data/output/acs_households.csv         (ACS uninsured, step 4)
 #   data/output/acs_individuals.csv
-#   data/output/sipp_transition_logit.rds  (step 3)
 #   data/output/income_model_coefs.csv     (step 4)
 #   data/output/income_distribution.csv    (step 4)
 # Outputs:
@@ -25,34 +24,6 @@ cc_hh   <- fread("data/output/enrollment_hh.csv")         %>% as_tibble()
 cc_ind  <- fread("data/output/enrollment_individual.csv") %>% as_tibble()
 acs_hh  <- fread("data/output/acs_households.csv")        %>% as_tibble()
 acs_ind <- fread("data/output/acs_individuals.csv")       %>% as_tibble()
-
-
-# SIPP transition filter on ACS uninsured ----------------------------------
-# Predict P(transition) for each ACS HH, drop those above U(0,1) → keeps
-# the ~27% "consistent uninsured" subsample.
-cat("  Applying SIPP transition filter to ACS uninsured...\n")
-
-sipp_logit <- readRDS("data/output/sipp_transition_logit.rds")
-
-# Build the predictor variables the logit expects. Names must match:
-# family_size, FPL_bracket, perc_0to17, perc_18to34, perc_35to54, perc_male,
-# perc_asian, perc_black, perc_hispanic, perc_other
-acs_hh <- acs_hh %>% mutate(
-  family_size = household_size,
-  # ACS has perc_18to25 + perc_26to34 and perc_35to44 + perc_45to54 separately;
-  # combine to match SIPP granularity.
-  perc_18to34 = perc_18to25 + perc_26to34,
-  perc_35to54 = perc_35to44 + perc_45to54
-)
-
-p_transition <- predict(sipp_logit, newdata = acs_hh, type = "response")
-# Compare against a uniform random draw; HH is "in-market" if draw > p
-acs_hh$in_market <- runif(nrow(acs_hh)) > p_transition
-
-n_before <- nrow(acs_hh)
-acs_hh <- acs_hh %>% filter(in_market)
-cat(sprintf("    Kept %d / %d ACS HHs (%.1f%% — target ~27%%)\n",
-            nrow(acs_hh), n_before, 100 * nrow(acs_hh) / n_before))
 
 
 # Income imputation for CC >400% HHs with missing FPL ----------------------

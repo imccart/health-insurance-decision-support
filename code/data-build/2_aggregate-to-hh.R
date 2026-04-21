@@ -250,3 +250,5 @@ fwrite(enroll, "data/output/enrollment_individual.csv")
 fwrite(hh,     "data/output/enrollment_hh.csv")
 cat(sprintf("Step 2 complete: %d HH-years, %d individuals.\n",
             nrow(hh), nrow(enroll)))
+
+rm(enroll, hh); gc(verbose = FALSE)

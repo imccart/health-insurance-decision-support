@@ -176,7 +176,7 @@ rsdata <- rsdata %>%
     s_av  = (total_adjustment * EXP_MM) / sum(total_adjustment * EXP_MM),
     share = EXP_MM / sum(EXP_MM),
     risk_score = (EXP_RSK_ADJ / total_premium + s_av) / share,
-    log_risk_score = log(risk_score)
+    log_risk_score = log(if_else(risk_score > 0, risk_score, NA_real_))
   ) %>%
   ungroup()
 
@@ -203,7 +203,7 @@ rsdata <- rsdata %>%
     Kaiser      = as.integer(insurer_small == "Kaiser"),
     trend    = year - min(year),
     AV_Demean = AV_LOOKUP[METAL] - 0.70,
-    log_cost = if_else(EXP_INC_CLM_PMPM > 0, log(EXP_INC_CLM_PMPM), NA_real_)
+    log_cost = log(if_else(EXP_INC_CLM_PMPM > 0, EXP_INC_CLM_PMPM, NA_real_))
   )
 
 

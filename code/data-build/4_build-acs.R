@@ -26,23 +26,20 @@ set.seed(1)
 # Load ACS -----------------------------------------------------------------
 cat("  Loading ACS microdata...\n")
 
-# We have two ACS extracts: (a) CA-only 2014-2017 (usa_00011.dat.gz),
-# (b) nationwide 2018-2019 (ipums-acs-2018-2019.dat.gz). Both use the same
-# SAS dictionary (same IPUMS variable set). Load both, filter (b) to
-# California (STATEFIP == 6), then rbind.
-acs_files <- list.files("data/input/ACS Data",
-                         pattern = "\\.dat\\.gz$",
-                         full.names = TRUE)
-if (length(acs_files) == 0) stop("No ACS extracts found in data/input/ACS Data/")
+# Two ACS extracts, each with its own SAS dictionary (different variable sets):
+#   usa_00011.dat.gz             — CA-only 2014-2017,    dict: input20143.sas
+#   ipums-acs-2018-2019.dat.gz   — nationwide 2018-2019, dict: input_2018_2019.sas
+acs_extracts <- list(
+  list(dat  = "data/input/ACS Data/usa_00011.dat.gz",
+       dict = "data/input/SIPP Data/input20143.sas"),
+  list(dat  = "data/input/ACS Data/ipums-acs-2018-2019.dat.gz",
+       dict = "data/input/SIPP Data/input_2018_2019.sas")
+)
 
-cat(sprintf("    Found %d ACS extracts: %s\n",
-            length(acs_files), paste(basename(acs_files), collapse = ", ")))
-
-acs <- bind_rows(lapply(acs_files, function(f) {
-  cat(sprintf("    Reading %s...\n", basename(f)))
-  df <- read_fwf_sas("data/input/SIPP Data/input20143.sas", f, is_gzip = TRUE)
-  # Filter to California — CA-only extract already is, but nationwide needs it
-  df %>% filter(STATEFIP == 6)
+acs <- bind_rows(lapply(acs_extracts, function(x) {
+  cat(sprintf("    Reading %s...\n", basename(x$dat)))
+  df <- read_fwf_sas(x$dict, x$dat, is_gzip = TRUE)
+  df %>% filter(STATEFIP == 6)   # CA-only extract already is; nationwide needs it
 }))
 
 # Scale person weights (IPUMS stores PERWT with 2 implied decimals)
@@ -139,31 +136,48 @@ acs$access_ESI <- as.integer(acs$has_ESI == 1 | acs$pred_ESI > 0.5)
 
 
 # Filter to ACA-eligible uninsured -----------------------------------------
-cat("  Filtering to in-market uninsured...\n")
-
 # Build HH-level access_ESI: if ANY member has ESI access, HH has access
 acs <- acs %>%
-  mutate(household_year = paste(HIUID, FAMUNIT, year, sep = "_")) %>%
+  mutate(household_year = paste(HIUID, year, sep = "_")) %>%
   group_by(household_year) %>%
   mutate(hh_access_ESI = max(access_ESI, na.rm = TRUE)) %>%
   ungroup()
 
-n_before <- nrow(acs)
-acs <- acs %>% filter(
-  undocumented == 0,      # drop undocumented (not ACA-eligible)
-  hh_access_ESI == 0,     # drop HHs with any ESI access
-  uninsured == 1          # keep only uninsured members
+# Two parallel "uninsured ACA-eligible" flags:
+#   ACS_unins_flag  — direct from ACS variables only
+#                       (uninsured AND US citizen)
+#   SIPP_unins_flag — applies SIPP-imputed flags
+#                       (uninsured AND not predicted-undocumented
+#                        AND no household ESI access)
+# Final analysis sample = passes BOTH flags (intersection).
+acs <- acs %>% mutate(
+  ACS_unins_flag  = as.integer(uninsured == 1 & CITIZEN %in% c(0, 1, 2)),
+  SIPP_unins_flag = as.integer(uninsured == 1 & undocumented == 0 &
+                                hh_access_ESI == 0)
 )
-cat(sprintf("    Kept %d / %d individuals (%.1f%%)\n",
-            nrow(acs), n_before, 100 * nrow(acs) / n_before))
+
+n0     <- nrow(acs)
+n_acs  <- sum(acs$ACS_unins_flag  == 1)
+n_sipp <- sum(acs$SIPP_unins_flag == 1)
+n_both <- sum(acs$ACS_unins_flag == 1 & acs$SIPP_unins_flag == 1)
+cat(sprintf("  ACS individuals total:                       %d\n", n0))
+cat(sprintf("    ACS_unins_flag  (uninsured + US citizen): %d (%.1f%%)\n",
+            n_acs,  100 * n_acs  / n0))
+cat(sprintf("    SIPP_unins_flag (uninsured + non-undoc + no ESI): %d (%.1f%%)\n",
+            n_sipp, 100 * n_sipp / n0))
+cat(sprintf("    Intersection (kept):                      %d (%.1f%%)\n",
+            n_both, 100 * n_both / n0))
+
+acs <- acs %>% filter(ACS_unins_flag == 1, SIPP_unins_flag == 1)
 
 
 # Geography: PUMA → county → rating_area ----------------------------------
 cat("  Assigning geography...\n")
 
-# Simple PUMA→county lookup
+# Simple PUMA→county lookup. PUMAs.csv uses STATEFP/PUMA5CE/COUNTY/RATING_AREA.
 acs <- acs %>% left_join(
-  ca_pumas %>% select(PUMA, county_name = County, rating_area = Rating_Area),
+  ca_pumas %>% select(PUMA = PUMA5CE, county_name = COUNTY,
+                      rating_area = RATING_AREA),
   by = "PUMA"
 )
 
@@ -272,7 +286,9 @@ fpl_ub_lookup <- setNames(FPL_BRACKETS$fpl_UB, FPL_BRACKETS$bracket)
 
 hh <- hh %>%
   mutate(fpl_LB = fpl_lb_lookup[FPL_bracket],
-         fpl_UB = fpl_ub_lookup[FPL_bracket])
+         fpl_UB = fpl_ub_lookup[FPL_bracket],
+         perc_LB = NA_real_,
+         perc_UB = NA_real_)
 
 # Year-specific contribution percentages
 for (yr in 2014:2019) {
@@ -338,3 +354,8 @@ fwrite(hh,  "data/output/acs_households.csv")
 fwrite(acs, "data/output/acs_individuals.csv")
 cat(sprintf("Step 4 complete: %d ACS HH-years, %d ACS individuals.\n",
             nrow(hh), nrow(acs)))
+
+to_rm <- c("acs", "hh", "imm_logit", "esi_logit", "ca_pumas", "sahie",
+           "counties_list", "county_slc_by_year", "compute_county_slc",
+           "income_OLS", "fit_sample", "income_coefs", "income_dist")
+rm(list = to_rm[sapply(to_rm, exists)]); gc(verbose = FALSE)

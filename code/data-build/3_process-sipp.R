@@ -2,21 +2,15 @@
 # Fit SIPP-based logit models used downstream:
 #   (a) immigration_logit     - P(undocumented | non-citizen demographics)
 #   (b) emp_offer_logit       - P(access to affordable ESI | demographics)
-#   (c) transition_logit      - P(entered/exited nongroup market)
 #
-# (a) and (b) use SIPP 2008 panel waves with topical modules (TM2 immigration,
-# TM6 employer offer). They are applied to ACS non-citizens in step 4 to
-# filter out ACA-ineligible respondents.
-#
-# (c) uses SIPP 2014 waves 1-3 (years 2013-2015) to build a HH-year panel
-# with nongroup market entry/exit flags. Used in step 5 to filter ACS
-# uninsured down to the "consistent uninsured" subsample.
+# Both use SIPP 2008 panel waves with topical modules (TM2 immigration,
+# TM6 employer offer). Step 4 uses (a) on ACS non-citizens to drop predicted
+# undocumented and (b) on all ACS individuals to identify those with predicted
+# ESI access (offered-but-declined, which ACS doesn't observe directly).
 #
 # Outputs:
 #   data/output/sipp_immigration_logit.rds
 #   data/output/sipp_emp_offer_logit.rds
-#   data/output/sipp_transition_logit.rds
-#   data/output/sipp_households.csv  (HH-year panel from SIPP 2014 with flags)
 
 set.seed(5)
 
@@ -170,99 +164,5 @@ emp_offer_logit <- glm(
 saveRDS(emp_offer_logit, "data/output/sipp_emp_offer_logit.rds")
 rm(sipp_tm6, sipp_w6); gc(verbose = FALSE)
 
-
-# =============================================================================
-# (c) MARKET-TRANSITION LOGIT — from SIPP 2014 waves 1-3
-# =============================================================================
-cat("  (c) Fitting market-transition logit on SIPP 2014 waves 1-3...\n")
-
-waves <- tibble(
-  wave_num   = 1:3,
-  year       = 2013:2015,
-  wave_csv   = file.path(sipp_dir, paste0("pu2014w", 1:3, ".csv")),
-  status_csv = file.path(sipp_dir, paste0("status", 2013:2015, ".csv"))
-)
-
-# Process one SIPP wave → HH-year with entered/exited market flags
-process_wave <- function(wave_csv, status_csv, wave_num, year) {
-  mover_col <- if (wave_num == 1) "RMOVER" else "TMOVER"
-  cols_keep <- c("SSUID", "PNUM", "SWAVE", "MONTHCODE", "TAGE", "ESEX",
-                  "ERACE", "EORIGIN", "WPFINWGT", "THTOTINC", "RHPOV",
-                  mover_col,
-                  "EYNOESI_COV", "EYNOESI_EXP", "EYNOESI_HTH",
-                  "EYNOESI_ELS", "EYNOESI_UNH")
-  wave <- read_csv(wave_csv, col_select = all_of(cols_keep),
-                    show_col_types = FALSE) %>%
-    mutate(SSUID = as.character(SSUID))
-  if (wave_num == 1) wave <- wave %>% rename(TMOVER = RMOVER)
-
-  hh <- wave %>%
-    group_by(SSUID, MONTHCODE) %>%
-    summarize(
-      family_size     = n_distinct(PNUM),
-      perc_male       = mean(ESEX == 1, na.rm = TRUE),
-      perc_asian      = mean(ERACE == 3, na.rm = TRUE),
-      perc_black      = mean(ERACE == 2, na.rm = TRUE),
-      perc_hispanic   = mean(EORIGIN == 1, na.rm = TRUE),
-      perc_other      = mean(ERACE == 4 & EORIGIN == 2, na.rm = TRUE),
-      perc_0to17      = mean(TAGE <= 17, na.rm = TRUE),
-      perc_18to34     = mean(TAGE >= 18 & TAGE <= 34, na.rm = TRUE),
-      perc_35to54     = mean(TAGE >= 35 & TAGE <= 54, na.rm = TRUE),
-      max_age         = max(TAGE, na.rm = TRUE),
-      weight          = sum(WPFINWGT, na.rm = TRUE),
-      THTOTINC        = sum(THTOTINC, na.rm = TRUE),
-      RHPOV           = first(RHPOV),
-      TMOVER          = max(TMOVER, na.rm = TRUE),
-      .groups         = "drop"
-    ) %>%
-    mutate(FPL = pmax(0, THTOTINC / RHPOV),
-           household_year = paste(SSUID, year, sep = "_"),
-           year = year)
-
-  # Enter/exit: status file has 0/1 flags per month × SSUID
-  status <- read_csv(status_csv, show_col_types = FALSE) %>%
-    mutate(SSUID = as.character(SSUID))
-  hh %>% left_join(status, by = c("SSUID", "MONTHCODE"))
-}
-
-sipp_hh <- bind_rows(
-  pmap(waves, function(wave_num, year, wave_csv, status_csv) {
-    process_wave(wave_csv, status_csv, wave_num, year)
-  })
-)
-
-# Collapse month-level to year-level: took place if transition happened in any month
-sipp_hh <- sipp_hh %>%
-  group_by(household_year, year, SSUID) %>%
-  summarize(
-    entered_market = max(entered, na.rm = TRUE),
-    exited_market  = max(exited, na.rm = TRUE),
-    transitioned   = pmax(entered_market, exited_market, na.rm = TRUE),
-    family_size    = first(family_size),
-    FPL            = first(FPL),
-    FPL_bracket    = assign_bracket(first(FPL)),
-    max_age        = first(max_age),
-    weight         = first(weight),
-    perc_male      = first(perc_male),
-    perc_asian     = first(perc_asian),
-    perc_black     = first(perc_black),
-    perc_hispanic  = first(perc_hispanic),
-    perc_other     = first(perc_other),
-    perc_0to17     = first(perc_0to17),
-    perc_18to34    = first(perc_18to34),
-    perc_35to54    = first(perc_35to54),
-    .groups = "drop"
-  )
-
-transition_logit <- glm(
-  transitioned ~ FPL_bracket + family_size + perc_0to17 + perc_18to34 +
-    perc_35to54 + perc_male + perc_asian + perc_black + perc_hispanic + perc_other,
-  data   = sipp_hh %>% filter(!is.na(transitioned)),
-  family = binomial
-)
-
-saveRDS(transition_logit,   "data/output/sipp_transition_logit.rds")
-fwrite(sipp_hh,            "data/output/sipp_households.csv")
-
-cat(sprintf("Step 3 complete: fit 3 logits; %d SIPP HH-years saved.\n",
-            nrow(sipp_hh)))
+cat("Step 3 complete: fit 2 logits (immigration, emp-offer).\n")
+rm(immigration_logit, emp_offer_logit); gc(verbose = FALSE)
