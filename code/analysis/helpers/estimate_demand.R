@@ -29,7 +29,7 @@
 #   wt         — numeric vector (n_hh)
 
 load_one_cell <- function(path, covars, filter_assisted = -1L) {
-  needed <- unique(c("household_number", "plan_name", "choice", "ipweight",
+  needed <- unique(c("household_number", "plan_id", "choice", "hh_weight",
                      if (filter_assisted >= 0) "assisted",
                      covars))
 
@@ -44,8 +44,8 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
     if (nrow(df) == 0) return(NULL)
   }
 
-  # Sort by household_number, plan_name
-  data.table::setorder(df, household_number, plan_name)
+  # Sort by household_number, plan_id
+  data.table::setorder(df, household_number, plan_id)
 
   K <- length(covars)
   n_rows <- nrow(df)
@@ -61,10 +61,10 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
     }
   }
 
-  plan_nm <- as.character(df$plan_name)
+  plan_nm <- as.character(df$plan_id)
   ch <- as.integer(df$choice)
   hh_num <- df$household_number
-  ipw <- as.numeric(df$ipweight)
+  ipw <- as.numeric(df$hh_weight)
 
   is_unins <- plan_nm == "Uninsured"
   is_ins <- !is_unins
@@ -72,7 +72,7 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
   # Identify valid HH: must have insured rows, uninsured row, and a chosen row
   # Use data.table for fast grouped checks
   df[, row_idx := .I]
-  df[, is_unins := (plan_name == "Uninsured")]
+  df[, is_unins := (plan_id == "Uninsured")]
 
   hh_summary <- df[, .(
     has_ins   = any(!is_unins),
@@ -80,8 +80,8 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
     has_choice = any(choice == 1L),
     unins_idx = row_idx[is_unins][1],
     chosen_idx = row_idx[choice == 1L][1],
-    chose_insured = (plan_name[choice == 1L][1] != "Uninsured"),
-    weight = ipweight[1]
+    chose_insured = (plan_id[choice == 1L][1] != "Uninsured"),
+    weight = hh_weight[1]
   ), by = household_number]
 
   valid_hh <- hh_summary[has_ins == TRUE & has_unins == TRUE & has_choice == TRUE]

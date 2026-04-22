@@ -22,6 +22,25 @@ cat("  Loading individual enrollment...\n")
 enroll <- fread("data/output/enrollment_individual.csv")  # data.table
 
 
+# Plan-id crosswalk --------------------------------------------------------
+# Replace CC's descriptive plan_name with the canonical short-code plan_id
+# from plan_data$Plan_Name2. Key (HIOS, year, metal) is unique in plan_data
+# and matches enroll 1:1.
+cat("  Attaching canonical plan_id from plan_data...\n")
+pd_lookup <- as.data.table(plan_data)[, .(HIOS, year = ENROLLMENT_YEAR,
+                                          metal = metal_level,
+                                          plan_id = Plan_Name2)]
+pd_lookup <- unique(pd_lookup, by = c("HIOS", "year", "metal"))
+enroll[pd_lookup, on = c("HIOS", "year", "metal"), plan_id := i.plan_id]
+n_unmatched <- sum(is.na(enroll$plan_id))
+if (n_unmatched > 0) {
+  cat(sprintf("    WARNING: %d enroll rows (%.2f%%) missing plan_id after crosswalk\n",
+              n_unmatched, 100 * n_unmatched / nrow(enroll)))
+}
+enroll[, plan_name := NULL]
+rm(pd_lookup)
+
+
 # Per-individual service-channel flags -------------------------------------
 # CC service_channel codes map to channel categories:
 #   CIA (Certified Insurance Agent)        → agent + broker
@@ -112,16 +131,16 @@ enroll[, `:=`(
   hh_case_year = paste(ahbx_case_id_x, year, sep = "_")
 )]
 
-# For each case-year, identify unique (gross, plan_name, aptc) combos.
+# For each case-year, identify unique (gross, plan_id, aptc) combos.
 # Each unique combo → one household.
 hh_splits <- unique(enroll, by = c("hh_case_year", "gross_premium_amt_int",
-                                    "plan_name", "aptc_amt_int"))[
-  , .(hh_case_year, gross_premium_amt_int, plan_name, aptc_amt_int)]
-setorder(hh_splits, hh_case_year, gross_premium_amt_int, plan_name, aptc_amt_int)
+                                    "plan_id", "aptc_amt_int"))[
+  , .(hh_case_year, gross_premium_amt_int, plan_id, aptc_amt_int)]
+setorder(hh_splits, hh_case_year, gross_premium_amt_int, plan_id, aptc_amt_int)
 hh_splits[, split := seq_len(.N), by = hh_case_year]
 
 enroll[hh_splits,
-       on = c("hh_case_year", "gross_premium_amt_int", "plan_name", "aptc_amt_int"),
+       on = c("hh_case_year", "gross_premium_amt_int", "plan_id", "aptc_amt_int"),
        split := i.split]
 enroll[, household_year := paste(hh_case_year, split, sep = "_")]
 enroll[, c("hh_case_year", "split") := NULL]
@@ -168,65 +187,68 @@ rm(consistency, bad_hh, bad_dt)
 
 
 # Aggregate to HH-year -----------------------------------------------------
+# Chunked by year. Single-threaded data.table for the aggregation: with
+# 30+ output cols sharing names with input cols, multi-thread writes hit
+# "cannot change value of locked binding" race conditions.
 cat("  Aggregating to HH-year...\n")
 
-hh <- enroll[, .(
-  # Keys / identifiers
-  household_id   = first(ahbx_case_id_x),   # natural CC case key
-  year           = first(year),
+old_threads <- data.table::getDTthreads()
+data.table::setDTthreads(1)
 
-  # Core HH variables (consistent across members by construction)
-  gross_premium_amt_int = first(gross_premium_amt_int),
-  net_premium_amt_int   = first(net_premium_amt_int),
-  aptc_amt_int          = first(aptc_amt_int),
-  subsidy_fpl_bracket   = first(subsidy_fpl_bracket),
-  FPL                   = max(subsidy_fpl_percent_int, na.rm = TRUE) / 100, # percent → ratio
-  plan_id_HIOS          = first(HIOS),
-  plan_unique_id        = paste0(first(HIOS), first(year)),  # matches plan_data$HIOSYR
-  plan_name             = first(plan_name),
-  metal                 = first(metal),
-  metal_level_enhanced  = first(metal_level_enhanced),
-  insurer               = first(insurer),
-  plan_network_type     = first(plan_network_type),
-  zip3                  = first(zip3),
-  region                = first(region),
-  OEP                   = first(OEP),
-
-  # HH size + demographics
-  household_size        = .N,
-  oldest_member         = max(age, na.rm = TRUE),
-  perc_0to17            = mean(age <= 17, na.rm = TRUE),
-  perc_18to25           = mean(age >= 18 & age <= 25, na.rm = TRUE),
-  perc_26to34           = mean(age >= 26 & age <= 34, na.rm = TRUE),
-  perc_35to44           = mean(age >= 35 & age <= 44, na.rm = TRUE),
-  perc_45to54           = mean(age >= 45 & age <= 54, na.rm = TRUE),
-  perc_55to64           = mean(age >= 55 & age <= 64, na.rm = TRUE),
-  perc_65plus           = mean(age >= 65, na.rm = TRUE),
-  perc_male             = mean(gender, na.rm = TRUE),
-  perc_white            = mean(race == "White", na.rm = TRUE),
-  perc_black            = mean(race == "Black/African American", na.rm = TRUE),
-  perc_hispanic         = mean(race == "Hispanic", na.rm = TRUE),
-  perc_asian            = mean(race == "Asian", na.rm = TRUE),
-  perc_other            = mean(race == "Other Race", na.rm = TRUE),
-
-  # Sums across members (needed for premium/subsidy math)
-  rating_factor         = sum(rating_factor, na.rm = TRUE),
-  premiumSLC            = sum(premiumSLC, na.rm = TRUE),
-  subsidized_members    = sum(is_subsidized, na.rm = TRUE),
-  unsubsidized_members  = sum(1L - is_subsidized, na.rm = TRUE),
-
-  # Channel: any member via that channel → HH has that channel
-  agent                 = max(agent, na.rm = TRUE),
-  broker                = max(broker, na.rm = TRUE),
-  navigator             = max(navigator, na.rm = TRUE),
-
-  # Language: English if any member speaks English; Spanish if any Spanish
-  # and no English; Other if none speaks English or Spanish
-  english               = as.integer(any(language_spoken == "English")),
-  spanish               = as.integer(any(language_spoken == "Spanish") &
-                                     !any(language_spoken == "English")),
-  other_language        = as.integer(!any(language_spoken %in% c("English", "Spanish")))
-), by = household_year]
+years <- sort(unique(enroll$year))
+hh_chunks <- vector("list", length(years))
+for (i in seq_along(years)) {
+  yr <- years[i]
+  cat(sprintf("    Year %d (%d/%d)...\n", yr, i, length(years)))
+  d <- enroll[year == yr]
+  hh_chunks[[i]] <- d[, .(
+    household_id          = first(household_year),
+    year                  = first(year),
+    gross_premium_amt_int = first(gross_premium_amt_int),
+    net_premium_amt_int   = first(net_premium_amt_int),
+    aptc_amt_int          = first(aptc_amt_int),
+    subsidy_fpl_bracket   = first(subsidy_fpl_bracket),
+    FPL                   = max(subsidy_fpl_percent_int, na.rm = TRUE) / 100,
+    plan_id               = first(plan_id),
+    metal                 = first(metal),
+    insurer               = first(insurer),
+    network_type          = first(network_type),
+    zip3                  = first(zip3),
+    region                = first(region),
+    OEP                   = first(OEP),
+    household_size        = .N,
+    oldest_member         = max(age, na.rm = TRUE),
+    perc_0to17            = mean(age <= 17, na.rm = TRUE),
+    perc_18to25           = mean(age >= 18 & age <= 25, na.rm = TRUE),
+    perc_26to34           = mean(age >= 26 & age <= 34, na.rm = TRUE),
+    perc_35to44           = mean(age >= 35 & age <= 44, na.rm = TRUE),
+    perc_45to54           = mean(age >= 45 & age <= 54, na.rm = TRUE),
+    perc_55to64           = mean(age >= 55 & age <= 64, na.rm = TRUE),
+    perc_65plus           = mean(age >= 65, na.rm = TRUE),
+    perc_male             = mean(gender, na.rm = TRUE),
+    perc_white            = mean(race == "White", na.rm = TRUE),
+    perc_black            = mean(race == "Black/African American", na.rm = TRUE),
+    perc_hispanic         = mean(race == "Hispanic", na.rm = TRUE),
+    perc_asian            = mean(race == "Asian", na.rm = TRUE),
+    perc_other            = mean(race == "Other Race", na.rm = TRUE),
+    rating_factor         = sum(rating_factor, na.rm = TRUE),
+    premiumSLC            = sum(premiumSLC, na.rm = TRUE),
+    subsidized_members    = sum(is_subsidized, na.rm = TRUE),
+    unsubsidized_members  = sum(1L - is_subsidized, na.rm = TRUE),
+    agent                 = max(agent, na.rm = TRUE),
+    broker                = max(broker, na.rm = TRUE),
+    navigator             = max(navigator, na.rm = TRUE),
+    english               = as.integer(any(language_spoken == "English")),
+    spanish               = as.integer(any(language_spoken == "Spanish") &
+                                       !any(language_spoken == "English")),
+    other_language        = as.integer(!any(language_spoken %in% c("English", "Spanish")))
+  ), by = household_year]
+  rm(d)
+  gc(verbose = FALSE)
+}
+hh <- rbindlist(hh_chunks)
+rm(hh_chunks); gc(verbose = FALSE)
+data.table::setDTthreads(old_threads)
 
 # Cleanup post-aggregation
 hh[is.infinite(FPL), FPL := NA_real_]
@@ -245,7 +267,8 @@ rm(pov_dt)
 
 # Save ---------------------------------------------------------------------
 # Preserve individual rows (with household_year key + per-person rating_factor
-# / premiumSLC). Some downstream demographic work needs individuals.
+# / premiumSLC). Drop HIOS from individuals — plan_id is now canonical.
+enroll[, HIOS := NULL]
 fwrite(enroll, "data/output/enrollment_individual.csv")
 fwrite(hh,     "data/output/enrollment_hh.csv")
 cat(sprintf("Step 2 complete: %d HH-years, %d individuals.\n",

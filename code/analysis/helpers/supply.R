@@ -12,7 +12,7 @@
 # flag, and hh_premium. Must use the SAME seed and SAMPLE_FRAC as point
 # estimation to get the identical HH sample.
 
-build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_size",
+build_supply_choice_data <- function(plans, hhs, sample_frac,
                                      spec = NULL) {
 
   hhs_dt <- as.data.table(hhs)
@@ -33,29 +33,28 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
 
   if (length(unique(hhs_dt$household_id)) < 50) return(NULL)
 
-  # 1. Choice set (one row per plan_name + Uninsured)
+  # 1. Choice set (one row per plan_id + Uninsured)
   choice_set <- plans_dt[, .(
     issuer         = first(issuer),
     network_type   = first(network_type),
-    metal_level    = first(metal_level),
     metal          = first(metal),
     premium_posted = mean(premium, na.rm = TRUE),
     msp            = min(msp, na.rm = TRUE),
     hsa            = min(hsa, na.rm = TRUE),
     cf_resid       = first(cf_resid)
-  ), by = plan_name]
-  choice_set[, plan_name := as.character(plan_name)]
+  ), by = plan_id]
+  choice_set[, plan_id := as.character(plan_id)]
 
   # Carry commission PMPM if present (structural path only)
   if ("comm_pmpm" %in% names(plans_dt)) {
-    cs_comm <- plans_dt[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_name]
-    choice_set <- merge(choice_set, cs_comm, by = "plan_name", all.x = TRUE)
+    cs_comm <- plans_dt[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_id]
+    choice_set <- merge(choice_set, cs_comm, by = "plan_id", all.x = TRUE)
     choice_set[is.na(comm_pmpm), comm_pmpm := 0]
   }
 
   uninsured_row <- data.table(
-    plan_name = "Uninsured", issuer = "Outside_Option",
-    network_type = NA_character_, metal_level = NA_character_,
+    plan_id = "Uninsured", issuer = "Outside_Option",
+    network_type = NA_character_,
     metal = NA_character_, premium_posted = NA_real_,
     msp = NA_real_, hsa = NA_real_, cf_resid = 0
   )
@@ -65,7 +64,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   # 2. Cross-join sampled HH x choice set
   hh_slim <- hhs_dt[, .(
     household_id, FPL, subsidized_members, rating_factor,
-    hh_plan_number = plan_number_nocsr, hh_plan_name = plan_name,
+    hh_plan_id = plan_id,
     oldest_member, cheapest_premium, subsidy, penalty,
     poverty_threshold, cutoff
   )]
@@ -83,11 +82,11 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
     csr_94 = fifelse(FPL <= 1.5 & subsidized_members > 0, 1L, 0L)
   )]
   dt <- dt[
-    (metal_level == "Silver - Enhanced 73" & csr_73 == 1L) |
-    (metal_level == "Silver - Enhanced 87" & csr_87 == 1L) |
-    (metal_level == "Silver - Enhanced 94" & csr_94 == 1L) |
-    metal != "Silver" |
-    (metal_level == "Silver" & csr_73 == 0L & csr_87 == 0L & csr_94 == 0L) |
+    (metal == "Silver - Enhanced 73" & csr_73 == 1L) |
+    (metal == "Silver - Enhanced 87" & csr_87 == 1L) |
+    (metal == "Silver - Enhanced 94" & csr_94 == 1L) |
+    !grepl("^Silver", metal) |
+    (metal == "Silver" & csr_73 == 0L & csr_87 == 0L & csr_94 == 0L) |
     is.na(metal)
   ]
   dt[, c("csr_73", "csr_87", "csr_94") := NULL]
@@ -103,14 +102,14 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   )]
   dt <- dt[
     (oldest_member < 30 & !is.na(oldest_member) &
-       eff_premium > threshold & metal_level == "Minimum Coverage") |
-    metal_level != "Minimum Coverage" | is.na(metal)
+       eff_premium > threshold & metal == "Minimum Coverage") |
+    metal != "Minimum Coverage" | is.na(metal)
   ]
   dt[, c("eff_premium", "threshold") := NULL]
 
   # 5. Plan choice indicator and premiums (RETAIN rating_factor, subsidy)
   dt[, plan_choice := fifelse(
-    hh_plan_name == plan_name & !is.na(hh_plan_name) & !is.na(hh_plan_number),
+    hh_plan_id == plan_id & !is.na(hh_plan_id),
     1L, 0L
   )]
   dt[, insured := max(plan_choice), by = household_id]
@@ -127,22 +126,22 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   # adj_subsidy and subsidized still needed for benchmark elasticity split
   dt[, adj_subsidy := fifelse(is.na(subsidy), 0, subsidy)]
   dt[, av := fcase(
-    metal_level == "Minimum Coverage",     0.55,
-    metal_level == "Bronze",               0.60,
-    metal_level == "Silver",               0.70,
-    metal_level == "Gold",                 0.80,
-    metal_level == "Platinum",             0.90,
-    metal_level == "Silver - Enhanced 73", 0.73,
-    metal_level == "Silver - Enhanced 87", 0.87,
-    metal_level == "Silver - Enhanced 94", 0.94,
-    issuer == "Outside_Option",            0,
+    metal == "Minimum Coverage",     0.55,
+    metal == "Bronze",               0.60,
+    metal == "Silver",               0.70,
+    metal == "Gold",                 0.80,
+    metal == "Platinum",             0.90,
+    metal == "Silver - Enhanced 73", 0.73,
+    metal == "Silver - Enhanced 87", 0.87,
+    metal == "Silver - Enhanced 94", 0.94,
+    issuer == "Outside_Option",      0,
     default = NA_real_
   )]
   dt[, subsidized := fifelse(subsidized_members > 0, 1L, 0L)]
 
   # premium_posted kept on data for supply-side use
 
-  # 6. Collapse small insurers
+  # 6. Collapse small insurers (group by base metal so CSR variants fold in)
   big_four <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net")
 
   large <- dt[issuer %in% c(big_four, "Outside_Option")]
@@ -152,12 +151,12 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   has_comm <- "comm_pmpm" %in% names(small_raw)
 
   if (nrow(small_raw) > 0) {
+    small_raw[, base_metal := sub(" - Enhanced.*", "", metal)]
     small <- small_raw[, .(
       premium_oop    = min(premium_oop, na.rm = TRUE),
       plan_choice    = max(plan_choice, na.rm = TRUE),
       FPL            = first(FPL),
-      hh_plan_name   = first(hh_plan_name),
-      hh_plan_number = first(hh_plan_number),
+      hh_plan_id     = first(hh_plan_id),
       oldest_member  = first(oldest_member),
       insured        = first(insured),
       penalty        = first(penalty),
@@ -169,23 +168,25 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
       subsidized     = first(subsidized),
       premium_hh     = min(premium_hh, na.rm = TRUE),
       premium_posted = min(premium_posted, na.rm = TRUE)
-    ), by = .(household_id, metal)]
+    ), by = .(household_id, base_metal)]
     if (has_comm) {
       comm_agg <- small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)),
-                             by = .(household_id, metal)]
-      small <- merge(small, comm_agg, by = c("household_id", "metal"), all.x = TRUE)
+                             by = .(household_id, base_metal)]
+      small <- merge(small, comm_agg, by = c("household_id", "base_metal"), all.x = TRUE)
     }
     small[, `:=`(
       issuer = "Small_Insurer",
-      plan_name = fcase(
-        metal == "Platinum",         "Small_P",
-        metal == "Gold",             "Small_G",
-        metal == "Silver",           "Small_SIL",
-        metal == "Bronze",           "Small_BR",
-        metal == "Minimum Coverage", "Small_CAT",
+      metal  = base_metal,
+      plan_id = fcase(
+        base_metal == "Platinum",         "Small_P",
+        base_metal == "Gold",             "Small_G",
+        base_metal == "Silver",           "Small_SIL",
+        base_metal == "Bronze",           "Small_BR",
+        base_metal == "Minimum Coverage", "Small_CAT",
         default = NA_character_
       )
     )]
+    small[, base_metal := NULL]
     dt <- rbind(large, small, fill = TRUE)
     rm(large, small)
   } else {
@@ -195,7 +196,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   rm(small_raw)
 
   # 7. Join HH demographics (include v_hat + tau-gradient cols if available)
-  demo_cols <- c("household_id", "household_size", "ipweight",
+  demo_cols <- c("household_id", "household_size",
                  "perc_0to17", "perc_18to34", "perc_35to54",
                  "perc_black", "perc_hispanic", "perc_asian",
                  "perc_other", "perc_male", "channel")
@@ -210,19 +211,19 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   dt[is.na(metal), metal := "Other"]
   dt[, plan_choice := fcase(
     plan_choice == 1L & insured == 1L, 1L,
-    plan_choice == 0L & insured == 0L & plan_name == "Uninsured" & is.na(hh_plan_number), 1L,
+    plan_choice == 0L & insured == 0L & plan_id == "Uninsured" & is.na(hh_plan_id), 1L,
     default = 0L
   )]
 
   # 8. Final variables
-  dt <- dt[!is.na(premium_oop) & !is.na(plan_name)]
+  dt <- dt[!is.na(premium_oop) & !is.na(plan_id)]
   dt[, `:=`(
     net_premium    = premium_oop / hh_size,
     hmo            = fifelse(fifelse(is.na(network_type), "", network_type) == "HMO", 1L, 0L),
     hsa            = fifelse(is.na(hsa) | hsa <= 0, 0L, 1L),
     FPL_250to400   = fifelse(FPL > 2.50 & FPL <= 4.00, 1L, 0L),
     FPL_400plus    = fifelse(FPL > 4.00, 1L, 0L),
-    uninsured_plan = fifelse(plan_name == "Uninsured", 1L, 0L),
+    uninsured_plan = fifelse(plan_id == "Uninsured", 1L, 0L),
     platinum       = fifelse(metal == "Platinum", 1L, 0L),
     gold           = fifelse(metal == "Gold", 1L, 0L),
     silver         = fifelse(metal == "Silver", 1L, 0L),
@@ -231,13 +232,8 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
     Blue_Shield    = fifelse(issuer == "Blue_Shield", 1L, 0L),
     Kaiser         = fifelse(issuer == "Kaiser", 1L, 0L),
     Health_Net     = fifelse(issuer == "Health_Net", 1L, 0L),
-    ipweight       = fifelse(is.na(ipweight), 1, ipweight)
+    hh_weight      = as.numeric(hh_size)
   )]
-
-  # Override weight for structural estimation (household_size instead of IPW)
-  if (weight_var == "hh_size") {
-    dt[, ipweight := as.numeric(hh_size)]
-  }
 
   # Demographic x premium interactions (heterogeneous price sensitivity)
   dt[, `:=`(
@@ -255,7 +251,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   )]
 
   # Demographic x insured interactions (cross-nest margin shifters)
-  insured_ind <- fifelse(dt$plan_name == "Uninsured", 0, 1)
+  insured_ind <- fifelse(dt$plan_id == "Uninsured", 0, 1)
   dt[, `:=`(
     hh_size_insured       = hh_size * insured_ind,
     perc_0to17_insured    = perc_0to17 * insured_ind,
@@ -271,10 +267,10 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
   )]
 
   # Collapse enhanced silver plan names to SIL
-  dt[, plan_name := gsub("SIL(94|73|87)", "SIL", plan_name)]
+  dt[, plan_id := gsub("SIL(94|73|87)", "SIL", plan_id)]
 
   # 9. Build plan_attrs — canonical plan attribute table (post-collapse)
-  plan_attrs <- dt[plan_name != "Uninsured", .(
+  plan_attrs <- dt[plan_id != "Uninsured", .(
     issuer         = first(issuer),
     metal          = first(metal),
     network_type   = first(network_type),
@@ -283,15 +279,15 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
     hsa            = as.integer(!is.na(first(hsa)) & first(hsa) > 0),
     premium_posted = mean(premium_posted, na.rm = TRUE),
     cf_resid       = first(cf_resid)
-  ), by = plan_name]
+  ), by = plan_id]
   if ("comm_pmpm" %in% names(dt)) {
-    comm_by_plan <- dt[plan_name != "Uninsured",
-                        .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_name]
-    plan_attrs <- merge(plan_attrs, comm_by_plan, by = "plan_name", all.x = TRUE)
+    comm_by_plan <- dt[plan_id != "Uninsured",
+                        .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_id]
+    plan_attrs <- merge(plan_attrs, comm_by_plan, by = "plan_id", all.x = TRUE)
     plan_attrs[is.na(comm_pmpm), comm_pmpm := 0]
   }
 
-  setorder(dt, household_id, plan_name)
+  setorder(dt, household_id, plan_id)
 
   # Rename for model interface
   setnames(dt, c("plan_choice", "net_premium", "household_id"),
@@ -299,7 +295,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac, weight_var = "hh_s
 
   # Exclusion restriction + interactions (same as build_choice_data)
   # penalty_own identifies outside option utility separately from premium
-  dt[, penalty_own := fifelse(plan_name == "Uninsured",
+  dt[, penalty_own := fifelse(plan_id == "Uninsured",
                                penalty / 12 / hh_size, 0)]
   dt[, `:=`(
     Anthem_silver = fifelse(issuer == "Anthem", 1L, 0L) * fifelse(metal == "Silver", 1L, 0L),
@@ -431,14 +427,14 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
   dt <- as.data.table(cell_data)
   dt[, V := V]
 
-  plan_names <- sort(unique(dt$plan_name[dt$plan_name != "Uninsured"]))
-  J <- length(plan_names)
+  plan_ids <- sort(unique(dt$plan_id[dt$plan_id != "Uninsured"]))
+  J <- length(plan_ids)
 
   # V_0 = β'X_0 for each HH (NOT zero)
-  V0_by_hh <- dt[plan_name == "Uninsured", .(V_0 = V), by = household_number]
+  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
 
   # --- Step 1: Choice probabilities per HH-plan ---
-  ins_dt <- dt[plan_name != "Uninsured"]
+  ins_dt <- dt[plan_id != "Uninsured"]
   ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
 
   # Use per-row lambda if pre-computed, else scalar
@@ -471,21 +467,21 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
   ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
 
   # --- Step 2: Weighted market shares ---
-  total_weight <- ins_dt[, .(w = first(ipweight)), by = household_number][, sum(w)]
+  total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
 
-  shares_dt <- ins_dt[, .(share = sum(ipweight * q_j) / total_weight), by = plan_name]
-  shares <- setNames(shares_dt$share, shares_dt$plan_name)
-  shares <- shares[plan_names]
+  shares_dt <- ins_dt[, .(share = sum(hh_weight * q_j) / total_weight), by = plan_id]
+  shares <- setNames(shares_dt$share, shares_dt$plan_id)
+  shares <- shares[plan_ids]
 
   # --- Step 3: Elasticity matrix (J x J) ---
-  elast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_names, plan_names))
+  elast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_ids, plan_ids))
 
-  for (l_idx in seq_along(plan_names)) {
-    l <- plan_names[l_idx]
+  for (l_idx in seq_along(plan_ids)) {
+    l <- plan_ids[l_idx]
     is_benchmark <- (!is.na(benchmark_plan) && l == benchmark_plan)
 
     # Get s_{l|g} and q_l for each HH
-    l_info <- ins_dt[plan_name == l, .(household_number, s_lg = s_jg, q_l = q_j)]
+    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, q_l = q_j)]
     merged <- merge(ins_dt, l_info, by = "household_number", all.x = TRUE)
     merged[is.na(s_lg), s_lg := 0]
     merged[is.na(q_l), q_l := 0]
@@ -494,15 +490,15 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
       # Non-benchmark: only V_l changes when posted_l changes
       # dq_j/d(posted_l) = dq_j/dV_l * alpha * rf
       # dq_j/dV_l = q_j * [I(j==l)/lambda_i + ((lambda_i-1)/lambda_i)*s_lg - q_l]
-      merged[, dq_dposted := q_j * (as.numeric(plan_name == l) / lambda_i +
+      merged[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
                                        ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
                                 alpha_i * rf_i]
 
-      contrib <- merged[plan_name %in% plan_names,
-                          .(elast = sum(ipweight * dq_dposted) / total_weight),
-                          by = plan_name]
-      for (j_idx in seq_along(plan_names)) {
-        val <- contrib[plan_name == plan_names[j_idx], elast]
+      contrib <- merged[plan_id %in% plan_ids,
+                          .(elast = sum(hh_weight * dq_dposted) / total_weight),
+                          by = plan_id]
+      for (j_idx in seq_along(plan_ids)) {
+        val <- contrib[plan_id == plan_ids[j_idx], elast]
         if (length(val) > 0) elast_mat[j_idx, l_idx] <- val
       }
       rm(merged, l_info, contrib)
@@ -518,14 +514,14 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
       # Unsubsidized contribution
       unsub <- merged[subsidized == 0L]
       if (nrow(unsub) > 0) {
-        unsub[, dq_dposted := q_j * (as.numeric(plan_name == l) / lambda_i +
+        unsub[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
                                         ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
                                  alpha_i * rf_i]
-        contrib_unsub <- unsub[plan_name %in% plan_names,
-                                 .(elast = sum(ipweight * dq_dposted) / total_weight),
-                                 by = plan_name]
+        contrib_unsub <- unsub[plan_id %in% plan_ids,
+                                 .(elast = sum(hh_weight * dq_dposted) / total_weight),
+                                 by = plan_id]
       } else {
-        contrib_unsub <- data.table(plan_name = character(0), elast = numeric(0))
+        contrib_unsub <- data.table(plan_id = character(0), elast = numeric(0))
       }
 
       # Subsidized contribution (closed-form)
@@ -533,22 +529,22 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
       if (nrow(sub) > 0) {
         sub[, common_factor := (1 - s_lg) * ((lambda_i - 1) / lambda_i - s_g)]
         sub[, dq_dposted := fifelse(
-          plan_name == l,
+          plan_id == l,
           alpha_i * (-rf_i) * q_j * common_factor,
           alpha_i * (-rf_i) * q_j * (1 / lambda_i + common_factor)
         )]
-        contrib_sub <- sub[plan_name %in% plan_names,
-                             .(elast = sum(ipweight * dq_dposted) / total_weight),
-                             by = plan_name]
+        contrib_sub <- sub[plan_id %in% plan_ids,
+                             .(elast = sum(hh_weight * dq_dposted) / total_weight),
+                             by = plan_id]
       } else {
-        contrib_sub <- data.table(plan_name = character(0), elast = numeric(0))
+        contrib_sub <- data.table(plan_id = character(0), elast = numeric(0))
       }
 
       # Combine
-      for (j_idx in seq_along(plan_names)) {
-        j <- plan_names[j_idx]
-        val_unsub <- contrib_unsub[plan_name == j, elast]
-        val_sub   <- contrib_sub[plan_name == j, elast]
+      for (j_idx in seq_along(plan_ids)) {
+        j <- plan_ids[j_idx]
+        val_unsub <- contrib_unsub[plan_id == j, elast]
+        val_sub   <- contrib_sub[plan_id == j, elast]
         total <- (if (length(val_unsub) > 0) val_unsub else 0) +
                  (if (length(val_sub) > 0) val_sub else 0)
         elast_mat[j_idx, l_idx] <- total
@@ -557,7 +553,7 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
     }
   }
 
-  list(shares = shares, elast_mat = elast_mat, plan_names = plan_names)
+  list(shares = shares, elast_mat = elast_mat, plan_ids = plan_ids)
 }
 
 
@@ -566,8 +562,8 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 # J x J binary matrix where (j, l) = 1 if same firm.
 # Prefix before first underscore determines insurer.
 
-build_ownership_matrix <- function(plan_names) {
-  insurers <- sub("_.*", "", plan_names)
+build_ownership_matrix <- function(plan_ids) {
+  insurers <- sub("_.*", "", plan_ids)
   outer(insurers, insurers, "==") * 1L
 }
 
@@ -585,14 +581,14 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
   dt <- as.data.table(cell_data)
   dt[, V := V]
 
-  plan_names <- sort(unique(dt$plan_name[dt$plan_name != "Uninsured"]))
-  J <- length(plan_names)
+  plan_ids <- sort(unique(dt$plan_id[dt$plan_id != "Uninsured"]))
+  J <- length(plan_ids)
 
   # V_0 = β'X_0 for each HH (NOT zero)
-  V0_by_hh <- dt[plan_name == "Uninsured", .(V_0 = V), by = household_number]
+  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
 
   # Choice probabilities per HH-plan (all HH, same as full model)
-  ins_dt <- dt[plan_name != "Uninsured"]
+  ins_dt <- dt[plan_id != "Uninsured"]
   ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
 
   # Use per-row lambda if pre-computed, else scalar
@@ -621,42 +617,42 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
 
   if (nrow(ins_dt) == 0) {
     return(list(
-      broker_shares = setNames(rep(0, J), plan_names),
-      broker_elast_mat = matrix(0, J, J, dimnames = list(plan_names, plan_names)),
-      plan_names = plan_names
+      broker_shares = setNames(rep(0, J), plan_ids),
+      broker_elast_mat = matrix(0, J, J, dimnames = list(plan_ids, plan_ids)),
+      plan_ids = plan_ids
     ))
   }
 
   # Weighted broker shares
-  total_weight <- ins_dt[, .(w = first(ipweight)), by = household_number][, sum(w)]
+  total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
 
-  shares_dt <- ins_dt[, .(share = sum(ipweight * q_j) / total_weight), by = plan_name]
-  broker_shares <- setNames(shares_dt$share, shares_dt$plan_name)
-  broker_shares <- broker_shares[plan_names]
+  shares_dt <- ins_dt[, .(share = sum(hh_weight * q_j) / total_weight), by = plan_id]
+  broker_shares <- setNames(shares_dt$share, shares_dt$plan_id)
+  broker_shares <- broker_shares[plan_ids]
   broker_shares[is.na(broker_shares)] <- 0
 
   # Elasticity matrix (same derivative formulas, broker HH only)
-  elast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_names, plan_names))
+  elast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_ids, plan_ids))
 
-  for (l_idx in seq_along(plan_names)) {
-    l <- plan_names[l_idx]
+  for (l_idx in seq_along(plan_ids)) {
+    l <- plan_ids[l_idx]
     is_benchmark <- (!is.na(benchmark_plan) && l == benchmark_plan)
 
-    l_info <- ins_dt[plan_name == l, .(household_number, s_lg = s_jg, q_l = q_j)]
+    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, q_l = q_j)]
     merged <- merge(ins_dt, l_info, by = "household_number", all.x = TRUE)
     merged[is.na(s_lg), s_lg := 0]
     merged[is.na(q_l), q_l := 0]
 
     if (!is_benchmark) {
-      merged[, dq_dposted := q_j * (as.numeric(plan_name == l) / lambda_i +
+      merged[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
                                        ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
                                 alpha_i * rf_i]
 
-      contrib <- merged[plan_name %in% plan_names,
-                          .(elast = sum(ipweight * dq_dposted) / total_weight),
-                          by = plan_name]
-      for (j_idx in seq_along(plan_names)) {
-        val <- contrib[plan_name == plan_names[j_idx], elast]
+      contrib <- merged[plan_id %in% plan_ids,
+                          .(elast = sum(hh_weight * dq_dposted) / total_weight),
+                          by = plan_id]
+      for (j_idx in seq_along(plan_ids)) {
+        val <- contrib[plan_id == plan_ids[j_idx], elast]
         if (length(val) > 0) elast_mat[j_idx, l_idx] <- val
       }
       rm(merged, l_info, contrib)
@@ -665,35 +661,35 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
       # Benchmark: split by subsidized
       unsub <- merged[subsidized == 0L]
       if (nrow(unsub) > 0) {
-        unsub[, dq_dposted := q_j * (as.numeric(plan_name == l) / lambda_i +
+        unsub[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
                                         ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
                                  alpha_i * rf_i]
-        contrib_unsub <- unsub[plan_name %in% plan_names,
-                                 .(elast = sum(ipweight * dq_dposted) / total_weight),
-                                 by = plan_name]
+        contrib_unsub <- unsub[plan_id %in% plan_ids,
+                                 .(elast = sum(hh_weight * dq_dposted) / total_weight),
+                                 by = plan_id]
       } else {
-        contrib_unsub <- data.table(plan_name = character(0), elast = numeric(0))
+        contrib_unsub <- data.table(plan_id = character(0), elast = numeric(0))
       }
 
       sub <- merged[subsidized == 1L]
       if (nrow(sub) > 0) {
         sub[, common_factor := (1 - s_lg) * ((lambda_i - 1) / lambda_i - s_g)]
         sub[, dq_dposted := fifelse(
-          plan_name == l,
+          plan_id == l,
           alpha_i * (-rf_i) * q_j * common_factor,
           alpha_i * (-rf_i) * q_j * (1 / lambda_i + common_factor)
         )]
-        contrib_sub <- sub[plan_name %in% plan_names,
-                             .(elast = sum(ipweight * dq_dposted) / total_weight),
-                             by = plan_name]
+        contrib_sub <- sub[plan_id %in% plan_ids,
+                             .(elast = sum(hh_weight * dq_dposted) / total_weight),
+                             by = plan_id]
       } else {
-        contrib_sub <- data.table(plan_name = character(0), elast = numeric(0))
+        contrib_sub <- data.table(plan_id = character(0), elast = numeric(0))
       }
 
-      for (j_idx in seq_along(plan_names)) {
-        j <- plan_names[j_idx]
-        val_unsub <- contrib_unsub[plan_name == j, elast]
-        val_sub   <- contrib_sub[plan_name == j, elast]
+      for (j_idx in seq_along(plan_ids)) {
+        j <- plan_ids[j_idx]
+        val_unsub <- contrib_unsub[plan_id == j, elast]
+        val_sub   <- contrib_sub[plan_id == j, elast]
         total <- (if (length(val_unsub) > 0) val_unsub else 0) +
                  (if (length(val_sub) > 0) val_sub else 0)
         elast_mat[j_idx, l_idx] <- total
@@ -702,5 +698,5 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
     }
   }
 
-  list(broker_shares = broker_shares, broker_elast_mat = elast_mat, plan_names = plan_names)
+  list(broker_shares = broker_shares, broker_elast_mat = elast_mat, plan_ids = plan_ids)
 }

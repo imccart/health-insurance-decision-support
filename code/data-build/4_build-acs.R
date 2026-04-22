@@ -182,12 +182,17 @@ acs <- acs %>% left_join(
 )
 
 # Multi-county PUMAs need special handling (original script has 30+ lines
-# of region-specific overrides). For this rewrite, if the PUMA→county lookup
-# gave NA, drop the record. Some lose (~1-2%) but simpler.
+# of region-specific overrides). For this rewrite: drop PUMAs that couldn't
+# resolve to a county, and drop PUMA 6_300 (Alpine/Amador/Calaveras/Inyo/
+# Mariposa/Mono/Tuolumne) which straddles rating areas 1 and 13 — can't
+# disambiguate without county. Cast to integer afterwards.
 n_before <- nrow(acs)
-acs <- acs %>% filter(!is.na(county_name), !is.na(rating_area))
+acs <- acs %>%
+  filter(!is.na(county_name), !is.na(rating_area),
+         !grepl(",", rating_area)) %>%
+  mutate(rating_area = as.integer(rating_area))
 if (n_before - nrow(acs) > 0) {
-  cat(sprintf("    Dropped %d individuals with ambiguous PUMA→county\n",
+  cat(sprintf("    Dropped %d individuals with ambiguous PUMA→rating_area\n",
               n_before - nrow(acs)))
 }
 acs$county <- toupper(acs$county_name)
@@ -236,6 +241,7 @@ acs <- acs %>% left_join(county_slc_by_year, by = c("county", "year")) %>%
 hh <- acs %>%
   group_by(household_year) %>%
   summarize(
+    household_id          = first(household_year),  # HH-unique key
     year                  = first(year),
     household_size        = n(),
     FPL                   = first(FPL),

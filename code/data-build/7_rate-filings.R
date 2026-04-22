@@ -87,8 +87,8 @@ rdata <- rdata %>%
 cat("  Insurers:", paste(sort(unique(rdata$insurer_small)), collapse = ", "), "\n")
 
 
-# Build plan_name crosswalk -----------------------------------------------
-# Rate filing plan_name = {INSURER_PREFIX}_{METAL_SUFFIX}[NETWORK_SUFFIX]
+# Build plan_id crosswalk -----------------------------------------------
+# Rate filing plan_id = {INSURER_PREFIX}_{METAL_SUFFIX}[NETWORK_SUFFIX]
 # PPO plans: ANT_BR, ANT_SIL, BS_G, HN_SIL, etc.
 # HMO plans: ANT_SIL3, BS_G3, HN_BR3, etc. (suffix "3")
 # Kaiser: always HMO, no suffix: KA_BR, KA_SIL, KA_G, KA_P
@@ -113,11 +113,11 @@ rdata <- rdata %>%
       PLAN_TYPE == "HMO"             ~ "3",
       TRUE                           ~ ""
     ),
-    plan_name = paste0(insurer_prefix, "_", metal_abbr, network_suffix)
+    plan_id = paste0(insurer_prefix, "_", metal_abbr, network_suffix)
   )
 
-cat("  Plan names:", length(unique(rdata$plan_name)), "unique\n")
-cat("  Examples:", paste(head(sort(unique(rdata$plan_name)), 10), collapse = ", "), "\n")
+cat("  Plan names:", length(unique(rdata$plan_id)), "unique\n")
+cat("  Examples:", paste(head(sort(unique(rdata$plan_id)), 10), collapse = ", "), "\n")
 
 
 # Aggregate to plan-name × year level ------------------------------------
@@ -126,7 +126,7 @@ cat("  Examples:", paste(head(sort(unique(rdata$plan_name)), 10), collapse = ", 
 
 rsdata <- rdata %>%
   filter(EXP_MM > 0 | PRJ_MM > 0) %>%
-  group_by(plan_name, year, insurer_small, METAL, AV_METAL, PLAN_TYPE) %>%
+  group_by(plan_id, year, insurer_small, METAL, AV_METAL, PLAN_TYPE) %>%
   summarize(
     EXP_MM      = sum(EXP_MM, na.rm = TRUE),
     EXP_TP      = sum(EXP_TP, na.rm = TRUE),

@@ -23,7 +23,7 @@ cat("Loading data for cost-side GMM...\n")
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 plan_demo <- read_csv(file.path(Sys.getenv("TEMP_DIR"), "plan_demographics.csv"), show_col_types = FALSE)
 rsdata <- rsdata %>%
-  left_join(plan_demo, by = c("plan_name", "year"))
+  left_join(plan_demo, by = c("plan_id", "year"))
 
 rsdata <- rsdata %>%
   filter(!is.na(log_risk_score), is.finite(log_risk_score),
@@ -43,7 +43,7 @@ cat("  FOC cells loaded:", length(foc_cells), "\n")
 
 # Filter to cells with valid Omega (non-NA markup)
 foc_cells <- Filter(function(fc) {
-  !any(is.na(fc$Omega)) && !any(is.na(fc$shares)) && length(fc$plan_names) >= 2
+  !any(is.na(fc$Omega)) && !any(is.na(fc$shares)) && length(fc$plan_ids) >= 2
 }, foc_cells)
 cat("  FOC cells with valid Omega:", length(foc_cells), "\n")
 
@@ -87,13 +87,13 @@ MH_LOOKUP <- c("0.6" = 1.00, "0.7" = 1.03, "0.8" = 1.08, "0.9" = 1.15)
 
 for (k in seq_along(foc_cells)) {
   fc <- foc_cells[[k]]
-  pn <- fc$plan_names
+  pn <- fc$plan_ids
   r <- fc$region; y <- fc$year
 
   # Plan characteristics from supply results (metal is now correct for all plans)
   sr_cell <- supply_results %>%
-    filter(region == r, year == y, plan_name %in% pn)
-  plan_metal <- setNames(sr_cell$metal[match(pn, sr_cell$plan_name)], pn)
+    filter(region == r, year == y, plan_id %in% pn)
+  plan_metal <- setNames(sr_cell$metal[match(pn, sr_cell$plan_id)], pn)
 
   foc_cells[[k]]$Silver <- as.integer(plan_metal == "Silver")
   foc_cells[[k]]$Gold <- as.integer(plan_metal == "Gold")
@@ -107,17 +107,17 @@ for (k in seq_along(foc_cells)) {
   # Demographics (plan-year level)
   demo <- plan_demo_yr %>% filter(year == y)
   foc_cells[[k]]$share_18to34 <- sapply(pn, function(p) {
-    v <- demo$share_18to34[demo$plan_name == p]
+    v <- demo$share_18to34[demo$plan_id == p]
     if (length(v) == 0) return(mean(demo$share_18to34, na.rm = TRUE))
     v[1]
   })
   foc_cells[[k]]$share_35to54 <- sapply(pn, function(p) {
-    v <- demo$share_35to54[demo$plan_name == p]
+    v <- demo$share_35to54[demo$plan_id == p]
     if (length(v) == 0) return(mean(demo$share_35to54, na.rm = TRUE))
     v[1]
   })
   foc_cells[[k]]$share_hispanic <- sapply(pn, function(p) {
-    v <- demo$share_hispanic[demo$plan_name == p]
+    v <- demo$share_hispanic[demo$plan_id == p]
     if (length(v) == 0) return(mean(demo$share_hispanic, na.rm = TRUE))
     v[1]
   })
@@ -126,7 +126,7 @@ for (k in seq_along(foc_cells)) {
 rm(plan_demo_yr, supply_results)
 
 # Count total FOC equations (one per plan per cell)
-n_foc_total <- sum(sapply(foc_cells, function(fc) length(fc$plan_names)))
+n_foc_total <- sum(sapply(foc_cells, function(fc) length(fc$plan_ids)))
 cat("  Total FOC equations:", n_foc_total, "\n")
 
 # M3 instruments: plan characteristics (same for each plan within the FOC)
@@ -198,7 +198,7 @@ compute_g_bar <- function(theta) {
   n_foc <- 0L
 
   for (fc in foc_cells) {
-    J <- length(fc$plan_names)
+    J <- length(fc$plan_ids)
 
     # Predict log risk scores for this cell's plans
     pred_log_rs <- alpha[1] +

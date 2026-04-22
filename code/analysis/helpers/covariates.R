@@ -29,6 +29,55 @@ get_covariate_menu <- function() {
     bronze         = list(type = "plan_attribute"),
     hmo            = list(type = "plan_attribute"),
     hsa            = list(type = "plan_attribute"),
+    av             = list(type = "plan_attribute"),
+
+    # --- Family × insured interaction ---
+    family_insured = list(type = "insured_interaction", raw_demo = "family"),
+
+    # --- Rating area fixed effects (insured-only dummies, region 1 = ref) ---
+    ra_4           = list(type = "rating_area_fe"),
+    ra_8           = list(type = "rating_area_fe"),
+    ra_13          = list(type = "rating_area_fe"),
+    ra_16          = list(type = "rating_area_fe"),
+
+    # --- Insurer × rating-area FEs (insured-only dummies, Anthem×ra1 ref) ---
+    # 5 insurers (Anthem, Blue_Shield, Kaiser, Health_Net, Small) x 5 regions
+    # = 25 cells. Reference = Anthem in region 1. So 24 dummies named
+    # ix_<INSURER>_ra<REGION>. Anthem dummies omitted only for region 1.
+    ix_BS_ra1      = list(type = "insurer_market_fe"),
+    ix_Kai_ra1     = list(type = "insurer_market_fe"),
+    ix_HN_ra1      = list(type = "insurer_market_fe"),
+    ix_Sm_ra1      = list(type = "insurer_market_fe"),
+    ix_Ant_ra4     = list(type = "insurer_market_fe"),
+    ix_BS_ra4      = list(type = "insurer_market_fe"),
+    ix_Kai_ra4     = list(type = "insurer_market_fe"),
+    ix_HN_ra4      = list(type = "insurer_market_fe"),
+    ix_Sm_ra4      = list(type = "insurer_market_fe"),
+    ix_Ant_ra8     = list(type = "insurer_market_fe"),
+    ix_BS_ra8      = list(type = "insurer_market_fe"),
+    ix_Kai_ra8     = list(type = "insurer_market_fe"),
+    ix_HN_ra8      = list(type = "insurer_market_fe"),
+    ix_Sm_ra8      = list(type = "insurer_market_fe"),
+    ix_Ant_ra13    = list(type = "insurer_market_fe"),
+    ix_BS_ra13     = list(type = "insurer_market_fe"),
+    ix_Kai_ra13    = list(type = "insurer_market_fe"),
+    ix_HN_ra13     = list(type = "insurer_market_fe"),
+    ix_Sm_ra13     = list(type = "insurer_market_fe"),
+    ix_Ant_ra16    = list(type = "insurer_market_fe"),
+    ix_BS_ra16     = list(type = "insurer_market_fe"),
+    ix_Kai_ra16    = list(type = "insurer_market_fe"),
+    ix_HN_ra16     = list(type = "insurer_market_fe"),
+    ix_Sm_ra16     = list(type = "insurer_market_fe"),
+
+    # --- Mundlak / Chamberlain group means (insurer × region) ---
+    mundlak_prem   = list(type = "plan_attribute"),
+    mundlak_av     = list(type = "plan_attribute"),
+
+    # --- Plan-market mean of net premium (Berry-style aggregate) ---
+    plan_mkt_mean_prem = list(type = "plan_attribute"),
+
+    # --- Subsidy interactions (control for subsidy when using gross premium) ---
+    subsidy_insured = list(type = "insured_interaction", raw_demo = "subsidy"),
 
     # --- Control function residual (Hausman IV) ---
     cf_resid       = list(type = "cf_correction"),

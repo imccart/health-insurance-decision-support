@@ -10,7 +10,7 @@
 
 if (!exists("all_prob")) {
   all_prob <- read_csv("results/choice_point_estimates.csv", show_col_types = FALSE,
-                       col_types = cols(plan_name = "c", tot_nonmiss = "i",
+                       col_types = cols(plan_id = "c", tot_nonmiss = "i",
                                         obs_purchase = "d", pred_purchase = "d",
                                         region = "i", year = "i"))
 }
@@ -19,7 +19,7 @@ if (!exists("sim_bs_pred")) {
   if (file.exists(bs_file)) {
     sim_bs_pred <- read_csv(bs_file, show_col_types = FALSE)
   } else {
-    sim_bs_pred <- tibble(plan_name = character(0), tot_nonmiss = integer(0),
+    sim_bs_pred <- tibble(plan_id = character(0), tot_nonmiss = integer(0),
                           obs_purchase = numeric(0), pred_purchase = numeric(0),
                           region = integer(0), year = integer(0), boot = integer(0))
   }
@@ -31,11 +31,11 @@ if (!exists("sim_bs_pred")) {
 # a network variant (3, 2), HSA, or COIN. We separate on the first underscore
 # and classify the metal by its leading characters.
 
-parse_plan_names <- function(df) {
+parse_plan_ids <- function(df) {
   df %>%
     mutate(
-      insurer_abbr = sub("_.*", "", plan_name),
-      metal_raw = sub("^[^_]*_?", "", plan_name),
+      insurer_abbr = sub("_.*", "", plan_id),
+      metal_raw = sub("^[^_]*_?", "", plan_id),
       metal_raw = if_else(metal_raw == "", NA_character_, metal_raw),
       metal = case_when(
         str_starts(metal_raw, "SIL") ~ "SIL",
@@ -69,7 +69,7 @@ compute_att <- function(df, group_var) {
 
 # Point estimates ----------------------------------------------------------
 
-pred_parsed <- all_prob %>% ungroup() %>% parse_plan_names()
+pred_parsed <- all_prob %>% ungroup() %>% parse_plan_ids()
 
 metal_summary <- compute_att(pred_parsed, metal)
 ins_summary   <- compute_att(pred_parsed, insurer_abbr)
@@ -80,7 +80,7 @@ ins_summary   <- compute_att(pred_parsed, insurer_abbr)
 has_bootstrap <- nrow(sim_bs_pred) > 0
 
 if (has_bootstrap) {
-bs_parsed <- sim_bs_pred %>% ungroup() %>% parse_plan_names()
+bs_parsed <- sim_bs_pred %>% ungroup() %>% parse_plan_ids()
 
 # Metal CIs (bootstrap SE, centered on point estimate)
 bs_metal <- bs_parsed %>%

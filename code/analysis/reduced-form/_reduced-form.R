@@ -70,8 +70,8 @@ cat("  broker_density:", nrow(broker_density), "rows\n")
 # =========================================================================
 
 n_before <- nrow(hh_full)
-hh_full  <- hh_full %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
-hh_clean <- hh_clean %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
+hh_full  <- hh_full %>% filter(!grepl("_CAT$", plan_id) | is.na(plan_id))
+hh_clean <- hh_clean %>% filter(!grepl("_CAT$", plan_id) | is.na(plan_id))
 cat("  Excluded catastrophic HH:", n_before - nrow(hh_full), "of", n_before, "\n")
 
 # =========================================================================
@@ -111,37 +111,35 @@ hh_clean <- hh_clean %>%
 # =========================================================================
 
 plan_choice <- plan_data %>%
-  select(region, year = ENROLLMENT_YEAR, Issuer_Name, metal_level,
-         plan_name = Plan_Name2, network_type = PLAN_NETWORK_TYPE,
+  select(region, year = ENROLLMENT_YEAR, Issuer_Name,
+         metal = metal_level,
+         plan_id = Plan_Name2, network_type = PLAN_NETWORK_TYPE,
          premium = Premium, msp = MSP, hsa = `HSA`) %>%
   mutate(
     region = as.integer(region),
     year   = as.integer(year),
     issuer = standardize_insurer(Issuer_Name),
-    metal = case_when(
-      metal_level %in% c("Silver", "Silver - Enhanced 73",
-                          "Silver - Enhanced 87", "Silver - Enhanced 94") ~ "Silver",
-      TRUE ~ metal_level
-    )
+    base_metal = sub(" - Enhanced.*", "", metal)
   ) %>%
   select(-Issuer_Name) %>%
   filter(metal != "Minimum Coverage")
 
 cat("  plan_choice:", nrow(plan_choice), "rows (catastrophic excluded)\n")
 
-# Hausman IV: leave-one-out mean premium
+# Hausman IV: leave-one-out mean premium (group on base_metal so all silver
+# variants share an IV).
 plan_choice <- plan_choice %>%
-  group_by(issuer, metal, year) %>%
+  group_by(issuer, base_metal, year) %>%
   mutate(
     n_other = n() - 1L,
     hausman_iv = (sum(premium) - premium) / pmax(n_other, 1L)
   ) %>%
   ungroup() %>%
   mutate(hausman_iv = ifelse(n_other == 0, NA_real_, hausman_iv)) %>%
-  group_by(issuer, metal, year) %>%
+  group_by(issuer, base_metal, year) %>%
   mutate(hausman_iv = ifelse(is.na(hausman_iv), mean(premium, na.rm = TRUE), hausman_iv)) %>%
   ungroup() %>%
-  select(-n_other)
+  select(-n_other, -base_metal)
 
 # First-stage for premium endogeneity (CF residual for structural, kept here for consistency)
 first_stage <- lm(premium ~ hausman_iv + metal + network_type + factor(year),
@@ -152,7 +150,7 @@ rm(first_stage)
 
 # Commission PMPM: join lookup, compute flat or pct-of-premium
 plan_choice <- plan_choice %>%
-  mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+  mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
   left_join(commission_lookup, by = c("insurer_prefix", "year")) %>%
   mutate(
     comm_pmpm = case_when(
@@ -168,15 +166,15 @@ cat("  plan_choice saved ->", file.path(TEMP_DIR, "plan_choice.csv"), "\n")
 rm(commission_lookup)
 
 # =========================================================================
-# Partition HH data for choice model
+# Partition HH data for choice model. plan_id is the canonical identifier;
+# ipweight retained on the reduced-form HH file (used by 1_dominated-choices.R).
 # =========================================================================
 
 hh_choice <- hh_full %>%
-  filter(!grepl("_CAT$", plan_name) | is.na(plan_name)) %>%
+  filter(!grepl("_CAT$", plan_id) | is.na(plan_id)) %>%
   mutate(cutoff = AFFORD_THRESHOLDS[as.character(year)]) %>%
   select(region, year, household_id, FPL, subsidized_members, rating_factor,
-         plan_number_nocsr, plan_name, previous_plan_number,
-         oldest_member, cheapest_premium,
+         plan_id, oldest_member, cheapest_premium,
          subsidy, penalty, poverty_threshold, cutoff,
          household_size, ipweight, v_hat,
          perc_0to17, perc_18to34, perc_35to54,

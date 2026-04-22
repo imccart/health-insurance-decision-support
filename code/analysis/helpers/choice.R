@@ -14,14 +14,14 @@
 #
 # Args:
 #   plans        — plan_data rows for this region-year (expects snake_case columns:
-#                  plan_name, issuer, network_type, metal_level, metal, premium, msp, hsa)
-#   hhs          — hh_full rows for this region-year
+#                  plan_id, issuer, network_type, metal, premium, msp, hsa)
+#   hhs          — hh_full rows for this region-year (expects plan_id; NA = uninsured)
 #   sample_frac  — fraction of HH to sample per cell (estimation + OOS)
 #
 # Returns:
 #   Combined estimation + OOS tibble with `assisted` flag.
 
-build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
+build_choice_data <- function(plans, hhs, sample_frac,
                               spec = NULL, premium_type = "net") {
 
   # Convert inputs to data.table (copy, don't modify originals)
@@ -43,29 +43,28 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
 
   if (length(unique(hhs_dt$household_id)) < 50) return(NULL)
 
-  # 1. Choice set: collapse plans to one row per plan_name, add Uninsured
+  # 1. Choice set: one row per plan_id, add Uninsured outside option
   choice_set <- plans_dt[, .(
     issuer       = first(issuer),
     network_type = first(network_type),
-    metal_level  = first(metal_level),
     metal        = first(metal),
     premium      = mean(premium, na.rm = TRUE),
     msp          = min(msp, na.rm = TRUE),
     hsa          = min(hsa, na.rm = TRUE),
     cf_resid     = first(cf_resid)
-  ), by = plan_name]
-  choice_set[, plan_name := as.character(plan_name)]
+  ), by = plan_id]
+  choice_set[, plan_id := as.character(plan_id)]
 
   # Carry commission PMPM if present (structural path only)
   if ("comm_pmpm" %in% names(plans_dt)) {
-    cs_comm <- plans_dt[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_name]
-    choice_set <- merge(choice_set, cs_comm, by = "plan_name", all.x = TRUE)
+    cs_comm <- plans_dt[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_id]
+    choice_set <- merge(choice_set, cs_comm, by = "plan_id", all.x = TRUE)
     choice_set[is.na(comm_pmpm), comm_pmpm := 0]
   }
 
   uninsured_row <- data.table(
-    plan_name = "Uninsured", issuer = "Outside_Option",
-    network_type = NA_character_, metal_level = NA_character_,
+    plan_id = "Uninsured", issuer = "Outside_Option",
+    network_type = NA_character_,
     metal = NA_character_, premium = NA_real_,
     msp = NA_real_, hsa = NA_real_, cf_resid = 0
   )
@@ -75,7 +74,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   # 2. Cross-join sampled HH x choice set
   hh_slim <- hhs_dt[, .(
     household_id, FPL, subsidized_members, rating_factor,
-    hh_plan_number = plan_number_nocsr, hh_plan_name = plan_name,
+    hh_plan_id = plan_id,
     oldest_member, cheapest_premium, subsidy, penalty,
     poverty_threshold, cutoff
   )]
@@ -94,11 +93,11 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     csr_94 = fifelse(FPL <= 1.5 & subsidized_members > 0, 1L, 0L)
   )]
   dt <- dt[
-    (metal_level == "Silver - Enhanced 73" & csr_73 == 1L) |
-    (metal_level == "Silver - Enhanced 87" & csr_87 == 1L) |
-    (metal_level == "Silver - Enhanced 94" & csr_94 == 1L) |
-    metal != "Silver" |
-    (metal_level == "Silver" & csr_73 == 0L & csr_87 == 0L & csr_94 == 0L) |
+    (metal == "Silver - Enhanced 73" & csr_73 == 1L) |
+    (metal == "Silver - Enhanced 87" & csr_87 == 1L) |
+    (metal == "Silver - Enhanced 94" & csr_94 == 1L) |
+    !grepl("^Silver", metal) |
+    (metal == "Silver" & csr_73 == 0L & csr_87 == 0L & csr_94 == 0L) |
     is.na(metal)
   ]
   dt[, c("csr_73", "csr_87", "csr_94") := NULL]
@@ -114,14 +113,16 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   )]
   dt <- dt[
     (oldest_member < 30 & !is.na(oldest_member) &
-       eff_premium > threshold & metal_level == "Minimum Coverage") |
-    metal_level != "Minimum Coverage" | is.na(metal)
+       eff_premium > threshold & metal == "Minimum Coverage") |
+    metal != "Minimum Coverage" | is.na(metal)
   ]
   dt[, c("eff_premium", "threshold") := NULL]
 
-  # 5. Plan choice indicator and premiums
+  # 5. Plan choice indicator and premiums.
+  # Insured CC HH: plan_choice=1 on the row where their plan_id matches.
+  # Uninsured ACS HH: plan_choice=1 on the Uninsured outside-option row.
   dt[, plan_choice := fifelse(
-    hh_plan_name == plan_name & !is.na(hh_plan_name) & !is.na(hh_plan_number),
+    hh_plan_id == plan_id & !is.na(hh_plan_id),
     1L, 0L
   )]
   dt[, insured := max(plan_choice), by = household_id]
@@ -156,20 +157,21 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     )]
   }
   dt[, av := fcase(
-    metal_level == "Minimum Coverage",     0.55,
-    metal_level == "Bronze",               0.60,
-    metal_level == "Silver",               0.70,
-    metal_level == "Gold",                 0.80,
-    metal_level == "Platinum",             0.90,
-    metal_level == "Silver - Enhanced 73", 0.73,
-    metal_level == "Silver - Enhanced 87", 0.87,
-    metal_level == "Silver - Enhanced 94", 0.94,
-    issuer == "Outside_Option",            0,
+    metal == "Minimum Coverage",     0.55,
+    metal == "Bronze",               0.60,
+    metal == "Silver",               0.70,
+    metal == "Gold",                 0.80,
+    metal == "Platinum",             0.90,
+    metal == "Silver - Enhanced 73", 0.73,
+    metal == "Silver - Enhanced 87", 0.87,
+    metal == "Silver - Enhanced 94", 0.94,
+    issuer == "Outside_Option",      0,
     default = NA_real_
   )]
   dt[, c("premium_hh", "adj_subsidy", "premium") := NULL]
 
-  # 6. Collapse small insurers into one per metal tier
+  # 6. Collapse small insurers into one row per (HH × base_metal). Base metal
+  # collapses CSR-enhanced silvers (Small_SIL covers Silver + Silver-73/87/94).
   big_four <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net")
 
   large <- dt[issuer %in% c(big_four, "Outside_Option")]
@@ -179,12 +181,12 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   has_comm <- "comm_pmpm" %in% names(small_raw)
 
   if (nrow(small_raw) > 0) {
+    small_raw[, base_metal := sub(" - Enhanced.*", "", metal)]
     agg_exprs <- quote(.(
-      premium_oop  = min(premium_oop, na.rm = TRUE),
+      premium_oop    = min(premium_oop, na.rm = TRUE),
       plan_choice    = max(plan_choice, na.rm = TRUE),
       FPL            = first(FPL),
-      hh_plan_name   = first(hh_plan_name),
-      hh_plan_number = first(hh_plan_number),
+      hh_plan_id     = first(hh_plan_id),
       oldest_member  = first(oldest_member),
       insured        = first(insured),
       penalty        = first(penalty),
@@ -192,23 +194,25 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
       av             = mean(av, na.rm = TRUE),
       cf_resid       = mean(cf_resid, na.rm = TRUE)
     ))
-    small <- small_raw[, eval(agg_exprs), by = .(household_id, metal)]
+    small <- small_raw[, eval(agg_exprs), by = .(household_id, base_metal)]
     if (has_comm) {
       comm_agg <- small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)),
-                             by = .(household_id, metal)]
-      small <- merge(small, comm_agg, by = c("household_id", "metal"), all.x = TRUE)
+                             by = .(household_id, base_metal)]
+      small <- merge(small, comm_agg, by = c("household_id", "base_metal"), all.x = TRUE)
     }
     small[, `:=`(
       issuer = "Small_Insurer",
-      plan_name = fcase(
-        metal == "Platinum",         "Small_P",
-        metal == "Gold",             "Small_G",
-        metal == "Silver",           "Small_SIL",
-        metal == "Bronze",           "Small_BR",
-        metal == "Minimum Coverage", "Small_CAT",
+      metal  = base_metal,
+      plan_id = fcase(
+        base_metal == "Platinum",         "Small_P",
+        base_metal == "Gold",             "Small_G",
+        base_metal == "Silver",           "Small_SIL",
+        base_metal == "Bronze",           "Small_BR",
+        base_metal == "Minimum Coverage", "Small_CAT",
         default = NA_character_
       )
     )]
+    small[, base_metal := NULL]
     dt <- rbind(large, small, fill = TRUE)
     rm(large, small)
   } else {
@@ -219,7 +223,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
 
   # 7. Join HH demographics
   # Include v_hat if available (control function residual from broker density IV)
-  demo_cols <- c("household_id", "household_size", "ipweight",
+  demo_cols <- c("household_id", "household_size",
                   "perc_0to17", "perc_18to34", "perc_35to54",
                   "perc_black", "perc_hispanic", "perc_asian",
                   "perc_other", "perc_male", "channel")
@@ -234,19 +238,19 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   dt[is.na(metal), metal := "Other"]
   dt[, plan_choice := fcase(
     plan_choice == 1L & insured == 1L, 1L,
-    plan_choice == 0L & insured == 0L & plan_name == "Uninsured" & is.na(hh_plan_number), 1L,
+    plan_choice == 0L & insured == 0L & plan_id == "Uninsured" & is.na(hh_plan_id), 1L,
     default = 0L
   )]
 
   # 8. Final variables
-  dt <- dt[!is.na(premium_oop) & !is.na(plan_name)]
+  dt <- dt[!is.na(premium_oop) & !is.na(plan_id)]
   dt[, `:=`(
     net_premium    = premium_oop / hh_size,
     hmo            = fifelse(fifelse(is.na(network_type), "", network_type) == "HMO", 1L, 0L),
     hsa            = fifelse(is.na(hsa) | hsa <= 0, 0L, 1L),
     FPL_250to400   = fifelse(FPL > 2.50 & FPL <= 4.00, 1L, 0L),
     FPL_400plus    = fifelse(FPL > 4.00, 1L, 0L),
-    uninsured_plan = fifelse(plan_name == "Uninsured", 1L, 0L),
+    uninsured_plan = fifelse(plan_id == "Uninsured", 1L, 0L),
     platinum       = fifelse(metal == "Platinum", 1L, 0L),
     gold           = fifelse(metal == "Gold", 1L, 0L),
     silver         = fifelse(metal == "Silver", 1L, 0L),
@@ -255,13 +259,8 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     Blue_Shield    = fifelse(issuer == "Blue_Shield", 1L, 0L),
     Kaiser         = fifelse(issuer == "Kaiser", 1L, 0L),
     Health_Net     = fifelse(issuer == "Health_Net", 1L, 0L),
-    ipweight       = fifelse(is.na(ipweight), 1, ipweight)
+    hh_weight      = as.numeric(hh_size)
   )]
-
-  # Override weight for structural estimation (household_size instead of IPW)
-  if (weight_var == "hh_size") {
-    dt[, ipweight := as.numeric(hh_size)]
-  }
 
   # Demographic x premium interactions (heterogeneous price sensitivity)
   dt[, `:=`(
@@ -279,7 +278,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   )]
 
   # Insured intercept (= 1 for all insured plans, 0 for uninsured)
-  insured_ind <- fifelse(dt$plan_name == "Uninsured", 0, 1)
+  insured_ind <- fifelse(dt$plan_id == "Uninsured", 0L, 1L)
   dt[, insured_intercept := insured_ind]
 
   # Demographic x insured interactions (cross-nest margin shifters)
@@ -294,13 +293,17 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
     perc_asian_insured    = perc_asian * insured_ind,
     perc_other_insured    = perc_other * insured_ind,
     FPL_250to400_insured  = FPL_250to400 * insured_ind,
-    FPL_400plus_insured   = FPL_400plus * insured_ind
+    FPL_400plus_insured   = FPL_400plus * insured_ind,
+    family_insured        = as.integer(hh_size > 1L) * insured_ind,
+    subsidy_insured       = fifelse(is.na(subsidy), 0, as.numeric(subsidy)) * insured_ind
   )]
 
-  # Collapse enhanced silver plan names to SIL
-  dt[, plan_name := gsub("SIL(94|73|87)", "SIL", plan_name)]
+  # Collapse CSR-enhanced silver short codes (e.g. ANT_SIL73 → ANT_SIL).
+  # Done at the cell-data level so the demand model treats CSR variants as
+  # one alternative.
+  dt[, plan_id := gsub("SIL(94|73|87)", "SIL", plan_id)]
 
-  setorder(dt, household_id, plan_name)
+  setorder(dt, household_id, plan_id)
 
   # Rename for model interface
   setnames(dt, c("plan_choice", "net_premium", "household_id"),
@@ -308,7 +311,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
 
   # Exclusion restriction: penalty_own identifies outside option utility separately
   # from premium (which is 0 on uninsured row)
-  dt[, penalty_own := fifelse(plan_name == "Uninsured",
+  dt[, penalty_own := fifelse(plan_id == "Uninsured",
                                penalty / 12 / hh_size, 0)]
 
   # Insurer x metal interactions
@@ -339,9 +342,9 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
 
   # 9. Split by channel, keep valid choices, return as tibble
   # Build model_vars from spec (if provided) or use full set
-  always_keep <- c("plan_name", "household_number", "choice", "premium",
+  always_keep <- c("plan_id", "household_number", "choice", "premium",
                    "platinum", "gold", "silver", "bronze",
-                   "av", "uninsured_plan", "ipweight", "hh_size")
+                   "av", "uninsured_plan", "hh_weight", "hh_size")
   # Raw demographics needed downstream for recomputing _prem interactions
   raw_demos <- c("perc_0to17", "perc_18to34", "perc_35to54",
                  "perc_male", "perc_black", "perc_hispanic",
@@ -376,8 +379,8 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
   treated <- treated[household_number %in% valid_tr]
 
   # Ensure OOS plans are subset of estimation plans
-  est_plans <- unique(untreated$plan_name)
-  treated <- treated[plan_name %in% est_plans]
+  est_plans <- unique(untreated$plan_id)
+  treated <- treated[plan_id %in% est_plans]
   valid_tr2 <- treated[, .(ok = max(choice) == 1L), by = household_number][ok == TRUE, household_number]
   treated <- treated[household_number %in% valid_tr2]
 
@@ -436,7 +439,7 @@ build_choice_data <- function(plans, hhs, sample_frac, weight_var = "ipweight",
 #   nest_names — plan names in the "insured" nest
 #
 # Returns:
-#   data.table with columns: household_number, plan_name, pred
+#   data.table with columns: household_number, plan_id, pred
 
 predict_nested_logit <- function(d, coefs, nest_names) {
 
@@ -455,14 +458,14 @@ predict_nested_logit <- function(d, coefs, nest_names) {
   }
 
   # Nested logit probabilities via data.table
-  dt <- as.data.table(d[, c("household_number", "plan_name")])
+  dt <- as.data.table(d[, c("household_number", "plan_id")])
   dt[, V := V]
 
   # V_0 = β'X_0 for each HH (NOT zero)
-  V0_by_hh <- dt[plan_name == "Uninsured", .(V_0 = V), by = household_number]
+  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
 
   # Insured plans
-  ins <- dt[plan_name != "Uninsured"]
+  ins <- dt[plan_id != "Uninsured"]
   ins <- merge(ins, V0_by_hh, by = "household_number", all.x = TRUE)
   ins[, V_scaled := V / lambda]
   ins[, max_V := max(V_scaled), by = household_number]
@@ -478,15 +481,15 @@ predict_nested_logit <- function(d, coefs, nest_names) {
 
   # Uninsured probability = 1 - s_g
   sg_by_hh <- ins[, .(s_g = first(s_g)), by = household_number]
-  unins <- dt[plan_name == "Uninsured"]
+  unins <- dt[plan_id == "Uninsured"]
   unins <- merge(unins, sg_by_hh, by = "household_number", all.x = TRUE)
   unins[, pred := 1 - s_g]
 
   # Combine
   out <- rbind(
-    ins[, .(household_number, plan_name, pred)],
-    unins[, .(household_number, plan_name, pred)]
+    ins[, .(household_number, plan_id, pred)],
+    unins[, .(household_number, plan_id, pred)]
   )
-  setorder(out, household_number, plan_name)
+  setorder(out, household_number, plan_id)
   out
 }

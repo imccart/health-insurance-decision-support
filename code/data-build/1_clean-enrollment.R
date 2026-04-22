@@ -33,10 +33,12 @@ enroll <- enroll %>%
     flagged = flagged | gender == "",
     gender  = fcase(gender == "Male", 1L, gender == "Female", 0L, default = NA_integer_),
 
-    # Metal level: fill from plan_name when blank
-    metal_level_enhanced = as.character(metal_level_enhanced),
-    metal_level_enhanced = case_when(
-      metal_level_enhanced != ""                ~ metal_level_enhanced,
+    # Metal: fill from plan_name when blank. CSR-aware (keeps the
+    # "Silver - Enhanced 73/87/94" granularity). Where downstream needs the
+    # base tier (e.g. small-insurer collapse), derive inline.
+    metal = as.character(metal_level_enhanced),
+    metal = case_when(
+      metal != ""                               ~ metal,
       str_detect(plan_name, "Bronze")           ~ "Bronze",
       str_detect(plan_name, "Silver.*94")       ~ "Silver - Enhanced 94",
       str_detect(plan_name, "Silver.*87")       ~ "Silver - Enhanced 87",
@@ -47,14 +49,7 @@ enroll <- enroll %>%
       str_detect(plan_name, "Minimum Coverage") ~ "Minimum Coverage",
       TRUE ~ NA_character_
     ),
-    metal = case_when(
-      metal_level_enhanced == "Minimum Coverage" ~ "Minimum Coverage",
-      metal_level_enhanced == "Bronze"           ~ "Bronze",
-      str_starts(metal_level_enhanced, "Silver") ~ "Silver",
-      metal_level_enhanced == "Gold"             ~ "Gold",
-      metal_level_enhanced == "Platinum"         ~ "Platinum"
-    ),
-    flagged = flagged | is.na(metal_level_enhanced) | is.na(metal),
+    flagged = flagged | is.na(metal),
 
     # Flag bad age / missing zip3
     flagged = flagged | is.na(age) | age > 120 | is.na(zip3),
@@ -147,18 +142,18 @@ enroll <- enroll %>%
     )
   )
 
-# Validate: does (zip3, region, year, HIOS, metal_level_enhanced) appear?
+# Validate: does (zip3, region, year, HIOS, metal) appear in valid_plans?
 enroll <- enroll %>%
-  mutate(metal_level = metal_level_enhanced) %>%
   left_join(
-    valid_plans %>% mutate(plan_valid = TRUE),
-    by = c("zip3", "region", "year", "HIOS", "metal_level")
+    valid_plans %>% mutate(plan_valid = TRUE) %>%
+      rename(metal = metal_level),
+    by = c("zip3", "region", "year", "HIOS", "metal")
   ) %>%
   mutate(
     plan_valid = coalesce(plan_valid, FALSE),
     flagged    = flagged | !plan_valid
   ) %>%
-  select(-plan_valid, -metal_level)  # metal_level == metal_level_enhanced; drop duplicate
+  select(-plan_valid)
 
 
 # FPL bracket fill from FPL% when bracket is missing/unknown ---------------
@@ -199,17 +194,21 @@ enroll <- enroll %>% filter(!flagged) %>% select(-flagged)
 hsp_regions         <- c(1, 3, 7, 11)
 partial_hsp_regions <- 14:19
 enroll <- enroll %>%
+  rename(network_type = plan_network_type) %>%
   mutate(
-    plan_network_type = as.character(plan_network_type),
-    plan_network_type = case_when(
+    network_type = as.character(network_type),
+    network_type = case_when(
       insurer == "Health_Net" & region %in% hsp_regions &
         year %in% c(2016, 2017) ~ "HSP",
       insurer == "Health_Net" & region %in% partial_hsp_regions &
-        year %in% 2016:2019 & plan_network_type == "HMO" &
+        year %in% 2016:2019 & network_type == "HMO" &
         metal %in% c("Minimum Coverage", "Bronze") ~ "HSP",
-      TRUE ~ plan_network_type
+      TRUE ~ network_type
     )
-  )
+  ) %>%
+  # Drop intermediate HIOS variants — keep only `HIOS` for step 2's
+  # plan_id crosswalk; drop `metal_level_enhanced` (folded into `metal`).
+  select(-hios_id_16, -hios_id_14, -metal_level_enhanced)
 
 
 # Save ---------------------------------------------------------------------

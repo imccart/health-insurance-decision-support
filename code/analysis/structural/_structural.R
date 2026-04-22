@@ -44,30 +44,29 @@ if (all(file.exists(prep_files))) {
 
   cat("Reading analysis data from disk...\n")
   hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
-  ipweights  <- read_csv("data/output/ipweights.csv", show_col_types = FALSE)
   plan_data  <- read_csv("data/input/Covered California/plan_data.csv",
                           show_col_types = FALSE, name_repair = "minimal")
   broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
   commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
 
-  hh_full <- hh_full %>%
-    left_join(ipweights, by = "household_year")
-  rm(ipweights)
+  # Structural uses hh_size as the weight (not ipweight/ATT).
   cat("  hh_full:", nrow(hh_full), "rows\n")
 
-  # Control function
+  # Control function residual (broker density IV). `assisted` is observed
+  # only on insured (CC) rows; fit on those and leave v_hat = NA for ACS.
   cat("Computing control function residual...\n")
   hh_full <- hh_full %>%
     left_join(broker_density %>% select(region, year, n_agents),
               by = c("region", "year"))
-
+  ins_idx <- which(hh_full$insured == 1L)
   fs_model <- lm(assisted ~ n_agents + FPL + perc_0to17 + perc_18to25 +
                     perc_65plus + perc_black + perc_hispanic + perc_asian +
                     perc_male + household_size + factor(year),
-                  data = hh_full)
-  hh_full$v_hat <- residuals(fs_model)
+                  data = hh_full[ins_idx, ])
+  hh_full$v_hat <- NA_real_
+  hh_full$v_hat[ins_idx] <- residuals(fs_model)
   cat("  First-stage F:", round(summary(fs_model)$fstatistic[1], 1), "\n")
-  rm(fs_model, broker_density)
+  rm(fs_model, broker_density, ins_idx)
 
   # Navigator propensity
   cat("Estimating navigator propensity model...\n")
@@ -83,22 +82,22 @@ if (all(file.exists(prep_files))) {
 
   # Exclude catastrophic
   n_before <- nrow(hh_full)
-  hh_full <- hh_full %>% filter(!grepl("_CAT$", plan_name) | is.na(plan_name))
+  hh_full <- hh_full %>% filter(!grepl("_CAT$", plan_id) | is.na(plan_id))
   cat("  Excluded catastrophic HH:", n_before - nrow(hh_full), "\n")
 
-  # Plan demographics
+  # Plan demographics (CSR-enhanced silver short codes collapsed for averaging)
   cat("Computing plan-level demographics...\n")
   plan_demographics <- hh_full %>%
-    filter(!is.na(plan_name), plan_name != "Uninsured") %>%
-    mutate(plan_name = gsub("SIL(94|73|87)", "SIL", plan_name),
-           wt = ifelse(is.na(ipweight), 1, ipweight)) %>%
-    group_by(plan_name, year) %>%
+    filter(!is.na(plan_id), plan_id != "Uninsured") %>%
+    mutate(plan_id = gsub("SIL(94|73|87)", "SIL", plan_id),
+           wt = household_size) %>%
+    group_by(plan_id, year) %>%
     summarize(share_18to34 = weighted.mean(perc_18to34, wt, na.rm = TRUE),
               share_35to54 = weighted.mean(perc_35to54, wt, na.rm = TRUE),
               share_hispanic = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
               n_hh = n(), .groups = "drop")
   plan_demographics_yr <- plan_demographics %>%
-    group_by(plan_name, year) %>%
+    group_by(plan_id, year) %>%
     summarize(share_18to34 = weighted.mean(share_18to34, n_hh, na.rm = TRUE),
               share_35to54 = weighted.mean(share_35to54, n_hh, na.rm = TRUE),
               share_hispanic = weighted.mean(share_hispanic, n_hh, na.rm = TRUE),
@@ -107,30 +106,29 @@ if (all(file.exists(prep_files))) {
   cat("  Plan demographics:", nrow(plan_demographics_yr), "rows\n")
   rm(plan_demographics, plan_demographics_yr)
 
-  # Build plan_choice
+  # Build plan_choice. Keep `metal` CSR-aware (matches enroll/HH metal).
+  # base_metal collapses CSR-enhanced silvers for Hausman IV grouping.
   plan_choice <- plan_data %>%
-    select(region, year = ENROLLMENT_YEAR, Issuer_Name, metal_level,
-           plan_name = Plan_Name2, network_type = PLAN_NETWORK_TYPE,
+    select(region, year = ENROLLMENT_YEAR, Issuer_Name,
+           metal = metal_level,
+           plan_id = Plan_Name2, network_type = PLAN_NETWORK_TYPE,
            premium = Premium, msp = MSP, hsa = `HSA`) %>%
     mutate(region = as.integer(region), year = as.integer(year),
            issuer = standardize_insurer(Issuer_Name),
-           metal = case_when(
-             metal_level %in% c("Silver", "Silver - Enhanced 73",
-                                 "Silver - Enhanced 87", "Silver - Enhanced 94") ~ "Silver",
-             TRUE ~ metal_level)) %>%
+           base_metal = sub(" - Enhanced.*", "", metal)) %>%
     select(-Issuer_Name) %>%
     filter(metal != "Minimum Coverage")
 
   plan_choice <- plan_choice %>%
-    group_by(issuer, metal, year) %>%
+    group_by(issuer, base_metal, year) %>%
     mutate(n_other = n() - 1L,
            hausman_iv = (sum(premium) - premium) / pmax(n_other, 1L)) %>%
     ungroup() %>%
     mutate(hausman_iv = ifelse(n_other == 0, NA_real_, hausman_iv)) %>%
-    group_by(issuer, metal, year) %>%
+    group_by(issuer, base_metal, year) %>%
     mutate(hausman_iv = ifelse(is.na(hausman_iv), mean(premium, na.rm = TRUE), hausman_iv)) %>%
     ungroup() %>%
-    select(-n_other)
+    select(-n_other, -base_metal)
 
   first_stage <- lm(premium ~ hausman_iv + metal + network_type + factor(year),
                     data = plan_choice)
@@ -139,7 +137,7 @@ if (all(file.exists(prep_files))) {
   rm(first_stage)
 
   plan_choice <- plan_choice %>%
-    mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+    mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
     left_join(commission_lookup, by = c("insurer_prefix", "year")) %>%
     mutate(
       comm_pmpm = case_when(
@@ -152,16 +150,15 @@ if (all(file.exists(prep_files))) {
   write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
   cat("  plan_choice:", nrow(plan_choice), "rows\n")
 
-  # Write HH data (single file, split in memory by readers)
+  # Write HH data (single file, split in memory by readers).
   cat("Writing HH choice data...\n")
   hh_choice <- hh_full %>%
-    filter(!grepl("_CAT$", plan_name) | is.na(plan_name)) %>%
+    filter(!grepl("_CAT$", plan_id) | is.na(plan_id)) %>%
     mutate(region = as.integer(region), year = as.integer(year),
            cutoff = AFFORD_THRESHOLDS[as.character(year)]) %>%
     select(region, year, household_id, FPL, subsidized_members, rating_factor,
-           plan_number_nocsr, plan_name, previous_plan_number,
-           oldest_member, cheapest_premium, subsidy, penalty,
-           poverty_threshold, cutoff, household_size, ipweight, v_hat,
+           plan_id, oldest_member, cheapest_premium, subsidy, penalty,
+           poverty_threshold, cutoff, household_size, v_hat,
            perc_0to17, perc_18to34, perc_35to54,
            perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
            channel, channel_detail, any_agent, p_nav)

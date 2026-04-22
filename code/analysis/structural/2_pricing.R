@@ -38,7 +38,7 @@ rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 # Merge plan-level demographics from observed enrollment
 plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
 rsdata <- rsdata %>%
-  left_join(plan_demo, by = c("plan_name", "year"))
+  left_join(plan_demo, by = c("plan_id", "year"))
 n_matched <- sum(!is.na(rsdata$share_18to34))
 cat("  Demographics merged:", n_matched, "of", nrow(rsdata), "plan-years matched\n")
 rm(plan_demo)
@@ -53,7 +53,7 @@ write_csv(claims_coefs_df, file.path(TEMP_DIR, "ra_claims_coefs.csv"))
 
 # Reinsurance factors by plan-year (for counterfactuals)
 reins_df <- rsdata %>%
-  select(plan_name, year, reins_factor) %>%
+  select(plan_id, year, reins_factor) %>%
   filter(!is.na(reins_factor))
 write_csv(reins_df, file.path(TEMP_DIR, "reinsurance_factors.csv"))
 
@@ -95,7 +95,7 @@ for (i in seq_len(nrow(cells))) {
   if (!"comm_pmpm" %in% names(plans)) {
     comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
     plans <- plans %>%
-      mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+      mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
       left_join(comm_yr, by = "insurer_prefix") %>%
       mutate(comm_pmpm = case_when(is.na(rate) ~ 0, is_pct ~ rate * premium, TRUE ~ rate)) %>%
       select(-insurer_prefix, -rate, -is_pct)
@@ -128,23 +128,23 @@ for (i in seq_len(nrow(cells))) {
   }
 
   # Plan names and attributes from plan_attrs (post-collapse, always consistent)
-  plan_names_cell <- sort(plan_attrs$plan_name)
-  J <- length(plan_names_cell)
+  plan_ids_cell <- sort(plan_attrs$plan_id)
+  J <- length(plan_ids_cell)
 
   if (J < 2) { n_skip <- n_skip + 1L; rm(cell_data, plans, plan_attrs); next }
 
   # Read attributes directly from plan_attrs — no lookups against plans_cell
-  pa <- plan_attrs[match(plan_names_cell, plan_attrs$plan_name), ]
-  posted_premium <- setNames(pa$premium_posted, pa$plan_name)
-  plan_metal     <- setNames(pa$metal, pa$plan_name)
-  plan_issuer    <- setNames(pa$issuer, pa$plan_name)
-  plan_avs       <- setNames(pa$av, pa$plan_name)
-  comm_vec       <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_name) else setNames(rep(0, J), plan_names_cell)
+  pa <- plan_attrs[match(plan_ids_cell, plan_attrs$plan_id), ]
+  posted_premium <- setNames(pa$premium_posted, pa$plan_id)
+  plan_metal     <- setNames(pa$metal, pa$plan_id)
+  plan_issuer    <- setNames(pa$issuer, pa$plan_id)
+  plan_avs       <- setNames(pa$av, pa$plan_id)
+  comm_vec       <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_id) else setNames(rep(0, J), plan_ids_cell)
 
   # 2nd cheapest Silver by posted premium (ACA benchmark)
   silver_bp <- plan_attrs[plan_attrs$metal == "Silver", ]
   silver_bp <- silver_bp[order(silver_bp$premium_posted), ]
-  benchmark_plan <- if (nrow(silver_bp) == 0) NA_character_ else if (nrow(silver_bp) == 1) silver_bp$plan_name[1] else silver_bp$plan_name[2]
+  benchmark_plan <- if (nrow(silver_bp) == 0) NA_character_ else if (nrow(silver_bp) == 1) silver_bp$plan_id[1] else silver_bp$plan_id[2]
   rm(silver_bp)
 
   # -----------------------------------------------------------------------
@@ -166,7 +166,7 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   # Step 3: Ownership matrix and Omega
   # -----------------------------------------------------------------------
-  own_mat <- build_ownership_matrix(plan_names_cell)
+  own_mat <- build_ownership_matrix(plan_ids_cell)
   Omega <- -own_mat * elast_mat  # positive diagonal
 
   # -----------------------------------------------------------------------
@@ -183,16 +183,16 @@ for (i in seq_len(nrow(cells))) {
   # Step 5: Risk scores and RA (needed for FOC RA derivative)
   # -----------------------------------------------------------------------
   plan_chars_cell <- tibble(
-    plan_name   = plan_names_cell,
+    plan_id   = plan_ids_cell,
     Silver      = as.integer(unname(plan_metal) == "Silver"),
     Gold        = as.integer(unname(plan_metal) == "Gold"),
     Platinum    = as.integer(unname(plan_metal) == "Platinum"),
-    HMO         = unname(setNames(pa$hmo, pa$plan_name)[plan_names_cell]),
+    HMO         = unname(setNames(pa$hmo, pa$plan_id)[plan_ids_cell]),
     trend       = y - 2014L,
-    Anthem      = as.integer(grepl("^ANT", plan_names_cell)),
-    Blue_Shield = as.integer(grepl("^BS", plan_names_cell)),
-    Health_Net  = as.integer(grepl("^HN", plan_names_cell)),
-    Kaiser      = as.integer(grepl("^KA", plan_names_cell))
+    Anthem      = as.integer(grepl("^ANT", plan_ids_cell)),
+    Blue_Shield = as.integer(grepl("^BS", plan_ids_cell)),
+    Health_Net  = as.integer(grepl("^HN", plan_ids_cell)),
+    Kaiser      = as.integer(grepl("^KA", plan_ids_cell))
   )
 
   demo_shares <- tryCatch(
@@ -202,8 +202,8 @@ for (i in seq_len(nrow(cells))) {
 
   avg_prem <- mean(posted_premium, na.rm = TRUE)
   rf_cell <- reins_df %>% filter(year == y)
-  reins_vec <- sapply(plan_names_cell, function(pn) {
-    rf <- rf_cell$reins_factor[rf_cell$plan_name == pn]
+  reins_vec <- sapply(plan_ids_cell, function(pn) {
+    rf <- rf_cell$reins_factor[rf_cell$plan_id == pn]
     if (length(rf) == 0) return(0)
     mean(rf, na.rm = TRUE)
   })
@@ -212,7 +212,7 @@ for (i in seq_len(nrow(cells))) {
                            demo_shares, shares, avg_prem, plan_avs, reins_vec)
   mc_structural  <- mc_result$mc
   pred_claims    <- mc_result$predicted_claims
-  rs_pred        <- tibble(plan_name = names(mc_result$predicted_risk_scores),
+  rs_pred        <- tibble(plan_id = names(mc_result$predicted_risk_scores),
                            predicted_risk_score = unname(mc_result$predicted_risk_scores),
                            log_risk_score_hat = unname(mc_result$log_risk_score_hat))
   ra_transfers   <- mc_result$ra_transfers
@@ -222,7 +222,7 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   # Insurers internalize that price changes shift enrollment composition,
   # changing RA transfers. This term was previously omitted from the FOC.
-  rs_levels <- setNames(rs_pred$predicted_risk_score, rs_pred$plan_name)
+  rs_levels <- setNames(rs_pred$predicted_risk_score, rs_pred$plan_id)
   ra_foc <- compute_ra_foc(rs_levels, shares, plan_avs, avg_prem,
                             elast_mat, own_mat)
 
@@ -240,7 +240,7 @@ for (i in seq_len(nrow(cells))) {
   MH_FACTOR <- c("Minimum Coverage" = 1.00, "Bronze" = 1.00, "Silver" = 1.03, "Gold" = 1.08, "Platinum" = 1.15)
   ra_factor_static <- setNames(
     pa$av * ifelse(is.na(MH_FACTOR[pa$metal]), 1.0, MH_FACTOR[pa$metal]),
-    pa$plan_name
+    pa$plan_id
   )
 
   mc_foc <- posted_premium - markup
@@ -255,7 +255,7 @@ for (i in seq_len(nrow(cells))) {
   saveRDS(list(
     region         = r,
     year           = y,
-    plan_names     = plan_names_cell,
+    plan_ids     = plan_ids_cell,
     Omega          = Omega,
     Omega_broker   = Omega_broker,
     shares         = shares,
@@ -272,7 +272,7 @@ for (i in seq_len(nrow(cells))) {
   cell_result <- tibble(
     region          = r,
     year            = y,
-    plan_name       = plan_names_cell,
+    plan_id       = plan_ids_cell,
     issuer          = unname(plan_issuer),
     metal           = unname(plan_metal),
     share           = unname(shares),

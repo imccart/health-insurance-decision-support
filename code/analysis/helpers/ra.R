@@ -72,7 +72,7 @@ estimate_ra_regressions <- function(rsdata) {
 #' @param cell_data   Long-format HH × plan data with demographics and utility
 #' @param V           Utility vector (same length as cell_data rows)
 #' @param lambda      Nesting parameter
-#' @return Tibble: plan_name, share_18to34, share_35to54, share_hispanic, demand
+#' @return Tibble: plan_id, share_18to34, share_35to54, share_hispanic, demand
 
 compute_demographic_shares <- function(cell_data, V, lambda) {
 
@@ -80,8 +80,8 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
   dt[, V := V]
 
   # Nested logit choice probabilities (same formula as compute_shares_and_elasticities)
-  ins_dt <- dt[plan_name != "Uninsured"]
-  out_dt <- dt[plan_name == "Uninsured"]
+  ins_dt <- dt[plan_id != "Uninsured"]
+  out_dt <- dt[plan_id == "Uninsured"]
 
   # Within-nest: exp(V_j / lambda)
   ins_dt[, V_scaled := V / lambda]
@@ -110,8 +110,8 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
   # P(j) = P(insured) * P(j | insured)
   ins_dt[, prob := P_ins * P_j_ins]
 
-  # Weight by ipweight
-  w <- if ("ipweight" %in% names(ins_dt)) ins_dt$ipweight else rep(1, nrow(ins_dt))
+  # HH-level weight (hh_size from build_choice_data)
+  w <- if ("hh_weight" %in% names(ins_dt)) ins_dt$hh_weight else rep(1, nrow(ins_dt))
   ins_dt[, w := w]
   ins_dt[, wp := w * prob]
 
@@ -126,7 +126,7 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
     share_35to54  = sum(wp * perc_35to54, na.rm = TRUE) / sum(wp),
     share_hispanic = sum(wp * perc_hispanic, na.rm = TRUE) / sum(wp),
     demand        = sum(wp)
-  ), by = plan_name]
+  ), by = plan_id]
 
   as_tibble(demo_shares)
 }
@@ -138,9 +138,9 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
 #' plan characteristics, and demographic shares.
 #'
 #' @param rs_coefs     Named coefficient vector from risk score regression
-#' @param plan_chars   Tibble with plan_name, Silver, Gold, Platinum
+#' @param plan_chars   Tibble with plan_id, Silver, Gold, Platinum
 #' @param demo_shares  Tibble from compute_demographic_shares (or NULL for base model)
-#' @return Tibble: plan_name, predicted_risk_score
+#' @return Tibble: plan_id, predicted_risk_score
 
 predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
 
@@ -149,8 +149,8 @@ predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
   # If we have demographic shares, merge and use full model
   if (!is.null(demo_shares)) {
     pred_data <- pred_data %>%
-      left_join(demo_shares %>% select(plan_name, share_18to34, share_35to54, share_hispanic),
-                by = "plan_name")
+      left_join(demo_shares %>% select(plan_id, share_18to34, share_35to54, share_hispanic),
+                by = "plan_id")
   }
 
   # Predict log risk score
@@ -168,7 +168,7 @@ predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
   }
 
   tibble(
-    plan_name = pred_data$plan_name,
+    plan_id = pred_data$plan_id,
     predicted_risk_score = exp(log_rs),
     log_risk_score_hat = log_rs
   )
@@ -181,10 +181,10 @@ predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
 #' and current market shares. Plans with above-average risk receive
 #' positive transfers; plans below pay in.
 #'
-#' @param predicted_risk_scores  Named vector or tibble with plan_name + predicted_risk_score
-#' @param plan_shares            Named vector: plan_name → market share (among insured)
+#' @param predicted_risk_scores  Named vector or tibble with plan_id + predicted_risk_score
+#' @param plan_shares            Named vector: plan_id → market share (among insured)
 #' @param avg_premium            Scalar: average premium PMPM in market
-#' @param plan_avs               Named vector: plan_name → actuarial value
+#' @param plan_avs               Named vector: plan_id → actuarial value
 #' @return Named vector of PMPM RA transfers per plan
 
 compute_ra_transfers <- function(predicted_risk_scores, plan_shares, avg_premium, plan_avs) {
@@ -192,7 +192,7 @@ compute_ra_transfers <- function(predicted_risk_scores, plan_shares, avg_premium
   # If tibble, extract as named vector
   if (is.data.frame(predicted_risk_scores)) {
     rs_vec <- setNames(predicted_risk_scores$predicted_risk_score,
-                       predicted_risk_scores$plan_name)
+                       predicted_risk_scores$plan_id)
   } else {
     rs_vec <- predicted_risk_scores
   }
@@ -233,13 +233,13 @@ compute_ra_transfers <- function(predicted_risk_scores, plan_shares, avg_premium
 #' Predict plan-level claims from risk scores and claims regression.
 #'
 #' @param claims_coefs  Named coefficient vector from claims regression
-#' @param plan_chars    Tibble with plan_name, HMO, trend, insurer dummies
+#' @param plan_chars    Tibble with plan_id, HMO, trend, insurer dummies
 #' @param log_rs        Named vector of log predicted risk scores
 #' @return Named vector of predicted claims PMPM
 
 predict_claims <- function(claims_coefs, plan_chars, log_rs) {
 
-  pn <- plan_chars$plan_name
+  pn <- plan_chars$plan_id
   log_cost <- claims_coefs[["(Intercept)"]] +
     claims_coefs[["log_risk_score"]] * log_rs[pn]
 
@@ -293,9 +293,9 @@ predict_mc_structural <- function(predicted_claims, ra_transfers, reins_factors)
 #'
 #' @param rs_coefs      Named vector of risk score regression coefficients
 #' @param claims_coefs  Named vector of claims regression coefficients
-#' @param plan_chars    Tibble with plan_name, Silver, Gold, Platinum, HMO,
+#' @param plan_chars    Tibble with plan_id, Silver, Gold, Platinum, HMO,
 #'                      trend, Anthem, Blue_Shield, Health_Net, Kaiser
-#' @param demo_shares   Tibble with plan_name, share_18to34, share_35to54,
+#' @param demo_shares   Tibble with plan_id, share_18to34, share_35to54,
 #'                      share_hispanic (or NULL for metal-only model)
 #' @param shares        Named vector of market shares (among insured)
 #' @param avg_premium   Scalar average premium in market
@@ -308,7 +308,7 @@ compute_mc <- function(rs_coefs, claims_coefs, plan_chars, demo_shares,
                        shares, avg_premium, plan_avs, reins_vec) {
 
   rs_pred <- predict_risk_scores(rs_coefs, plan_chars, demo_shares)
-  log_rs <- setNames(rs_pred$log_risk_score_hat, rs_pred$plan_name)
+  log_rs <- setNames(rs_pred$log_risk_score_hat, rs_pred$plan_id)
   pred_claims <- predict_claims(claims_coefs, plan_chars, log_rs)
   ra_transfers <- compute_ra_transfers(rs_pred, shares, avg_premium, plan_avs)
   mc <- predict_mc_structural(pred_claims, ra_transfers, reins_vec)
@@ -316,7 +316,7 @@ compute_mc <- function(rs_coefs, claims_coefs, plan_chars, demo_shares,
   list(
     mc                    = mc,
     predicted_claims      = pred_claims,
-    predicted_risk_scores = setNames(rs_pred$predicted_risk_score, rs_pred$plan_name),
+    predicted_risk_scores = setNames(rs_pred$predicted_risk_score, rs_pred$plan_id),
     log_risk_score_hat    = log_rs,
     ra_transfers          = ra_transfers
   )
@@ -366,7 +366,7 @@ compute_ra_foc <- function(risk_scores, shares, plan_avs, avg_premium,
   dRA_ds <- (-outer(rs, rs) / S_rs^2 + outer(util_adj, util_adj) / S_u^2) * avg_premium
 
   # dRA_k/dp_l = sum_m dRA_k/ds_m * ds_m/dp_l = dRA_ds %*% elast_mat
-  # elast_mat and own_mat are J x J, already ordered by plan_names_cell
+  # elast_mat and own_mat are J x J, already ordered by plan_ids_cell
   dRA_dp <- dRA_ds %*% elast_mat
 
   # ra_foc_l = sum_k O[l,k] * s_k * dRA_dp[k,l]

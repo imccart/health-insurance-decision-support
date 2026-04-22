@@ -5,41 +5,15 @@
 ##                remaining analysis vars, apply SIPP in-market filter to
 ##                uninsured, save working datasets.
 
-# Load demand data (CC + ACS combined, HH-year level) ---------------------
+# Load demand data (CC + ACS combined, HH-year level) --------------------
+# `plan_id`, `insurer`, `metal`, `network_type` are already attached in
+# step 2's data-build. No plan_data join needed here.
 hh <- read_csv("data/output/demand_households.csv", show_col_types = FALSE)
 
 
-# Attach plan characteristics via plan_unique_id ---------------------------
-# plan_unique_id = HIOS concat year, matches plan_data$HIOSYR
-plan_data <- read_csv("data/input/Covered California/plan_data.csv",
-                       show_col_types = FALSE, name_repair = "minimal")
-
-plan_lookup <- plan_data %>%
-  distinct(HIOSYR, .keep_all = TRUE) %>%
-  select(HIOSYR, insurer_plan = Issuer_Name,
-         plan_network_type_plan = PLAN_NETWORK_TYPE,
-         metal_plan = metal_level)
-
-hh <- hh %>%
-  left_join(plan_lookup, by = c("plan_unique_id" = "HIOSYR")) %>%
-  mutate(
-    # Only overwrite insurer/metal/network from plan_data for CC HHs
-    # (ACS HHs have plan_unique_id = NA so the join leaves these NA)
-    insurer           = coalesce(insurer,           insurer_plan),
-    plan_network_type = coalesce(plan_network_type, plan_network_type_plan),
-    metal = coalesce(metal,
-      case_when(
-        metal_plan %in% c("Silver - Enhanced 73", "Silver - Enhanced 87",
-                           "Silver - Enhanced 94") ~ "Silver",
-        metal_plan == "Minimum Coverage" ~ "Catastrophic",
-        TRUE ~ metal_plan
-      ))
-  ) %>%
-  select(-insurer_plan, -plan_network_type_plan, -metal_plan)
-rm(plan_lookup, plan_data)
-
-
 # Derive analysis variables -----------------------------------------------
+# Note: dominated_choice keys on `metal` which now carries CSR-aware labels
+# ("Silver - Enhanced 73"). Gold/Platinum strings still match exactly.
 hh <- hh %>%
   mutate(
     assisted        = as.integer(navigator == 1 | broker == 1 | agent == 1),
@@ -63,7 +37,7 @@ hh <- hh %>%
     subsidy_eligible = as.integer(subsidized_members > 0),
     csr_eligible     = as.integer(subsidy_eligible == 1 & FPL <= 2.50),
     dominated_choice = case_when(
-      is.na(plan_name)                                       ~ NA_integer_,
+      is.na(plan_id)                                         ~ NA_integer_,
       csr_eligible != 1                                      ~ NA_integer_,
       FPL <= 1.50 & metal %in% c("Gold", "Platinum")         ~ 1L,
       FPL > 1.50 & FPL <= 2.00 & metal == "Gold"             ~ 1L,

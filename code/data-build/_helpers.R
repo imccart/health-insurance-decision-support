@@ -63,18 +63,19 @@ FPL_BRACKETS <- tibble::tribble(
   "400% FPL or greater",     4.0,     Inf
 )
 
-# Derive bracket name from exact FPL (ratio form).
+# Derive bracket name from exact FPL (ratio form). Uses findInterval because
+# dplyr::case_when hits a "locked binding for .size" error inside grouped
+# summarize() in some dplyr versions.
 assign_bracket <- function(fpl) {
-  dplyr::case_when(
-    is.na(fpl)      ~ NA_character_,
-    fpl <= 1.38     ~ "138% FPL or less",
-    fpl <= 1.5      ~ "138% FPL to 150% FPL",
-    fpl <= 2.0      ~ "150% FPL to 200% FPL",
-    fpl <= 2.5      ~ "200% FPL to 250% FPL",
-    fpl <= 3.0      ~ "250% FPL to 300% FPL",
-    fpl <= 4.0      ~ "300% FPL to 400% FPL",
-    TRUE            ~ "400% FPL or greater"
-  )
+  breaks <- c(-Inf, 1.38, 1.5, 2.0, 2.5, 3.0, 4.0, Inf)
+  labels <- c("138% FPL or less",
+              "138% FPL to 150% FPL",
+              "150% FPL to 200% FPL",
+              "200% FPL to 250% FPL",
+              "250% FPL to 300% FPL",
+              "300% FPL to 400% FPL",
+              "400% FPL or greater")
+  labels[findInterval(fpl, breaks, left.open = TRUE)]
 }
 
 # Parse SAS dictionary + read fixed-width data (for SIPP / ACS / IPUMS).

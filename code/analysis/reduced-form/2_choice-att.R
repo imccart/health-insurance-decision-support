@@ -136,16 +136,16 @@ for (i in seq_len(nrow(cells))) {
   if (nrow(cell_oos) == 0) { rm(cell_data, cell_oos); next }
 
   preds <- predict_nested_logit(cell_oos, coefs,
-                                unique(cell_data$plan_name[cell_data$plan_name != "Uninsured"]))
+                                unique(cell_data$plan_id[cell_data$plan_id != "Uninsured"]))
 
-  cell_oos_dt <- as.data.table(cell_oos[, c("household_number", "plan_name", "choice")])
-  cell_oos_dt <- merge(cell_oos_dt, preds, by = c("household_number", "plan_name"), all.x = TRUE)
+  cell_oos_dt <- as.data.table(cell_oos[, c("household_number", "plan_id", "choice")])
+  cell_oos_dt <- merge(cell_oos_dt, preds, by = c("household_number", "plan_id"), all.x = TRUE)
 
   plan_summary <- cell_oos_dt[, .(
     tot_nonmiss   = sum(!is.na(pred)),
     obs_purchase  = sum(choice, na.rm = TRUE),
     pred_purchase = sum(pred, na.rm = TRUE)
-  ), by = plan_name]
+  ), by = plan_id]
   plan_summary[, `:=`(region = r, year = y)]
 
   pred_list[[length(pred_list) + 1]] <- plan_summary

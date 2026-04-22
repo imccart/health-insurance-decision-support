@@ -48,7 +48,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # Add commissions to plans before building choice data
   comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
   plans_cell <- plans_cell %>%
-    mutate(insurer_prefix = sub("_.*", "", plan_name)) %>%
+    mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
     left_join(comm_yr, by = "insurer_prefix") %>%
     mutate(comm_pmpm = case_when(is.na(rate) ~ 0, is_pct ~ rate * premium, TRUE ~ rate)) %>%
     select(-insurer_prefix, -rate, -is_pct)
@@ -70,44 +70,44 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   }
 
   # Plan names and attributes from plan_attrs (post-collapse, always consistent)
-  plan_names_cell <- sort(plan_attrs$plan_name)
+  plan_ids_cell <- sort(plan_attrs$plan_id)
 
   # Restrict to plans also in supply results
-  plan_names_cell <- intersect(plan_names_cell, sr_cell$plan_name)
+  plan_ids_cell <- intersect(plan_ids_cell, sr_cell$plan_id)
 
-  if (length(plan_names_cell) < 3) {
+  if (length(plan_ids_cell) < 3) {
     cat("Too few plans for cell", r, y, "\n")
     return(NULL)
   }
 
   # Read all plan attributes from plan_attrs
-  pa <- plan_attrs[match(plan_names_cell, plan_attrs$plan_name), ]
-  p_obs      <- setNames(pa$premium_posted, pa$plan_name)
-  plan_avs   <- setNames(pa$av, pa$plan_name)
-  comm_obs   <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_name) else setNames(rep(0, length(plan_names_cell)), plan_names_cell)
+  pa <- plan_attrs[match(plan_ids_cell, plan_attrs$plan_id), ]
+  p_obs      <- setNames(pa$premium_posted, pa$plan_id)
+  plan_avs   <- setNames(pa$av, pa$plan_id)
+  comm_obs   <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_id) else setNames(rep(0, length(plan_ids_cell)), plan_ids_cell)
 
   # 2nd cheapest Silver by posted premium (ACA benchmark)
   silver <- plan_attrs[plan_attrs$metal == "Silver", ]
   silver <- silver[order(silver$premium_posted), ]
-  benchmark_plan <- if (nrow(silver) == 0) NA_character_ else if (nrow(silver) == 1) silver$plan_name[1] else silver$plan_name[2]
+  benchmark_plan <- if (nrow(silver) == 0) NA_character_ else if (nrow(silver) == 1) silver$plan_id[1] else silver$plan_id[2]
 
   plan_chars_cell <- tibble(
-    plan_name   = plan_names_cell,
+    plan_id   = plan_ids_cell,
     Silver      = as.integer(pa$metal == "Silver"),
     Gold        = as.integer(pa$metal == "Gold"),
     Platinum    = as.integer(pa$metal == "Platinum"),
     HMO         = pa$hmo,
     trend       = y - 2014L,
-    Anthem      = as.integer(grepl("^ANT", plan_names_cell)),
-    Blue_Shield = as.integer(grepl("^BS", plan_names_cell)),
-    Health_Net  = as.integer(grepl("^HN", plan_names_cell)),
-    Kaiser      = as.integer(grepl("^KA", plan_names_cell))
+    Anthem      = as.integer(grepl("^ANT", plan_ids_cell)),
+    Blue_Shield = as.integer(grepl("^BS", plan_ids_cell)),
+    Health_Net  = as.integer(grepl("^HN", plan_ids_cell)),
+    Kaiser      = as.integer(grepl("^KA", plan_ids_cell))
   )
 
   # Reinsurance factors for this year
   rf_year <- reins_df %>% filter(year == y)
-  reins_vec <- sapply(plan_names_cell, function(pn) {
-    rf <- rf_year$reins_factor[rf_year$plan_name == pn]
+  reins_vec <- sapply(plan_ids_cell, function(pn) {
+    rf <- rf_year$reins_factor[rf_year$plan_id == pn]
     if (length(rf) == 0) return(0)
     mean(rf, na.rm = TRUE)
   })
@@ -134,23 +134,23 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   build_foc_function <- function(cell_data_base, coefs_cell, comm_scenario,
                                   benchmark_plan, plans_cell,
                                   rs_coefs, claims_coefs, plan_chars_cell,
-                                  plan_avs, reins_vec, lambda, plan_names_cell) {
+                                  plan_avs, reins_vec, lambda, plan_ids_cell) {
     dt_base <- as.data.table(cell_data_base)
-    own_mat <- build_ownership_matrix(plan_names_cell)
-    dimnames(own_mat) <- list(plan_names_cell, plan_names_cell)
-    J <- length(plan_names_cell)
+    own_mat <- build_ownership_matrix(plan_ids_cell)
+    dimnames(own_mat) <- list(plan_ids_cell, plan_ids_cell)
+    J <- length(plan_ids_cell)
 
     # MH lookup for RA (same as in compute_ra_foc / compute_ra_transfers)
     MH_LOOKUP <- c("0.6" = 1.00, "0.7" = 1.03, "0.8" = 1.08, "0.9" = 1.15)
-    av_rounded <- as.character(round(plan_avs[plan_names_cell], 1))
+    av_rounded <- as.character(round(plan_avs[plan_ids_cell], 1))
     mh_vec <- MH_LOOKUP[av_rounded]; mh_vec[is.na(mh_vec)] <- 1.0
-    util_adj <- unname(plan_avs[plan_names_cell]) * unname(mh_vec)
+    util_adj <- unname(plan_avs[plan_ids_cell]) * unname(mh_vec)
 
     # Claims regression coefficient on log_risk_score (for eq. 19)
     theta_r <- claims_coefs[["log_risk_score"]]
 
     # Reinsurance factors
-    reins_local <- reins_vec[plan_names_cell]
+    reins_local <- reins_vec[plan_ids_cell]
     reins_local[is.na(reins_local)] <- 0
 
     # Demographics used in risk score regression
@@ -160,17 +160,17 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     # Shared cache between fn and jac
     cache <- new.env(parent = emptyenv())
     cache$iter <- 0L
-    cache$p_vec_prev <- setNames(rep(0, J), plan_names_cell)
+    cache$p_vec_prev <- setNames(rep(0, J), plan_ids_cell)
 
     # --- Helper: update premiums in a data.table copy ---
     update_premiums <- function(dt, p_vec) {
       for (pn in names(p_vec)) {
-        idx <- dt$plan_name == pn
+        idx <- dt$plan_id == pn
         if (sum(idx) == 0) next
         hh_prem_new <- (p_vec[pn] / RATING_FACTOR_AGE40) * dt$rating_factor[idx]
         dt$premium[idx] <- hh_prem_new / dt$hh_size[idx]
       }
-      recompute_prem_interactions(dt[plan_name != "Uninsured"], STRUCTURAL_SPEC)
+      recompute_prem_interactions(dt[plan_id != "Uninsured"], STRUCTURAL_SPEC)
       dt
     }
 
@@ -273,14 +273,14 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       # ------------------------------------------------------------------
       dt_full <- as.data.table(cache$dt)
       dt_full[, V := q$V]
-      ins_dt <- dt_full[plan_name != "Uninsured"]
+      ins_dt <- dt_full[plan_id != "Uninsured"]
       ins_dt[, V_scaled := V / lambda]
       ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
       ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
       ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
       ins_dt[, s_jg := exp_V / sum_exp_V]
 
-      V0_hh <- dt_full[plan_name == "Uninsured", .(V_0 = V[1]), by = household_number]
+      V0_hh <- dt_full[plan_id == "Uninsured", .(V_0 = V[1]), by = household_number]
       ins_dt <- merge(ins_dt, V0_hh, by = "household_number", all.x = TRUE)
       ins_dt[is.na(V_0), V_0 := 0]
       ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
@@ -294,25 +294,25 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       }
       ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
 
-      w <- if ("ipweight" %in% names(ins_dt)) ins_dt$ipweight else rep(1, nrow(ins_dt))
+      w <- if ("hh_weight" %in% names(ins_dt)) ins_dt$hh_weight else rep(1, nrow(ins_dt))
       ins_dt[, w := w]
       total_weight <- ins_dt[, .(w = first(w)), by = household_number][, sum(w)]
 
-      Q_k <- ins_dt[plan_name %in% pn_solve,
-                     .(Q = sum(w * q_j)), by = plan_name]
-      Q_vec <- setNames(Q_k$Q, Q_k$plan_name)[pn_solve]
+      Q_k <- ins_dt[plan_id %in% pn_solve,
+                     .(Q = sum(w * q_j)), by = plan_id]
+      Q_vec <- setNames(Q_k$Q, Q_k$plan_id)[pn_solve]
 
       demo_sh <- q$demo_shares
-      demo_sh <- demo_sh[match(pn_solve, demo_sh$plan_name), ]
+      demo_sh <- demo_sh[match(pn_solve, demo_sh$plan_id), ]
 
       if (!"perc_18to34" %in% names(ins_dt) && "perc_18to25" %in% names(ins_dt)) {
         ins_dt[, perc_18to34 := perc_18to25 + perc_26to34]
       }
 
-      q_wide <- dcast(ins_dt[plan_name %in% pn_solve],
-                       household_number ~ plan_name, value.var = "q_j", fill = 0)
-      s_wide <- dcast(ins_dt[plan_name %in% pn_solve],
-                       household_number ~ plan_name, value.var = "s_jg", fill = 0)
+      q_wide <- dcast(ins_dt[plan_id %in% pn_solve],
+                       household_number ~ plan_id, value.var = "q_j", fill = 0)
+      s_wide <- dcast(ins_dt[plan_id %in% pn_solve],
+                       household_number ~ plan_id, value.var = "s_jg", fill = 0)
       hh_order <- q_wide$household_number
       q_mat <- as.matrix(q_wide[, ..pn_solve])
       s_mat <- as.matrix(s_wide[, ..pn_solve])
@@ -334,30 +334,30 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         m <- pn_solve[m_idx]
         is_bm <- (!is.na(benchmark_plan) && m == benchmark_plan)
 
-        m_info <- ins_dt[plan_name == m, .(household_number, s_mg = s_jg, q_m = q_j)]
-        merged <- merge(ins_dt[plan_name %in% pn_solve], m_info,
+        m_info <- ins_dt[plan_id == m, .(household_number, s_mg = s_jg, q_m = q_j)]
+        merged <- merge(ins_dt[plan_id %in% pn_solve], m_info,
                          by = "household_number", all.x = TRUE)
         merged[is.na(s_mg), s_mg := 0]
         merged[is.na(q_m), q_m := 0]
 
         if (!is_bm) {
-          merged[, dq_dp := q_j * (as.numeric(plan_name == m) / lambda +
+          merged[, dq_dp := q_j * (as.numeric(plan_id == m) / lambda +
                                      ((lambda - 1) / lambda) * s_mg - q_m) *
                               alpha_i * rf_i]
         } else {
           merged[, dq_dp := fifelse(
             subsidized == 1L,
-            fifelse(plan_name == m,
+            fifelse(plan_id == m,
               alpha_i * (-rf_i) * q_j * ((1 - s_mg) * ((lambda - 1) / lambda - s_g)),
               alpha_i * (-rf_i) * q_j * (1 / lambda + (1 - s_mg) * ((lambda - 1) / lambda - s_g))
             ),
-            q_j * (as.numeric(plan_name == m) / lambda +
+            q_j * (as.numeric(plan_id == m) / lambda +
                      ((lambda - 1) / lambda) * s_mg - q_m) * alpha_i * rf_i
           )]
         }
 
-        dQ_k <- merged[, .(dQ = sum(w * dq_dp)), by = plan_name]
-        dQ_vec <- setNames(dQ_k$dQ, dQ_k$plan_name)[pn_solve]
+        dQ_k <- merged[, .(dQ = sum(w * dq_dp)), by = plan_id]
+        dQ_vec <- setNames(dQ_k$dQ, dQ_k$plan_id)[pn_solve]
 
         dr_dp_m <- setNames(rep(0, J_local), pn_solve)
 
@@ -366,10 +366,10 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
           raw_col <- sub("share_", "perc_", d)
           if (!(raw_col %in% names(merged))) next
 
-          dD_dk <- merged[, .(dD = sum(w * dq_dp * get(raw_col))), by = plan_name]
-          dD_vec <- setNames(dD_dk$dD, dD_dk$plan_name)[pn_solve]
+          dD_dk <- merged[, .(dD = sum(w * dq_dp * get(raw_col))), by = plan_id]
+          dD_vec <- setNames(dD_dk$dD, dD_dk$plan_id)[pn_solve]
 
-          s_dk <- setNames(demo_sh[[d]], demo_sh$plan_name)[pn_solve]
+          s_dk <- setNames(demo_sh[[d]], demo_sh$plan_id)[pn_solve]
 
           ds_dk_dp_m <- (dD_vec - s_dk * dQ_vec) / Q_vec
           dr_dp_m <- dr_dp_m + gamma_d * ds_dk_dp_m
@@ -476,9 +476,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     dt <- as.data.table(cell_data)
     dt[, V := V]
 
-    V0_by_hh <- dt[plan_name == "Uninsured", .(V_0 = V[1]), by = household_number]
+    V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V[1]), by = household_number]
 
-    ins_dt <- dt[plan_name != "Uninsured"]
+    ins_dt <- dt[plan_id != "Uninsured"]
     ins_dt[, V_scaled := V / lambda_cs]
     ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
     ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
@@ -496,14 +496,14 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       log_D_lam = first(log_D_lam),
       V_0 = first(V_0),
       alpha_i = first(alpha_i),
-      ipweight = first(ipweight)
+      hh_weight = first(hh_weight)
     ), by = household_number]
 
     hh_cs[, mx := pmax(V_0, log_D_lam)]
     hh_cs[, cs := (1 / alpha_i) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500))))]
 
-    total_weight <- sum(hh_cs$ipweight)
-    weighted_cs <- sum(hh_cs$ipweight * hh_cs$cs) / total_weight
+    total_weight <- sum(hh_cs$hh_weight)
+    weighted_cs <- sum(hh_cs$hh_weight * hh_cs$cs) / total_weight
     weighted_cs
   }
 
@@ -514,7 +514,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     fns <- build_foc_function(cd_scenario, coefs, comm_sc,
                                benchmark_plan, plan_attrs,
                                rs_coefs, claims_coefs, plan_chars_cell,
-                               plan_avs, reins_vec, lambda, plan_names_cell)
+                               plan_avs, reins_vec, lambda, plan_ids_cell)
 
     f0 <- fns$fn(p_init)
     cat("    initial |FOC| =", round(sqrt(sum(f0^2, na.rm=TRUE)), 6),
@@ -539,12 +539,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     dt_sol <- as.data.table(copy(cd_scenario))
     for (pn in names(p_sol)) {
-      idx <- dt_sol$plan_name == pn
+      idx <- dt_sol$plan_id == pn
       if (sum(idx) == 0) next
       hh_prem_new <- (p_sol[pn] / RATING_FACTOR_AGE40) * dt_sol$rating_factor[idx]
       dt_sol$premium[idx] <- hh_prem_new / dt_sol$hh_size[idx]
     }
-    recompute_prem_interactions(dt_sol[plan_name != "Uninsured"], STRUCTURAL_SPEC)
+    recompute_prem_interactions(dt_sol[plan_id != "Uninsured"], STRUCTURAL_SPEC)
 
     util_sol <- compute_utility(dt_sol, coefs)
     se_sol <- tryCatch(
@@ -553,7 +553,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                                        spec = STRUCTURAL_SPEC),
       error = function(e) NULL
     )
-    shares_sol <- if (!is.null(se_sol)) se_sol$shares[plan_names_cell] else setNames(rep(NA_real_, length(plan_names_cell)), plan_names_cell)
+    shares_sol <- if (!is.null(se_sol)) se_sol$shares[plan_ids_cell] else setNames(rep(NA_real_, length(plan_ids_cell)), plan_ids_cell)
 
     demo_sol <- tryCatch(
       compute_demographic_shares(dt_sol, util_sol$V, lambda),
@@ -572,8 +572,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   build_scenario_data <- function(cell_data_base, comm_sc, tau = NULL) {
     cd <- as.data.table(copy(cell_data_base))
 
-    for (pn in plan_names_cell) {
-      idx <- cd$plan_name == pn
+    for (pn in plan_ids_cell) {
+      idx <- cd$plan_id == pn
       if (sum(idx) > 0 && "commission_broker" %in% names(cd)) {
         if ("any_agent" %in% names(cd)) {
           cd$commission_broker[idx] <- comm_sc[pn] * fifelse(cd$any_agent[idx] == 1L, cd$assisted[idx], 0L)
@@ -584,7 +584,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     }
 
     if (!is.null(tau) && "any_agent" %in% names(cd)) {
-      agent_hh <- cd[plan_name == "Uninsured" & any_agent == 1, .(household_number, p_nav)]
+      agent_hh <- cd[plan_id == "Uninsured" & any_agent == 1, .(household_number, p_nav)]
       if (nrow(agent_hh) == 0) {
         agent_hh <- cd[any_agent == 1, .(household_number, p_nav)]
         agent_hh <- unique(agent_hh, by = "household_number")
@@ -629,12 +629,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
 
   # Main solve loop ---------------------------------------------------------
-  cat("Cell", r, y, "- plans:", length(plan_names_cell), "\n")
+  cat("Cell", r, y, "- plans:", length(plan_ids_cell), "\n")
 
   results_list <- list()
 
   # Scenario 1: Observed
-  comm_obs_sc <- comm_obs[plan_names_cell]
+  comm_obs_sc <- comm_obs[plan_ids_cell]
   cd_obs <- build_scenario_data(cell_data_base, comm_obs_sc)
   eq_obs <- solve_equilibrium(cd_obs, comm_obs_sc, p_obs)
 
@@ -643,15 +643,15 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                         error = function(e) NA_real_)
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "observed", tau = NA_real_,
-      plan_name = plan_names_cell,
-      premium_obs = p_obs[plan_names_cell],
-      premium_cf = eq_obs$p[plan_names_cell],
-      premium_change = eq_obs$p[plan_names_cell] - p_obs[plan_names_cell],
-      share_obs = setNames(sr_cell$share, sr_cell$plan_name)[plan_names_cell],
-      share_cf = eq_obs$shares[plan_names_cell],
-      mc = eq_obs$mc[plan_names_cell],
-      commission_pmpm = comm_obs_sc[plan_names_cell],
-      markup_cf = eq_obs$p[plan_names_cell] - eq_obs$mc[plan_names_cell],
+      plan_id = plan_ids_cell,
+      premium_obs = p_obs[plan_ids_cell],
+      premium_cf = eq_obs$p[plan_ids_cell],
+      premium_change = eq_obs$p[plan_ids_cell] - p_obs[plan_ids_cell],
+      share_obs = setNames(sr_cell$share, sr_cell$plan_id)[plan_ids_cell],
+      share_cf = eq_obs$shares[plan_ids_cell],
+      mc = eq_obs$mc[plan_ids_cell],
+      commission_pmpm = comm_obs_sc[plan_ids_cell],
+      markup_cf = eq_obs$p[plan_ids_cell] - eq_obs$mc[plan_ids_cell],
       cs_weighted = cs_obs,
       nleqslv_termcd = eq_obs$sol$termcd,
       nleqslv_iter = eq_obs$sol$iter
@@ -666,7 +666,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
 
   # Scenario 2: Zero commission with tau gradient
-  comm_zero <- setNames(rep(0, length(plan_names_cell)), plan_names_cell)
+  comm_zero <- setNames(rep(0, length(plan_ids_cell)), plan_ids_cell)
 
   for (tau in TAU_GRID) {
     sc_label <- paste0("zero_tau", sprintf("%.2f", tau))
@@ -679,27 +679,27 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       if (is.null(dt_cs)) {
         dt_cs <- as.data.table(copy(cd_tau))
         for (pn in names(eq_tau$p)) {
-          idx <- dt_cs$plan_name == pn
+          idx <- dt_cs$plan_id == pn
           if (sum(idx) == 0) next
           hh_prem_new <- (eq_tau$p[pn] / RATING_FACTOR_AGE40) * dt_cs$rating_factor[idx]
           dt_cs$premium[idx] <- hh_prem_new / dt_cs$hh_size[idx]
         }
-        recompute_prem_interactions(dt_cs[plan_name != "Uninsured"], STRUCTURAL_SPEC)
+        recompute_prem_interactions(dt_cs[plan_id != "Uninsured"], STRUCTURAL_SPEC)
       }
       cs_tau <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
                           error = function(e) NA_real_)
 
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = tau,
-        plan_name = plan_names_cell,
-        premium_obs = p_obs[plan_names_cell],
-        premium_cf = eq_tau$p[plan_names_cell],
-        premium_change = eq_tau$p[plan_names_cell] - p_obs[plan_names_cell],
-        share_obs = setNames(sr_cell$share, sr_cell$plan_name)[plan_names_cell],
-        share_cf = eq_tau$shares[plan_names_cell],
-        mc = eq_tau$mc[plan_names_cell],
-        commission_pmpm = comm_zero[plan_names_cell],
-        markup_cf = eq_tau$p[plan_names_cell] - eq_tau$mc[plan_names_cell],
+        plan_id = plan_ids_cell,
+        premium_obs = p_obs[plan_ids_cell],
+        premium_cf = eq_tau$p[plan_ids_cell],
+        premium_change = eq_tau$p[plan_ids_cell] - p_obs[plan_ids_cell],
+        share_obs = setNames(sr_cell$share, sr_cell$plan_id)[plan_ids_cell],
+        share_cf = eq_tau$shares[plan_ids_cell],
+        mc = eq_tau$mc[plan_ids_cell],
+        commission_pmpm = comm_zero[plan_ids_cell],
+        markup_cf = eq_tau$p[plan_ids_cell] - eq_tau$mc[plan_ids_cell],
         cs_weighted = cs_tau,
         nleqslv_termcd = eq_tau$sol$termcd,
         nleqslv_iter = eq_tau$sol$iter
@@ -715,7 +715,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
 
   # Scenario 3: Uniform commission
-  comm_uniform <- setNames(rep(mean_comm_pmpm, length(plan_names_cell)), plan_names_cell)
+  comm_uniform <- setNames(rep(mean_comm_pmpm, length(plan_ids_cell)), plan_ids_cell)
   cd_unif <- build_scenario_data(cell_data_base, comm_uniform)
   eq_unif <- solve_equilibrium(cd_unif, comm_uniform, p_obs)
 
@@ -724,15 +724,15 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                          error = function(e) NA_real_)
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "uniform", tau = NA_real_,
-      plan_name = plan_names_cell,
-      premium_obs = p_obs[plan_names_cell],
-      premium_cf = eq_unif$p[plan_names_cell],
-      premium_change = eq_unif$p[plan_names_cell] - p_obs[plan_names_cell],
-      share_obs = setNames(sr_cell$share, sr_cell$plan_name)[plan_names_cell],
-      share_cf = eq_unif$shares[plan_names_cell],
-      mc = eq_unif$mc[plan_names_cell],
-      commission_pmpm = comm_uniform[plan_names_cell],
-      markup_cf = eq_unif$p[plan_names_cell] - eq_unif$mc[plan_names_cell],
+      plan_id = plan_ids_cell,
+      premium_obs = p_obs[plan_ids_cell],
+      premium_cf = eq_unif$p[plan_ids_cell],
+      premium_change = eq_unif$p[plan_ids_cell] - p_obs[plan_ids_cell],
+      share_obs = setNames(sr_cell$share, sr_cell$plan_id)[plan_ids_cell],
+      share_cf = eq_unif$shares[plan_ids_cell],
+      mc = eq_unif$mc[plan_ids_cell],
+      commission_pmpm = comm_uniform[plan_ids_cell],
+      markup_cf = eq_unif$p[plan_ids_cell] - eq_unif$mc[plan_ids_cell],
       cs_weighted = cs_unif,
       nleqslv_termcd = eq_unif$sol$termcd,
       nleqslv_iter = eq_unif$sol$iter

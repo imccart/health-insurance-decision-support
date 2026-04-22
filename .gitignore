@@ -40,7 +40,8 @@ code/_archived/
 CLAUDE.md
 .claude/
 
-# OS files
+# OS / R session files
 .DS_Store
 Thumbs.db
 .Rproj.user
+.Renviron

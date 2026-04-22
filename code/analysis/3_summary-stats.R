@@ -45,7 +45,7 @@ metal_channel_all <- hh_ins %>%
   ungroup()
 
 metal_channel_new <- hh_clean %>%
-  filter(!is.na(plan_number_nocsr)) %>%
+  filter(!is.na(plan_id)) %>%
   count(metal, channel) %>%
   group_by(channel) %>%
   mutate(pct = n / sum(n)) %>%
@@ -96,7 +96,7 @@ plot_insurer_all <- ggplot(insurer_channel,
 ggsave("results/figures/insurer_stack_all.png", plot_insurer_all, width = 6, height = 4, bg = "white")
 
 insurer_channel_new <- hh_clean %>%
-  filter(!is.na(plan_number_nocsr)) %>%
+  filter(!is.na(plan_id)) %>%
   mutate(
     insurer_group = case_when(
       insurer %in% c("Anthem", "Blue_Shield", "Kaiser", "Health_Net") ~ insurer,
@@ -145,7 +145,7 @@ plot_ps_ins <- ggplot(hh_ins, aes(x = pred_assist, fill = channel)) +
   theme_paper
 ggsave("results/figures/ps_assist_full.png", plot_ps_ins, width = 7, height = 4, bg = "white")
 
-hh_clean_ins <- hh_clean %>% filter(!is.na(plan_number_nocsr))
+hh_clean_ins <- hh_clean %>% filter(!is.na(plan_id))
 plot_ps_clean <- ggplot(hh_clean_ins, aes(x = pred_assist, fill = channel)) +
   geom_histogram(bins = 50, alpha = 0.6, position = "identity") +
   grey_fill +

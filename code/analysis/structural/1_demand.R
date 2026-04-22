@@ -45,7 +45,7 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, weight_var = "hh_size",
+  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC,
                           spec = c(STRUCTURAL_SPEC, STRUCTURAL_ASST),
                           premium_type = "net")
   rm(hhs, plans)
