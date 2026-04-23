@@ -34,7 +34,7 @@ hh <- hh %>%
     # demand estimation usually collapses these into perc_18to34 / perc_35to54
     perc_18to34 = coalesce(perc_18to25, 0) + coalesce(perc_26to34, 0),
     perc_35to54 = coalesce(perc_35to44, 0) + coalesce(perc_45to54, 0),
-    subsidy_eligible = as.integer(subsidized_members > 0),
+    subsidy_eligible = as.integer(coalesce(subsidy, 0) > 0),
     csr_eligible     = as.integer(subsidy_eligible == 1 & FPL <= 2.50),
     dominated_choice = case_when(
       is.na(plan_id)                                         ~ NA_integer_,

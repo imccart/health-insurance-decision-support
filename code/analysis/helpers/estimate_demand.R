@@ -190,8 +190,8 @@ cell_negll_grad <- function(beta, lambda, cell, compute_grad = TRUE) {
   # Max per HH (for numerical stability)
   max_per_hh <- rep(-Inf, n_hh)
   for (idx in seq_along(V_scaled)) {
-    h <- hh_id[idx]
-    if (V_scaled[idx] > max_per_hh[h]) max_per_hh[h] <- V_scaled[idx]
+    hi <- hh_id[idx]
+    if (V_scaled[idx] > max_per_hh[hi]) max_per_hh[hi] <- V_scaled[idx]
   }
 
   # exp(V_scaled - max) per insured row
@@ -309,8 +309,8 @@ cell_negll_gradi <- function(beta, lambda, cell) {
   V_scaled <- V_ins / lambda
   max_per_hh <- rep(-Inf, n_hh)
   for (idx in seq_along(V_scaled)) {
-    h <- hh_id[idx]
-    if (V_scaled[idx] > max_per_hh[h]) max_per_hh[h] <- V_scaled[idx]
+    hi <- hh_id[idx]
+    if (V_scaled[idx] > max_per_hh[hi]) max_per_hh[hi] <- V_scaled[idx]
   }
   exp_vs <- exp(V_scaled - max_per_hh[hh_id])
   D_per_hh <- as.numeric(rowsum(exp_vs, hh_id, reorder = FALSE))
@@ -413,11 +413,13 @@ bfgs_bhhh <- function(theta_start, cells, max_iter = 500, ftol = 1e-8,
     negll <- acc$negll
     g <- acc$grad
 
-    # BFGS Hessian update
+    # BFGS Hessian update — only when curvature condition holds (sy > 0).
+    # Negative sy would produce a non-PD Hessian inverse → next iter takes a
+    # non-descent direction → β/λ explode.
     incr <- step * d
     y <- g - old_g
     sy <- sum(incr * y)
-    if (abs(sy) > 1e-20) {
+    if (sy > 1e-10) {
       Hy <- as.numeric(Hm1 %*% y)
       yHy <- sum(y * Hy)
       Hm1 <- Hm1 + (sy + yHy) / sy^2 * outer(incr, incr) -

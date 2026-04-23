@@ -5,11 +5,10 @@
 # steps read those CSVs (or use objects still in the environment).
 #
 # Output files downstream scripts consume:
-#   data/output/demand_households.csv  (CC enrollees + ACS uninsured, HH-year)
-#   data/output/demand_individuals.csv (individual-level with HH key)
-#   data/output/sipp_households.csv    (SIPP HH-year with market transitions)
+#   data/output/demand_households.csv  (CC enrolled + CC uninsured, HH-year)
+#   data/output/sipp_logit.rds         (SIPP transition logit from step 3)
 #   data/output/broker_density.csv     (region-year broker/agent counts)
-#   data/output/rsdata.csv             (plan-level risk/rate data for supply)
+#   data/output/rate_filing_rsdata.csv (plan-level risk/rate data for supply)
 
 source("code/0-setup.R")
 source("code/data-build/_helpers.R")
@@ -62,11 +61,12 @@ cat("\n--- Step 3: Process SIPP ---\n")
 source("code/data-build/3_process-sipp.R")
 
 # ----------------------------------------------------------------------------
-# Step 4: Build ACS uninsured pool (predicts using SIPP logits, fits
-#         income OLS for later imputation of CC >400% HHs)
+# Step 4: Build the uninsured pool from CC HHs in their off-enrollment years
+#         (RAND 2021 Appendix E approach). Applies SIPP transition logit to
+#         drop HH-years where the HH likely lost market eligibility.
 # ----------------------------------------------------------------------------
-cat("\n--- Step 4: Build ACS uninsured pool ---\n")
-source("code/data-build/4_build-acs.R")
+cat("\n--- Step 4: Build CC uninsured pool ---\n")
+source("code/data-build/4_build-cc-uninsured.R")
 
 # ----------------------------------------------------------------------------
 # Step 5: Merge CC + ACS, impute income for CC >400%, finalize

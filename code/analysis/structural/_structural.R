@@ -154,17 +154,16 @@ if (all(file.exists(prep_files))) {
   cat("Writing HH choice data...\n")
   hh_choice <- hh_full %>%
     filter(!grepl("_CAT$", plan_id) | is.na(plan_id)) %>%
-    mutate(region = as.integer(region), year = as.integer(year),
-           cutoff = AFFORD_THRESHOLDS[as.character(year)]) %>%
+    mutate(region = as.integer(region), year = as.integer(year)) %>%
     select(region, year, household_id, FPL, subsidized_members, rating_factor,
            plan_id, oldest_member, cheapest_premium, subsidy, penalty,
-           poverty_threshold, cutoff, household_size, v_hat,
+           poverty_threshold, household_size, weight, v_hat,
            perc_0to17, perc_18to34, perc_35to54,
            perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
            channel, channel_detail, any_agent, p_nav)
 
   hh_choice_path <- file.path(TEMP_DIR, "hh_choice.csv")
-  write.csv(hh_choice, hh_choice_path, row.names = FALSE)
+  fwrite(hh_choice, hh_choice_path)
   n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))
   cat("  Written:", n_cells, "cells ->", hh_choice_path, "\n")
   rm(hh_choice, hh_full, plan_data, plan_choice, commission_lookup)

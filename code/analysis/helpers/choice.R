@@ -28,16 +28,22 @@ build_choice_data <- function(plans, hhs, sample_frac,
   hhs_dt <- as.data.table(hhs)
   plans_dt <- as.data.table(plans)
 
-  # 0. Sample HH by channel BEFORE the cross-join to manage memory.
-  untreated_ids <- hhs_dt[channel == "Unassisted", unique(household_id)]
-  treated_ids   <- hhs_dt[channel != "Unassisted", unique(household_id)]
+  # Normalize empty-string plan_id (from CSV roundtrip) back to NA so all
+  # downstream is.na(plan_id) checks behave consistently.
+  hhs_dt[plan_id == "", plan_id := NA_character_]
 
-  n_untreated <- max(1L, as.integer(length(untreated_ids) * sample_frac))
-  n_treated   <- max(1L, as.integer(length(treated_ids) * sample_frac))
+  # 0. Sample HH BEFORE the cross-join. Sample sample_frac of insured (CC)
+  # and the SAME sample_frac of uninsured (ACS) — stratified by source so
+  # the relative CC:ACS HH-count ratio is preserved (population weighting
+  # then determines their relative likelihood contribution).
+  cc_ids  <- hhs_dt[!is.na(plan_id), unique(household_id)]
+  acs_ids <- hhs_dt[ is.na(plan_id), unique(household_id)]
+  n_cc    <- max(1L, as.integer(length(cc_ids)  * sample_frac))
+  n_acs   <- max(1L, as.integer(length(acs_ids) * sample_frac))
 
   keep_ids <- c(
-    sample(untreated_ids, n_untreated, replace = FALSE),
-    sample(treated_ids, n_treated, replace = FALSE)
+    sample(cc_ids,  n_cc,  replace = FALSE),
+    sample(acs_ids, n_acs, replace = FALSE)
   )
   hhs_dt <- hhs_dt[household_id %in% keep_ids]
 
@@ -71,12 +77,15 @@ build_choice_data <- function(plans, hhs, sample_frac,
   if ("comm_pmpm" %in% names(choice_set)) uninsured_row$comm_pmpm <- 0
   choice_set <- rbind(choice_set, uninsured_row)
 
-  # 2. Cross-join sampled HH x choice set
+  # 2. Cross-join sampled HH x choice set. `cutoff` (year-specific ACA
+  # affordability threshold) looked up from AFFORD_THRESHOLDS instead of
+  # carried as a per-row HH column.
   hh_slim <- hhs_dt[, .(
     household_id, FPL, subsidized_members, rating_factor,
     hh_plan_id = plan_id,
     oldest_member, cheapest_premium, subsidy, penalty,
-    poverty_threshold, cutoff
+    poverty_threshold,
+    cutoff = AFFORD_THRESHOLDS[as.character(year)]
   )]
 
   # data.table CJ-style cross join
@@ -223,7 +232,7 @@ build_choice_data <- function(plans, hhs, sample_frac,
 
   # 7. Join HH demographics
   # Include v_hat if available (control function residual from broker density IV)
-  demo_cols <- c("household_id", "household_size",
+  demo_cols <- c("household_id", "household_size", "weight",
                   "perc_0to17", "perc_18to34", "perc_35to54",
                   "perc_black", "perc_hispanic", "perc_asian",
                   "perc_other", "perc_male", "channel")
@@ -245,7 +254,10 @@ build_choice_data <- function(plans, hhs, sample_frac,
   # 8. Final variables
   dt <- dt[!is.na(premium_oop) & !is.na(plan_id)]
   dt[, `:=`(
-    net_premium    = premium_oop / hh_size,
+    # Premium in $/100/month (Saltzman's units). Reduces gradient magnitude
+    # by 100x → much better-conditioned BHHH Hessian. β estimates are now
+    # directly comparable to JHE 2019 (-0.429 per $100).
+    net_premium    = premium_oop / hh_size / 100,
     hmo            = fifelse(fifelse(is.na(network_type), "", network_type) == "HMO", 1L, 0L),
     hsa            = fifelse(is.na(hsa) | hsa <= 0, 0L, 1L),
     FPL_250to400   = fifelse(FPL > 2.50 & FPL <= 4.00, 1L, 0L),
@@ -253,13 +265,13 @@ build_choice_data <- function(plans, hhs, sample_frac,
     uninsured_plan = fifelse(plan_id == "Uninsured", 1L, 0L),
     platinum       = fifelse(metal == "Platinum", 1L, 0L),
     gold           = fifelse(metal == "Gold", 1L, 0L),
-    silver         = fifelse(metal == "Silver", 1L, 0L),
+    silver         = fifelse(grepl("^Silver", metal), 1L, 0L),
     bronze         = fifelse(metal == "Bronze", 1L, 0L),
     Anthem         = fifelse(issuer == "Anthem", 1L, 0L),
     Blue_Shield    = fifelse(issuer == "Blue_Shield", 1L, 0L),
     Kaiser         = fifelse(issuer == "Kaiser", 1L, 0L),
     Health_Net     = fifelse(issuer == "Health_Net", 1L, 0L),
-    hh_weight      = as.numeric(hh_size)
+    hh_weight      = as.numeric(weight)
   )]
 
   # Demographic x premium interactions (heterogeneous price sensitivity)
@@ -302,6 +314,13 @@ build_choice_data <- function(plans, hhs, sample_frac,
   # Done at the cell-data level so the demand model treats CSR variants as
   # one alternative.
   dt[, plan_id := gsub("SIL(94|73|87)", "SIL", plan_id)]
+
+  # Plan-id fixed effects: one dummy per non-reference plan_id (PLAN_FE_LEVELS
+  # in constants.R). Reference (omitted): ANT_SIL. Uninsured row → all 0.
+  for (pl in PLAN_FE_LEVELS) {
+    col <- paste0("PFE_", pl)
+    dt[, (col) := as.integer(plan_id == pl)]
+  }
 
   setorder(dt, household_id, plan_id)
 

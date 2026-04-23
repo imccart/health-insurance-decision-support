@@ -172,10 +172,9 @@ rm(commission_lookup)
 
 hh_choice <- hh_full %>%
   filter(!grepl("_CAT$", plan_id) | is.na(plan_id)) %>%
-  mutate(cutoff = AFFORD_THRESHOLDS[as.character(year)]) %>%
   select(region, year, household_id, FPL, subsidized_members, rating_factor,
          plan_id, oldest_member, cheapest_premium,
-         subsidy, penalty, poverty_threshold, cutoff,
+         subsidy, penalty, poverty_threshold,
          household_size, ipweight, v_hat,
          perc_0to17, perc_18to34, perc_35to54,
          perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
@@ -184,7 +183,7 @@ hh_choice <- hh_full %>%
 cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice), "cols\n")
 
 hh_choice_path <- file.path(TEMP_DIR, "hh_choice_rf.csv")
-write.csv(hh_choice, hh_choice_path, row.names = FALSE)
+fwrite(hh_choice, hh_choice_path)
 n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))
 rm(hh_choice)
 gc(verbose = FALSE)

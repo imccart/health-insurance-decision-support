@@ -9,10 +9,14 @@
 #
 # Natural keys:
 #   individual-level:  (individual_id, year)
-#   HH-level:          (household_year) where household_year = paste(hh_case, year, split)
-#                      hh_case = ahbx_case_id_x
-#                      split   = 1..K when one ahbx_case_id has members with
-#                                inconsistent (gross_premium, plan_name, subsidy)
+#   HH-level:          (household_id, year) where household_id = ahbx_case_id_x
+#                      (persistent across years; same HH has same household_id
+#                      across all enrolled years and across off-year synthetic
+#                      rows constructed in step 4).
+#                      household_year = paste(household_id, year, split) — the
+#                      composite split-aware key, used for joining individuals.
+#                      split = 1..K when one ahbx_case_id has members with
+#                              inconsistent (gross_premium, plan_name, subsidy)
 #
 # Implementation: data.table throughout for memory + speed on the 8.5M-row
 # individual table. dplyr is reserved for small reference tables (slc_by_market,
@@ -142,9 +146,17 @@ hh_splits[, split := seq_len(.N), by = hh_case_year]
 enroll[hh_splits,
        on = c("hh_case_year", "gross_premium_amt_int", "plan_id", "aptc_amt_int"),
        split := i.split]
+
+# Drop case-years that split into multiple HHs. These are ambiguous: different
+# members of the same case picked different (gross, plan, aptc) combos, so
+# it's not one household decision. Small fraction; simpler to drop entirely.
+multi_split_cases <- hh_splits[, .N, by = hh_case_year][N > 1, hh_case_year]
+cat(sprintf("  Dropping %d multi-split case-years\n", length(multi_split_cases)))
+enroll <- enroll[!hh_case_year %in% multi_split_cases]
+
 enroll[, household_year := paste(hh_case_year, split, sep = "_")]
 enroll[, c("hh_case_year", "split") := NULL]
-rm(hh_splits)
+rm(hh_splits, multi_split_cases)
 
 
 # Fill missing APTC within HH ---------------------------------------------
@@ -202,7 +214,7 @@ for (i in seq_along(years)) {
   cat(sprintf("    Year %d (%d/%d)...\n", yr, i, length(years)))
   d <- enroll[year == yr]
   hh_chunks[[i]] <- d[, .(
-    household_id          = first(household_year),
+    household_id          = first(ahbx_case_id_x),
     year                  = first(year),
     gross_premium_amt_int = first(gross_premium_amt_int),
     net_premium_amt_int   = first(net_premium_amt_int),

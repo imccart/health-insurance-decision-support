@@ -29,7 +29,6 @@ source("code/analysis/helpers/supply.R")
 source("code/analysis/helpers/ra.R")
 source("code/analysis/helpers/estimate_demand.R")
 source("code/analysis/helpers/cf_worker.R")
-source("code/analysis/S2-demand-specs.R")
 
 
 # Build analysis data -----------------------------------------------------
