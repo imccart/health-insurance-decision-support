@@ -98,10 +98,10 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     Platinum    = as.integer(pa$metal == "Platinum"),
     HMO         = pa$hmo,
     trend       = y - 2014L,
-    Anthem      = as.integer(grepl("^ANT", plan_ids_cell)),
-    Blue_Shield = as.integer(grepl("^BS", plan_ids_cell)),
-    Health_Net  = as.integer(grepl("^HN", plan_ids_cell)),
-    Kaiser      = as.integer(grepl("^KA", plan_ids_cell))
+    Anthem      = as.integer(str_detect(plan_ids_cell, "^ANT")),
+    Blue_Shield = as.integer(str_detect(plan_ids_cell, "^BS")),
+    Health_Net  = as.integer(str_detect(plan_ids_cell, "^HN")),
+    Kaiser      = as.integer(str_detect(plan_ids_cell, "^KA"))
   )
 
   # Reinsurance factors for this year

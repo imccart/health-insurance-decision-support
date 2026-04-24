@@ -5,19 +5,23 @@
 ## Description:   Summary statistics, covariate balance, and figures.
 ##                IPW weights computed in 2_ipw.R (must run first).
 
-# Load from disk if not already in memory -----------------------------------
+# Materialize the only two subsets this script uses (hh_ins, hh_clean) --
+# from hh_full, then drop hh_full to keep peak memory at ~hh_ins + hh_clean
+# (rather than all three).
 if (!exists("hh_full")) {
-  hh_full  <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
-  hh_clean <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE)
-  hh_ins   <- read_csv("data/output/hh_ins.csv", show_col_types = FALSE)
-  cat("  Loaded hh_full/hh_clean/hh_ins from disk\n")
+  hh_full <- fread("data/output/hh_full.csv") %>% as_tibble()
+  cat("  Loaded hh_full from disk\n")
 }
-# Join IPW weights if not already present (from 2_ipw.R)
+hh_ins   <- hh_full %>% filter(insured == 1L)
+hh_clean <- hh_full %>% filter(new_enrollee == 1L)
+rm(hh_full)
+gc(verbose = FALSE)
+
+# Join IPW weights (from 2_ipw.R)
 if (!"ipweight" %in% names(hh_ins)) {
-  ipweights <- read_csv("data/output/ipweights.csv", show_col_types = FALSE)
-  hh_full  <- hh_full %>% left_join(ipweights, by = "household_year")
+  ipweights <- fread("data/output/ipweights.csv") %>% as_tibble()
+  hh_ins   <- hh_ins   %>% left_join(ipweights, by = "household_year")
   hh_clean <- hh_clean %>% left_join(ipweights, by = "household_year")
-  hh_ins   <- hh_ins %>% left_join(ipweights, by = "household_year")
   rm(ipweights)
 }
 

@@ -147,16 +147,24 @@ enroll[hh_splits,
        on = c("hh_case_year", "gross_premium_amt_int", "plan_id", "aptc_amt_int"),
        split := i.split]
 
-# Drop case-years that split into multiple HHs. These are ambiguous: different
-# members of the same case picked different (gross, plan, aptc) combos, so
-# it's not one household decision. Small fraction; simpler to drop entirely.
+# Drop entire households (all years) that EVER had a multi-split case-year.
+# A multi-split case-year = different members of the same case picked
+# different (gross, plan, aptc) combos in some year. Even if only one year
+# is ambiguous, the HH's decision-making is unclear, so we drop every year
+# of every affected case. We have plenty of data; safer to drop than to
+# imagine the HH is uninsured in their multi-split year (which is what the
+# downstream CC-uninsured panel construction would otherwise infer).
 multi_split_cases <- hh_splits[, .N, by = hh_case_year][N > 1, hh_case_year]
-cat(sprintf("  Dropping %d multi-split case-years\n", length(multi_split_cases)))
-enroll <- enroll[!hh_case_year %in% multi_split_cases]
+multi_split_case_ids <- unique(enroll[hh_case_year %in% multi_split_cases,
+                                       ahbx_case_id_x])
+n_dropped_rows <- sum(enroll$ahbx_case_id_x %in% multi_split_case_ids)
+cat(sprintf("  Dropping %d cases (%d enrollment rows) with any multi-split year\n",
+            length(multi_split_case_ids), n_dropped_rows))
+enroll <- enroll[!ahbx_case_id_x %in% multi_split_case_ids]
 
 enroll[, household_year := paste(hh_case_year, split, sep = "_")]
 enroll[, c("hh_case_year", "split") := NULL]
-rm(hh_splits, multi_split_cases)
+rm(hh_splits, multi_split_cases, multi_split_case_ids, n_dropped_rows)
 
 
 # Fill missing APTC within HH ---------------------------------------------

@@ -2,10 +2,12 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-21
-## Date Edited:   2026-03-25
+## Date Edited:   2026-04-23
 ## Description:   Dominated choice regressions and potential outcomes ATT.
 ##                Includes control function (v_hat) for selection correction.
-##                Expects hh_full, hh_clean in memory from _reduced-form.R.
+##                Expects hh_full in memory from _reduced-form.R.
+##                Manages hh_full → hh_clean → hh_po lifecycle internally
+##                to keep only one big HH object in memory at a time.
 
 # =========================================================================
 # Regression specifications
@@ -13,7 +15,7 @@
 
 cat("Dominated choice regressions...\n")
 
-# Model 1: all enrollees, no CF
+# Model 1: all enrollees, no CF (hh_full)
 mod1 <- feols(
   dominated_choice ~ assisted + english + spanish +
     FPL + perc_0to17 + perc_18to25 + perc_26to34 + perc_35to44 + perc_45to54 +
@@ -23,6 +25,12 @@ mod1 <- feols(
   data = hh_full,
   weights = ~ipweight
 )
+
+# Done with hh_full. Derive hh_clean (new enrollees) and free hh_full so
+# both never live simultaneously.
+hh_clean <- hh_full %>% filter(new_enrollee == 1L)
+rm(hh_full)
+gc(verbose = FALSE)
 
 # Model 2: new enrollees, no CF
 mod2 <- feols(
@@ -52,29 +60,74 @@ dom_models <- list(
   "New + CF"      = mod3
 )
 
-dom_tab <- modelsummary(
-  dom_models,
-  output = "kableExtra",
-  stars = c("*" = 0.10, "**" = 0.05, "***" = 0.01),
-  gof_omit = "AIC|BIC|Log|Std|RMSE",
-  coef_map = c(
-    "assisted"       = "Assisted",
-    "v_hat"          = "CF Residual",
-    "english"        = "English",
-    "spanish"        = "Spanish",
-    "FPL"            = "FPL",
-    "household_size" = "HH Size",
-    "new_enrollee"   = "New Enrollee"
-  )
+# Hand-built regression table (modelsummary backends unreliable for this layout)
+coef_labels <- c(
+  "assisted"       = "Assisted",
+  "v_hat"          = "CF Residual",
+  "english"        = "English",
+  "spanish"        = "Spanish",
+  "FPL"            = "FPL",
+  "household_size" = "HH Size",
+  "new_enrollee"   = "New Enrollee"
 )
-save_kable(dom_tab, "results/tables/dominated_choice_regression.tex")
 
-plot_dom_reg <- modelplot(dom_models,
-                          coef_map = c("assisted" = "Assisted")) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  theme_minimal()
-ggsave("results/figures/dominated_choice_regression.png", plot_dom_reg, width = 7, height = 4)
+stars_for <- function(p) {
+  fcase(is.na(p), "",
+        p < 0.01, "***",
+        p < 0.05, "**",
+        p < 0.10, "*",
+        default  = "")
+}
 
+format_cell <- function(coef, se, p) {
+  if (is.na(coef)) return(c("", ""))
+  c(sprintf("%.4f%s", coef, stars_for(p)),
+    sprintf("(%.4f)", se))
+}
+
+extract_col <- function(mod, terms) {
+  ct <- as.data.frame(coeftable(mod))
+  ct$term <- rownames(ct)
+  out <- character(2 * length(terms))
+  for (i in seq_along(terms)) {
+    row <- ct[ct$term == terms[i], , drop = FALSE]
+    if (nrow(row) == 1) {
+      cell <- format_cell(row$Estimate, row[["Std. Error"]], row[["Pr(>|t|)"]])
+    } else {
+      cell <- c("", "")
+    }
+    out[(2 * i - 1):(2 * i)] <- cell
+  }
+  out
+}
+
+terms <- names(coef_labels)
+row_labels <- as.vector(rbind(unname(coef_labels), ""))
+
+tab <- data.frame(
+  Variable           = row_labels,
+  `All Enrollees`    = extract_col(mod1, terms),
+  `New Enrollees`    = extract_col(mod2, terms),
+  `New + CF`         = extract_col(mod3, terms),
+  check.names        = FALSE,
+  stringsAsFactors   = FALSE
+)
+
+gof_rows <- data.frame(
+  Variable        = c("Observations", "R$^2$"),
+  `All Enrollees` = c(format(nobs(mod1), big.mark = ","), sprintf("%.3f", r2(mod1, "r2"))),
+  `New Enrollees` = c(format(nobs(mod2), big.mark = ","), sprintf("%.3f", r2(mod2, "r2"))),
+  `New + CF`      = c(format(nobs(mod3), big.mark = ","), sprintf("%.3f", r2(mod3, "r2"))),
+  check.names     = FALSE,
+  stringsAsFactors = FALSE
+)
+tab <- rbind(tab, gof_rows)
+
+dom_tab <- kable(tab, format = "latex", booktabs = TRUE,
+                 align = c("l", "c", "c", "c"),
+                 linesep = "", escape = FALSE) %>%
+  kable_styling(latex_options = c("scale_down"))
+writeLines(as.character(dom_tab), "results/tables/dominated_choice_regression.tex")
 
 # =========================================================================
 # Potential outcomes ATT (with CF)
@@ -85,7 +138,7 @@ cat("Potential outcomes ATT...\n")
 po_formula <- dominated_choice ~ v_hat + english + spanish +
   FPL + perc_0to17 + perc_18to25 + perc_26to34 + perc_35to44 + perc_45to54 +
   perc_male + perc_asian + perc_black + perc_hispanic + perc_other +
-  household_size | insurer
+  household_size | insurer + region + year
 
 compute_att <- function(df, channel_filter) {
   if (channel_filter == "any_assist") {
@@ -99,19 +152,17 @@ compute_att <- function(df, channel_filter) {
     untreated <- df %>% filter(assisted == 0)
   }
 
-  fit <- tryCatch(
-    feglm(po_formula, data = untreated, weights = ~ipweight,
-           family = binomial),
-    error = function(e) NULL
-  )
-  if (is.null(fit)) return(NA_real_)
-
+  fit <- feglm(po_formula, data = untreated, weights = ~ipweight,
+               family = binomial)
   predicted <- predict(fit, newdata = treated, type = "response")
   mean(treated$dominated_choice, na.rm = TRUE) - mean(predicted, na.rm = TRUE)
 }
 
-# CSR-eligible insured (where dominated_choice is non-NA)
+# CSR-eligible insured (where dominated_choice is non-NA). hh_po is much
+# smaller than hh_clean — derive it then drop hh_clean.
 hh_po <- hh_clean %>% filter(!is.na(dominated_choice))
+rm(hh_clean)
+gc(verbose = FALSE)
 cat("  PO sample:", nrow(hh_po), "CSR-eligible new enrollees\n")
 
 att_any   <- compute_att(hh_po, "any_assist")
@@ -124,7 +175,7 @@ att_nav   <- compute_att(hh_po, "navigator")
 # =========================================================================
 
 set.seed(42)
-max_boot <- 200
+max_boot <- 50
 
 boot_att <- function(df, channel_filter, B = max_boot) {
   df$.grp <- paste(df$region, df$year, sep = "_")
@@ -137,15 +188,9 @@ boot_att <- function(df, channel_filter, B = max_boot) {
   })
 }
 
-setFixest_notes(FALSE)
-cat("  Bootstrap (200 x 3 channels)...\n")
 boot_any   <- boot_att(hh_po, "any_assist")
-cat("    any_assist done\n")
 boot_agent <- boot_att(hh_po, "agent")
-cat("    agent done\n")
 boot_nav   <- boot_att(hh_po, "navigator")
-cat("    navigator done\n")
-setFixest_notes(TRUE)
 
 
 # =========================================================================
@@ -177,3 +222,7 @@ ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4, bg = "
 
 cat("Dominated choice analysis complete.\n")
 print(att_summary)
+
+# Free hh_po and bootstrap residues; _reduced-form.R is done with HH-level data.
+rm(hh_po, boot_any, boot_agent, boot_nav, dom_models, mod1, mod2, mod3)
+gc(verbose = FALSE)

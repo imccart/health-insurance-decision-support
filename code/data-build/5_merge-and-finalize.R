@@ -17,10 +17,13 @@ cc_uninsured <- fread("data/output/cc_uninsured.csv")    %>% as_tibble()
 
 # Bind: CC enrolled (insured = 1, keeps observed plan) and CC uninsured
 # (insured = 0, plan fields NA). Weight = household_size for both.
+# market_eligible = 1 always for enrolled (in market by definition);
+# step 4's SIPP draw populates it for uninsured rows.
 cat("  Binding CC enrolled + CC uninsured...\n")
 demand_hh <- bind_rows(
   cc_enrolled  %>% mutate(source = "CC_enrolled",  insured = 1L,
-                           weight = as.numeric(household_size)),
+                           weight = as.numeric(household_size),
+                           market_eligible = 1L),
   cc_uninsured %>% mutate(source = "CC_uninsured", insured = 0L,
                            weight = as.numeric(household_size),
                            plan_id      = NA_character_,

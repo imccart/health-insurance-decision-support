@@ -4,14 +4,16 @@
 ## Date Created:  2026-04-05
 ## Description:   Propensity score estimation and IPW weights.
 ##                Outputs: data/output/ipweights.csv (household_year lookup).
-##                Does NOT re-save hh_full/hh_clean/hh_ins — those are
-##                canonical outputs of 1_decision-analysis.R only.
+##                Derives hh_ins from hh_full on demand, frees it at the end.
 
-# Load from disk if not already in memory -----------------------------------
-if (!exists("hh_ins")) {
-  hh_ins <- read_csv("data/output/hh_ins.csv", show_col_types = FALSE)
-  cat("  Loaded hh_ins from disk\n")
+# Materialize hh_ins (load hh_full from disk if not already in memory).
+# hh_full is NOT freed here — 3_summary-stats.R uses it next and will free
+# it after deriving its own subsets.
+if (!exists("hh_full")) {
+  hh_full <- fread("data/output/hh_full.csv") %>% as_tibble()
+  cat("  Loaded hh_full from disk\n")
 }
+hh_ins <- hh_full %>% filter(insured == 1L)
 
 # Propensity score estimation (nest by year) ------------------------------
 
@@ -38,7 +40,8 @@ hh_ins_ps <- estimate_ps(hh_ins) %>%
 ipweights <- hh_ins_ps %>%
   select(household_year, pred_assist, ipweight)
 
-write_csv(ipweights, "data/output/ipweights.csv")
+fwrite(ipweights, "data/output/ipweights.csv")
 cat("  IPW weights:", nrow(ipweights), "rows -> data/output/ipweights.csv\n")
 
-rm(hh_ins_ps, ipweights)
+rm(hh_ins_ps, ipweights, hh_ins)
+gc(verbose = FALSE)

@@ -105,7 +105,7 @@ build_choice_data <- function(plans, hhs, sample_frac,
     (metal == "Silver - Enhanced 73" & csr_73 == 1L) |
     (metal == "Silver - Enhanced 87" & csr_87 == 1L) |
     (metal == "Silver - Enhanced 94" & csr_94 == 1L) |
-    !grepl("^Silver", metal) |
+    !str_detect(metal, "^Silver") |
     (metal == "Silver" & csr_73 == 0L & csr_87 == 0L & csr_94 == 0L) |
     is.na(metal)
   ]
@@ -265,7 +265,7 @@ build_choice_data <- function(plans, hhs, sample_frac,
     uninsured_plan = fifelse(plan_id == "Uninsured", 1L, 0L),
     platinum       = fifelse(metal == "Platinum", 1L, 0L),
     gold           = fifelse(metal == "Gold", 1L, 0L),
-    silver         = fifelse(grepl("^Silver", metal), 1L, 0L),
+    silver         = fifelse(str_detect(metal, "^Silver"), 1L, 0L),
     bronze         = fifelse(metal == "Bronze", 1L, 0L),
     Anthem         = fifelse(issuer == "Anthem", 1L, 0L),
     Blue_Shield    = fifelse(issuer == "Blue_Shield", 1L, 0L),

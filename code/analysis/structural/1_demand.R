@@ -54,7 +54,7 @@ for (i in seq_len(nrow(cells))) {
     cd$region <- r
     cd$year <- y
 
-    write_csv(cd, out_file)
+    fwrite(cd, out_file)
     n_built <- n_built + 1L
   } else {
     n_skip <- n_skip + 1L
@@ -117,7 +117,7 @@ if (file.exists(coefs_path)) {
 
 # Reload hh_split for downstream scripts (pricing, counterfactuals)
 cat("Reloading shared HH data...\n")
-hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
+hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
 hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
 rm(hh_all); gc(verbose = FALSE)
 

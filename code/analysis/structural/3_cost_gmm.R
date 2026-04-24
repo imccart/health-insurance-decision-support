@@ -98,11 +98,11 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Silver <- as.integer(plan_metal == "Silver")
   foc_cells[[k]]$Gold <- as.integer(plan_metal == "Gold")
   foc_cells[[k]]$Platinum <- as.integer(plan_metal == "Platinum")
-  foc_cells[[k]]$HMO <- as.integer(grepl("^KA", pn))
+  foc_cells[[k]]$HMO <- as.integer(str_detect(pn, "^KA"))
   foc_cells[[k]]$trend <- y - 2014L
-  foc_cells[[k]]$Anthem <- as.integer(grepl("^ANT", pn))
-  foc_cells[[k]]$Blue_Shield <- as.integer(grepl("^BS", pn))
-  foc_cells[[k]]$Health_Net <- as.integer(grepl("^HN", pn))
+  foc_cells[[k]]$Anthem <- as.integer(str_detect(pn, "^ANT"))
+  foc_cells[[k]]$Blue_Shield <- as.integer(str_detect(pn, "^BS"))
+  foc_cells[[k]]$Health_Net <- as.integer(str_detect(pn, "^HN"))
 
   # Demographics (plan-year level)
   demo <- plan_demo_yr %>% filter(year == y)

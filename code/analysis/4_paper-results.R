@@ -24,12 +24,16 @@ dir.create("results/figures", recursive = TRUE, showWarnings = FALSE)
 
 cat("Loading pipeline outputs...\n")
 
-hh_full  <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
-hh_clean <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE)
-hh_ins   <- read_csv("data/output/hh_ins.csv", show_col_types = FALSE)
+hh_full  <- fread("data/output/hh_full.csv") %>% as_tibble()
 
-commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
-plan_choice       <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
+# Counts only — materialize these before building any subset so we never
+# duplicate hh_full's rows in memory.
+n_hh_full  <- nrow(hh_full)
+n_hh_ins   <- sum(hh_full$insured == 1L)
+n_hh_clean <- sum(hh_full$new_enrollee == 1L)
+
+commission_lookup <- fread("data/output/commission_lookup.csv") %>% as_tibble()
+plan_choice       <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()
 
 coefs_structural <- read_csv("results/choice_coefficients_structural.csv",
                               show_col_types = FALSE)
@@ -69,7 +73,7 @@ make_summary <- function(df, label) {
       pct_silver = mean(metal == "Silver", na.rm = TRUE) * 100,
       pct_bronze = mean(metal == "Bronze", na.rm = TRUE) * 100,
       pct_gold = mean(metal == "Gold", na.rm = TRUE) * 100,
-      pct_hmo = mean(grepl("HMO", network_type, ignore.case = TRUE),
+      pct_hmo = mean(str_detect(network_type, regex("HMO", ignore_case = TRUE)),
                       na.rm = TRUE) * 100,
       mean_age_oldest = mean(oldest_member, na.rm = TRUE),
       pct_hispanic = mean(perc_hispanic > 0, na.rm = TRUE) * 100,
@@ -376,7 +380,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
   # --- 5b. Welfare gradient figure (CS by tau) ---
   tau_results <- cf_results %>%
-    filter(grepl("^zero_tau", scenario)) %>%
+    filter(str_detect(scenario, "^zero_tau")) %>%
     group_by(tau) %>%
     summarize(
       mean_cs = mean(cs_weighted, na.rm = TRUE),
@@ -459,9 +463,9 @@ add_num <- function(name, val, d = 1) {
 }
 
 # Sample sizes
-add_num("nHHfull", nrow(hh_full), 0)
-add_num("nHHclean", nrow(hh_clean), 0)
-add_num("nHHins", nrow(hh_ins), 0)
+add_num("nHHfull", n_hh_full, 0)
+add_num("nHHclean", n_hh_clean, 0)
+add_num("nHHins", n_hh_ins, 0)
 add_num("pctNewEnrollee", mean(hh_full$new_enrollee, na.rm = TRUE) * 100)
 
 # Assistance rates

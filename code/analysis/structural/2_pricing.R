@@ -189,10 +189,10 @@ for (i in seq_len(nrow(cells))) {
     Platinum    = as.integer(unname(plan_metal) == "Platinum"),
     HMO         = unname(setNames(pa$hmo, pa$plan_id)[plan_ids_cell]),
     trend       = y - 2014L,
-    Anthem      = as.integer(grepl("^ANT", plan_ids_cell)),
-    Blue_Shield = as.integer(grepl("^BS", plan_ids_cell)),
-    Health_Net  = as.integer(grepl("^HN", plan_ids_cell)),
-    Kaiser      = as.integer(grepl("^KA", plan_ids_cell))
+    Anthem      = as.integer(str_detect(plan_ids_cell, "^ANT")),
+    Blue_Shield = as.integer(str_detect(plan_ids_cell, "^BS")),
+    Health_Net  = as.integer(str_detect(plan_ids_cell, "^HN")),
+    Kaiser      = as.integer(str_detect(plan_ids_cell, "^KA"))
   )
 
   demo_shares <- tryCatch(

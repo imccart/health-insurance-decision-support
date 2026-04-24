@@ -17,10 +17,10 @@ TEMP_DIR      <- Sys.getenv("TEMP_DIR")
 CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
 
 # Read plan data (runner already saved plan_choice.csv)
-plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
+plan_choice <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()
 
 # Read all HH partitions (single file, split in memory)
-hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice_rf.csv")))
+hh_all <- fread(file.path(TEMP_DIR, "hh_choice_rf.csv"))
 hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
 cells <- unique(hh_all[, .(region, year)])[order(region, year)]
 rm(hh_all); gc(verbose = FALSE)
@@ -66,7 +66,7 @@ for (i in seq_len(nrow(cells))) {
   if (!is.null(cd)) {
     cd$region <- r
     cd$year <- y
-    write_csv(cd, out_file)
+    fwrite(cd, out_file)
     n_built <- n_built + 1L
   } else {
     n_skip <- n_skip + 1L
@@ -110,7 +110,7 @@ if (!file.exists(coefs_path)) {
   stop("Demand estimation failed — no output file.", call. = FALSE)
 }
 
-coefs <- read_csv(coefs_path, show_col_types = FALSE)
+coefs <- fread(coefs_path) %>% as_tibble()
 cat("  Coefficients:\n")
 print(coefs, n = Inf)
 
@@ -129,7 +129,7 @@ for (i in seq_len(nrow(cells))) {
 
   csv_path <- file.path(CELL_DIR, paste0("cell_", r, "_", y, "_data.csv"))
   if (!file.exists(csv_path)) next
-  cell_data <- read_csv(csv_path, show_col_types = FALSE)
+  cell_data <- fread(csv_path) %>% as_tibble()
 
   # Assisted HH only for OOS prediction
   cell_oos <- cell_data %>% filter(assisted == 1)
@@ -153,7 +153,7 @@ for (i in seq_len(nrow(cells))) {
 }
 
 all_prob <- bind_rows(pred_list)
-write_csv(all_prob, "results/choice_point_estimates.csv")
+fwrite(all_prob, "results/choice_point_estimates.csv")
 
 cat("  Predictions:", nrow(all_prob), "rows -> results/choice_point_estimates.csv\n")
 

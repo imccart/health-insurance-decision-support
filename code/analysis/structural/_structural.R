@@ -43,11 +43,11 @@ if (all(file.exists(prep_files))) {
   cat("Building intermediate files...\n\n")
 
   cat("Reading analysis data from disk...\n")
-  hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE)
+  hh_full    <- fread("data/output/hh_full.csv") %>% as_tibble()
   plan_data  <- read_csv("data/input/Covered California/plan_data.csv",
                           show_col_types = FALSE, name_repair = "minimal")
-  broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
-  commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+  broker_density <- fread("data/output/broker_density.csv") %>% as_tibble()
+  commission_lookup <- fread("data/output/commission_lookup.csv") %>% as_tibble()
 
   # Structural uses hh_size as the weight (not ipweight/ATT).
   cat("  hh_full:", nrow(hh_full), "rows\n")
@@ -82,7 +82,7 @@ if (all(file.exists(prep_files))) {
 
   # Exclude catastrophic
   n_before <- nrow(hh_full)
-  hh_full <- hh_full %>% filter(!grepl("_CAT$", plan_id) | is.na(plan_id))
+  hh_full <- hh_full %>% filter(!str_detect(plan_id, "_CAT$") | is.na(plan_id))
   cat("  Excluded catastrophic HH:", n_before - nrow(hh_full), "\n")
 
   # Plan demographics (CSR-enhanced silver short codes collapsed for averaging)
@@ -102,7 +102,7 @@ if (all(file.exists(prep_files))) {
               share_35to54 = weighted.mean(share_35to54, n_hh, na.rm = TRUE),
               share_hispanic = weighted.mean(share_hispanic, n_hh, na.rm = TRUE),
               .groups = "drop")
-  write_csv(plan_demographics_yr, file.path(TEMP_DIR, "plan_demographics.csv"))
+  fwrite(plan_demographics_yr, file.path(TEMP_DIR, "plan_demographics.csv"))
   cat("  Plan demographics:", nrow(plan_demographics_yr), "rows\n")
   rm(plan_demographics, plan_demographics_yr)
 
@@ -147,13 +147,13 @@ if (all(file.exists(prep_files))) {
       )
     ) %>%
     select(-insurer_prefix, -rate, -is_pct)
-  write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
+  fwrite(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
   cat("  plan_choice:", nrow(plan_choice), "rows\n")
 
   # Write HH data (single file, split in memory by readers).
   cat("Writing HH choice data...\n")
   hh_choice <- hh_full %>%
-    filter(!grepl("_CAT$", plan_id) | is.na(plan_id)) %>%
+    filter(!str_detect(plan_id, "_CAT$") | is.na(plan_id)) %>%
     mutate(region = as.integer(region), year = as.integer(year)) %>%
     select(region, year, household_id, FPL, subsidized_members, rating_factor,
            plan_id, oldest_member, cheapest_premium, subsidy, penalty,
@@ -176,13 +176,13 @@ if (all(file.exists(prep_files))) {
 # =========================================================================
 
 cat("Loading shared structural data...\n")
-hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
+hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
 hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
 cells <- unique(hh_all[, .(region, year)])[order(region, year)]
 rm(hh_all); gc(verbose = FALSE)
 
-plan_choice <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_types = FALSE)
-commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+plan_choice <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()
+commission_lookup <- fread("data/output/commission_lookup.csv") %>% as_tibble()
 
 set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))

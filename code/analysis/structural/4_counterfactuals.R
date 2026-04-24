@@ -44,7 +44,7 @@ cat("  Region-year cells:", nrow(cells), "\n")
 
 # Load HH data fresh (hh_split freed by _structural.R to save memory)
 cat("  Loading HH data for counterfactuals...\n")
-hh_all <- as.data.table(read.csv(file.path(TEMP_DIR, "hh_choice.csv")))
+hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
 hh_split_cf <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
 rm(hh_all); gc(verbose = FALSE)
 
@@ -144,7 +144,7 @@ for (sc_name in c("observed", "uniform")) {
 }
 
 # Tau gradient summary
-tau_scenarios <- cf_results %>% filter(grepl("^zero_tau", scenario))
+tau_scenarios <- cf_results %>% filter(str_detect(scenario, "^zero_tau"))
 if (nrow(tau_scenarios) > 0) {
   cat("\n--- Broker-to-Navigator Substitution Gradient ---\n")
 

@@ -58,16 +58,18 @@ panel[, FPL_bracket := assign_bracket(FPL)]
 panel[, perc_18to34 := perc_18to25 + perc_26to34]
 panel[, perc_35to54 := perc_35to44 + perc_45to54]
 
-# Predict P(transitioned) and stochastic Bernoulli draw to drop HH-years
-# where the HH was likely not market-eligible.
-panel[, p_transitioned := predict(sipp_logit, newdata = panel, type = "response")]
-panel[, transitioned   := as.integer(p_transitioned > runif(.N))]
-cat(sprintf("  Off-year HH-years before SIPP filter: %d\n", nrow(panel)))
-cat(sprintf("  After SIPP filter (transitioned == 0): %d (%.1f%% retained)\n",
-            sum(panel$transitioned == 0L),
-            100 * mean(panel$transitioned == 0L)))
-panel <- panel[transitioned == 0L]
-panel[, c("p_transitioned", "transitioned") := NULL]
+# Predict P(transitioned) and stochastic Bernoulli draw. KEEP all rows with a
+# market_eligible flag (1 = still in individual market, 0 = transitioned out).
+# Deleting transitioned rows here would break the lag-based new_enrollee
+# derivation in 1_decision-analysis.R, which needs every off-year visible to
+# detect gaps. Downstream code filters by market_eligible AFTER computing
+# new_enrollee.
+panel[, p_transitioned  := predict(sipp_logit, newdata = panel, type = "response")]
+panel[, market_eligible := as.integer(p_transitioned <= runif(.N))]
+cat(sprintf("  Off-year HH-years: %d (%.1f%% market-eligible after SIPP draw)\n",
+            nrow(panel),
+            100 * mean(panel$market_eligible == 1L)))
+panel[, p_transitioned := NULL]
 
 # Year × hh_size poverty threshold (cap year at 2019 for the CMS table)
 pov_dt <- as.data.table(poverty_guidelines_long)

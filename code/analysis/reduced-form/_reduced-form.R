@@ -31,10 +31,10 @@ REDUCED_FORM_CF <- c(
   "cf_silver", "cf_bronze"
 )
 
-# Full spec for cell building and Julia estimation
+# Full spec for cell building and estimation
 REDUCED_FORM_FULL <- c(REDUCED_FORM_SPEC, REDUCED_FORM_CF)
 
-# Write spec for Julia
+# Write spec file consumed by estimate_demand (BFGS-BHHH)
 write_demand_spec(REDUCED_FORM_FULL, character(0),
                   file.path(TEMP_DIR, "demand_spec_reduced.csv"))
 
@@ -43,26 +43,23 @@ write_demand_spec(REDUCED_FORM_FULL, character(0),
 # =========================================================================
 
 cat("Reading analysis data from disk...\n")
-hh_full    <- read_csv("data/output/hh_full.csv", show_col_types = FALSE) %>%
+hh_full    <- fread("data/output/hh_full.csv") %>% as_tibble() %>%
   mutate(region = as.integer(region), year = as.integer(year))
-hh_clean   <- read_csv("data/output/hh_clean.csv", show_col_types = FALSE) %>%
-  mutate(region = as.integer(region), year = as.integer(year))
-ipweights  <- read_csv("data/output/ipweights.csv", show_col_types = FALSE)
+ipweights  <- fread("data/output/ipweights.csv") %>% as_tibble()
 plan_data  <- read_csv("data/input/Covered California/plan_data.csv",
                         show_col_types = FALSE, name_repair = "minimal")
-broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE) %>%
+broker_density <- fread("data/output/broker_density.csv") %>% as_tibble() %>%
   mutate(region = as.integer(region), year = as.integer(year))
-commission_lookup <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+commission_lookup <- fread("data/output/commission_lookup.csv") %>% as_tibble()
 
-# Join IPW weights (from 2_ipw.R)
+# Join IPW weights (from 2_ipw.R). hh_clean is derived inside
+# 1_dominated-choices.R *after* mod1 so we never hold both hh_full and
+# hh_clean in memory simultaneously.
 hh_full  <- hh_full %>%
-  left_join(ipweights, by = "household_year")
-hh_clean <- hh_clean %>%
   left_join(ipweights, by = "household_year")
 rm(ipweights)
 
 cat("  hh_full:", nrow(hh_full), "rows\n")
-cat("  hh_clean:", nrow(hh_clean), "rows\n")
 cat("  broker_density:", nrow(broker_density), "rows\n")
 
 # =========================================================================
@@ -70,8 +67,7 @@ cat("  broker_density:", nrow(broker_density), "rows\n")
 # =========================================================================
 
 n_before <- nrow(hh_full)
-hh_full  <- hh_full %>% filter(!grepl("_CAT$", plan_id) | is.na(plan_id))
-hh_clean <- hh_clean %>% filter(!grepl("_CAT$", plan_id) | is.na(plan_id))
+hh_full  <- hh_full %>% filter(!str_detect(plan_id, "_CAT$") | is.na(plan_id))
 cat("  Excluded catastrophic HH:", n_before - nrow(hh_full), "of", n_before, "\n")
 
 # =========================================================================
@@ -85,26 +81,23 @@ hh_full <- hh_full %>%
   left_join(broker_density %>% select(region, year, n_agents),
             by = c("region", "year"))
 
-# First stage: LPM on all HH
+# First stage: LPM on insured rows only (assisted is NA / undefined for uninsured)
+ins_idx  <- which(hh_full$insured == 1L)
 fs_model <- lm(assisted ~ n_agents + FPL + perc_0to17 + perc_18to25 +
                   perc_65plus + perc_black + perc_hispanic + perc_asian +
                   perc_male + household_size + factor(year),
-                data = hh_full)
+                data = hh_full[ins_idx, ])
 
-hh_full$v_hat <- residuals(fs_model)
+hh_full$v_hat <- NA_real_
+hh_full$v_hat[ins_idx] <- residuals(fs_model)
 
 fs_summary <- summary(fs_model)
 cat("  First-stage F:", round(fs_summary$fstatistic[1], 1), "\n")
 cat("  n_agents coef:", round(coef(fs_model)["n_agents"], 6),
     " (SE:", round(fs_summary$coefficients["n_agents", "Std. Error"], 6), ")\n")
-cat("  v_hat mean (unassisted):", round(mean(hh_full$v_hat[hh_full$assisted == 0]), 4), "\n")
-cat("  v_hat mean (assisted):  ", round(mean(hh_full$v_hat[hh_full$assisted == 1]), 4), "\n")
-rm(fs_model, fs_summary, broker_density)
-
-# Propagate to hh_clean
-hh_clean <- hh_clean %>%
-  left_join(hh_full %>% select(household_year, v_hat, n_agents),
-            by = "household_year")
+cat("  v_hat mean (unassisted):", round(mean(hh_full$v_hat[hh_full$assisted == 0], na.rm = TRUE), 4), "\n")
+cat("  v_hat mean (assisted):  ", round(mean(hh_full$v_hat[hh_full$assisted == 1], na.rm = TRUE), 4), "\n")
+rm(fs_model, fs_summary, broker_density, ins_idx)
 
 # =========================================================================
 # Plan data prep
@@ -161,7 +154,7 @@ plan_choice <- plan_choice %>%
   ) %>%
   select(-insurer_prefix, -rate, -is_pct)
 
-write_csv(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
+fwrite(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
 cat("  plan_choice saved ->", file.path(TEMP_DIR, "plan_choice.csv"), "\n")
 rm(commission_lookup)
 
@@ -171,7 +164,7 @@ rm(commission_lookup)
 # =========================================================================
 
 hh_choice <- hh_full %>%
-  filter(!grepl("_CAT$", plan_id) | is.na(plan_id)) %>%
+  filter(!str_detect(plan_id, "_CAT$") | is.na(plan_id)) %>%
   select(region, year, household_id, FPL, subsidized_members, rating_factor,
          plan_id, oldest_member, cheapest_premium,
          subsidy, penalty, poverty_threshold,
@@ -194,11 +187,13 @@ cat("  Written:", n_cells, "cells -> ", hh_choice_path, "\n")
 # Run reduced-form analysis
 # =========================================================================
 
-# Dominated choice ATT
+# Dominated choice ATT (manages hh_full → hh_clean → hh_po lifecycle internally
+# so we never hold more than one big HH object in memory at a time)
 source("code/analysis/reduced-form/1_dominated-choices.R")
 
-# Free large objects before choice model
-rm(hh_full, hh_clean, plan_choice, plan_data)
+# Free remaining objects before choice model. hh_full / hh_clean already
+# rm'd inside 1_dominated-choices.R.
+rm(plan_choice, plan_data)
 gc(verbose = FALSE)
 cat("  Large objects freed.\n")
 
