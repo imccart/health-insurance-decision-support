@@ -10,12 +10,7 @@
 
 # Dependencies: all loaded by _structural.R
 
-# Tuning parameters -------------------------------------------------------
-
-SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
-MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
-TEMP_DIR      <- Sys.getenv("TEMP_DIR")
-CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
+CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
 
 # hh_split, cells, cell_seeds, plan_choice loaded by _structural.R
 
@@ -118,7 +113,7 @@ if (file.exists(coefs_path)) {
 # Reload hh_split for downstream scripts (pricing, counterfactuals)
 cat("Reloading shared HH data...\n")
 hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
-hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
+hh_split <- split(hh_all, by = c("region", "year"))
 rm(hh_all); gc(verbose = FALSE)
 
 cat("\nStructural demand estimation complete.\n")

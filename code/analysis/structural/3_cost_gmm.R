@@ -21,7 +21,7 @@ cat("Loading data for cost-side GMM...\n")
 
 # --- Rate filing data (moments 1-2) ---
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
-plan_demo <- read_csv(file.path(Sys.getenv("TEMP_DIR"), "plan_demographics.csv"), show_col_types = FALSE)
+plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
 rsdata <- rsdata %>%
   left_join(plan_demo, by = c("plan_id", "year"))
 
@@ -34,7 +34,7 @@ rsdata <- rsdata %>%
 cat("  Rate filing observations:", nrow(rsdata), "\n")
 
 # --- FOC inputs per cell (moment 3) ---
-foc_files <- list.files(file.path(Sys.getenv("TEMP_DIR"), "foc_inputs"),
+foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
                          pattern = "^foc_.*\\.rds$", full.names = TRUE)
 if (length(foc_files) == 0) stop("No FOC input files found — run 2_pricing.R first")
 
@@ -51,7 +51,7 @@ cat("  FOC cells with valid Omega:", length(foc_cells), "\n")
 supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 
 # --- Demographics for FOC risk score prediction ---
-plan_demo_yr <- read_csv(file.path(Sys.getenv("TEMP_DIR"), "plan_demographics.csv"), show_col_types = FALSE)
+plan_demo_yr <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
 
 rm(plan_demo)
 
@@ -150,8 +150,8 @@ gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend",
                  "Anthem", "Blue_Shield", "Health_Net")
 
 # Starting values from OLS
-rs_coefs_start <- read_csv(file.path(Sys.getenv("TEMP_DIR"), "ra_rs_coefs.csv"), show_col_types = FALSE)
-cl_coefs_start <- read_csv(file.path(Sys.getenv("TEMP_DIR"), "ra_claims_coefs.csv"), show_col_types = FALSE)
+rs_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs.csv"), show_col_types = FALSE)
+cl_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_claims_coefs.csv"), show_col_types = FALSE)
 
 alpha0 <- unname(setNames(rs_coefs_start$estimate, rs_coefs_start$term)[alpha_names])
 gamma0_raw <- setNames(cl_coefs_start$estimate, cl_coefs_start$term)[gamma_names]
@@ -386,8 +386,8 @@ cat("\nSaving GMM cost coefficients...\n")
 rs_coefs_gmm <- tibble(term = alpha_names, estimate = alpha_gmm)
 cl_coefs_gmm <- tibble(term = gamma_names, estimate = gamma_gmm)
 
-write_csv(rs_coefs_gmm, file.path(Sys.getenv("TEMP_DIR"), "ra_rs_coefs_gmm.csv"))
-write_csv(cl_coefs_gmm, file.path(Sys.getenv("TEMP_DIR"), "ra_claims_coefs_gmm.csv"))
+write_csv(rs_coefs_gmm, file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"))
+write_csv(cl_coefs_gmm, file.path(TEMP_DIR, "ra_claims_coefs_gmm.csv"))
 
-cat("  Saved GMM coefficients to", Sys.getenv("TEMP_DIR"), "\n")
+cat("  Saved GMM coefficients to", TEMP_DIR, "\n")
 cat("\nCost-side GMM complete.\n")

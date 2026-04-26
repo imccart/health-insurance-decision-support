@@ -135,7 +135,7 @@ writeLines(as.character(dom_tab), "results/tables/dominated_choice_regression.te
 
 cat("Potential outcomes ATT...\n")
 
-po_formula <- dominated_choice ~ v_hat + english + spanish +
+po_formula <- dominated_choice ~ english + spanish +
   FPL + perc_0to17 + perc_18to25 + perc_26to34 + perc_35to44 + perc_45to54 +
   perc_male + perc_asian + perc_black + perc_hispanic + perc_other +
   household_size | insurer + region + year

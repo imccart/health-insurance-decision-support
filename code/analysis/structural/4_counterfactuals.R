@@ -8,11 +8,6 @@
 
 # Setup (packages and helpers already loaded by _structural.R) ---------------
 
-# Tuning parameters --------------------------------------------------------
-SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
-MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
-TEMP_DIR      <- Sys.getenv("TEMP_DIR")
-
 # =========================================================================
 # PHASE 1: Load counterfactual-specific data
 # =========================================================================
@@ -45,7 +40,7 @@ cat("  Region-year cells:", nrow(cells), "\n")
 # Load HH data fresh (hh_split freed by _structural.R to save memory)
 cat("  Loading HH data for counterfactuals...\n")
 hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
-hh_split_cf <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
+hh_split_cf <- split(hh_all, by = c("region", "year"))
 rm(hh_all); gc(verbose = FALSE)
 
 cat("\nPhase 2: Running counterfactual simulations...\n")

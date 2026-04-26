@@ -2,41 +2,30 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-24
-## Date Edited:   2026-04-05
-## Description:   Pooled nested logit choice model ATT with control function.
-##                Estimate on unassisted HH via R estimator (optim L-BFGS-B),
-##                predict counterfactual for assisted HH, compute ATT.
-##                Expects plan_choice, partitioned parquets, and v_hat
-##                available from _reduced-form.R runner.
+## Description:   MNL plan-choice ATT among enrollees. Estimate on insured +
+##                unassisted via mlogit; OOS-predict for insured + assisted.
+##                ATT = observed - predicted plan-attribute means by cell.
+##                No outside good, no nest — the estimand is conditional on
+##                enrollment, so synthetic off-year (uninsured) rows are
+##                dropped from estimation.
 
-# Tuning ------------------------------------------------------------------
+CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
 
-SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
-MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
-TEMP_DIR      <- Sys.getenv("TEMP_DIR")
-CELL_DIR      <- file.path(TEMP_DIR, "choice_cells")
-
-# Read plan data (runner already saved plan_choice.csv)
 plan_choice <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()
-
-# Read all HH partitions (single file, split in memory)
-hh_all <- fread(file.path(TEMP_DIR, "hh_choice_rf.csv"))
-hh_split <- split(hh_all, by = c("region", "year"), keep.by = FALSE)
+hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
+hh_split <- split(hh_all, by = c("region", "year"))
 cells <- unique(hh_all[, .(region, year)])[order(region, year)]
 rm(hh_all); gc(verbose = FALSE)
 
 if (!dir.exists(CELL_DIR)) dir.create(CELL_DIR, recursive = TRUE)
 
-# =========================================================================
-# Phase 1: Build cell data (with CF interaction columns)
-# =========================================================================
+# Phase 1: build cell data ------------------------------------------------
 
 cat("Phase 1: Building cell data (", nrow(cells), "cells)...\n")
 
 set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))
 
-# Clean and recreate cell directory to ensure fresh data
 if (dir.exists(CELL_DIR)) unlink(CELL_DIR, recursive = TRUE)
 dir.create(CELL_DIR, recursive = TRUE)
 
@@ -50,15 +39,13 @@ for (i in seq_len(nrow(cells))) {
   out_file <- file.path(CELL_DIR, paste0("cell_", r, "_", y, "_data.csv"))
 
   set.seed(cell_seeds[i])
-  cell_key <- paste0(r, ".", y)
-  hhs <- hh_split[[cell_key]]
+  hhs <- hh_split[[paste0(r, ".", y)]]
   if (is.null(hhs) || nrow(hhs) == 0) { n_skip <- n_skip + 1L; next }
   hhs <- as.data.frame(hhs)
 
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  # Pass full spec including CF terms — build_choice_data creates cf_* columns
   cd <- build_choice_data(plans, hhs, SAMPLE_FRAC, spec = REDUCED_FORM_FULL,
                           premium_type = "net")
   rm(hhs, plans)
@@ -83,81 +70,87 @@ rm(plan_choice, hh_split)
 gc(verbose = FALSE)
 cat("  Built:", n_built, "  Skipped:", n_skip, "\n")
 
-# =========================================================================
-# Phase 2: Estimate demand (R, unassisted only)
-# =========================================================================
+# Phase 2: pool insured + unassisted, fit MNL ------------------------------
 
-cat("\nPhase 2: Running demand estimation (unassisted HH)...\n")
+cat("\nPhase 2: Pooling cells and fitting MNL...\n")
 
-estimate_demand(
-  cell_dir        = CELL_DIR,
-  spec_path       = file.path(TEMP_DIR, "demand_spec_reduced.csv"),
-  out_path        = "results/choice_coefficients.csv",
-  filter_assisted = 0L,
-  temp_dir        = NULL  # no MNL caching for reduced-form
-)
+needed <- unique(c("household_number", "plan_id", "choice", "hh_weight",
+                   "assisted", "region", "year", REDUCED_FORM_FULL))
 
-
-# =========================================================================
-# Phase 3: Read coefficients
-# =========================================================================
-
-cat("\nPhase 3: Reading coefficient estimates...\n")
-
-coefs_path <- "results/choice_coefficients.csv"
-if (!file.exists(coefs_path)) {
-  cat("  Coefficients not found at", coefs_path, "\n")
-  stop("Demand estimation failed — no output file.", call. = FALSE)
+read_cell <- function(path) {
+  header <- names(fread(path, nrows = 0L))
+  fread(path, select = intersect(needed, header))
 }
 
-coefs <- fread(coefs_path) %>% as_tibble()
-cat("  Coefficients:\n")
-print(coefs, n = Inf)
-
-
-# =========================================================================
-# Phase 4: Per-cell OOS predictions and ATT
-# =========================================================================
-
-cat("\nPhase 4: Computing per-cell predictions...\n")
-
-pred_list <- list()
-
+pool_list <- vector("list", nrow(cells))
 for (i in seq_len(nrow(cells))) {
-  r <- cells$region[i]
-  y <- cells$year[i]
-
-  csv_path <- file.path(CELL_DIR, paste0("cell_", r, "_", y, "_data.csv"))
+  csv_path <- file.path(CELL_DIR, paste0("cell_", cells$region[i], "_",
+                                         cells$year[i], "_data.csv"))
   if (!file.exists(csv_path)) next
-  cell_data <- fread(csv_path) %>% as_tibble()
-
-  # Assisted HH only for OOS prediction
-  cell_oos <- cell_data %>% filter(assisted == 1)
-  if (nrow(cell_oos) == 0) { rm(cell_data, cell_oos); next }
-
-  preds <- predict_nested_logit(cell_oos, coefs,
-                                unique(cell_data$plan_id[cell_data$plan_id != "Uninsured"]))
-
-  cell_oos_dt <- as.data.table(cell_oos[, c("household_number", "plan_id", "choice")])
-  cell_oos_dt <- merge(cell_oos_dt, preds, by = c("household_number", "plan_id"), all.x = TRUE)
-
-  plan_summary <- cell_oos_dt[, .(
-    tot_nonmiss   = sum(!is.na(pred)),
-    obs_purchase  = sum(choice, na.rm = TRUE),
-    pred_purchase = sum(pred, na.rm = TRUE)
-  ), by = plan_id]
-  plan_summary[, `:=`(region = r, year = y)]
-
-  pred_list[[length(pred_list) + 1]] <- plan_summary
-  rm(cell_data, cell_oos, preds, cell_oos_dt, plan_summary)
+  pool_list[[i]] <- read_cell(csv_path)
 }
+pooled <- rbindlist(pool_list, fill = TRUE)
+rm(pool_list); gc(verbose = FALSE)
 
-all_prob <- bind_rows(pred_list)
-fwrite(all_prob, "results/choice_point_estimates.csv")
+# Drop uninsured rows (no outside good in this MNL) and make a unique chid
+pooled <- pooled[plan_id != "Uninsured"]
+pooled[, chid := paste(region, year, household_number, sep = "_")]
 
-cat("  Predictions:", nrow(all_prob), "rows -> results/choice_point_estimates.csv\n")
+# Estimation sample: unassisted only, restricted to chids with a chosen row
+unassist <- pooled[assisted == 0L]
+keep_chids <- unassist[choice == 1L, unique(chid)]
+unassist <- unassist[chid %in% keep_chids]
+cat(sprintf("  Estimation sample: %d rows, %d HH-years\n",
+            nrow(unassist), length(keep_chids)))
 
-rm(pred_list)
-gc(verbose = FALSE)
+fmla <- as.formula(paste("choice ~",
+                         paste(REDUCED_FORM_FULL, collapse = " + "),
+                         "| 0 | 0"))
 
+fit <- mlogit(fmla, data = unassist,
+              chid.var = "chid", alt.var = "plan_id",
+              weights = hh_weight)
+
+cat("\n  Coefficients:\n")
+print(summary(fit)$CoefTable)
+
+coefs <- tibble(term = names(coef(fit)), estimate = coef(fit))
+fwrite(coefs, "results/choice_coefficients.csv")
+
+# Phase 3: OOS predictions for assisted, ATT by cell × plan ---------------
+
+cat("\nPhase 3: OOS predictions on assisted enrollees...\n")
+
+assist <- pooled[assisted == 1L]
+keep_a <- assist[choice == 1L, unique(chid)]
+assist <- assist[chid %in% keep_a]
+rm(pooled); gc(verbose = FALSE)
+
+# V = X β per row, P(j | HH) = exp(V_j) / sum_k exp(V_k)
+beta <- coefs$estimate
+names(beta) <- coefs$term
+
+V <- numeric(nrow(assist))
+for (v in coefs$term) {
+  if (v %in% names(assist)) {
+    col <- assist[[v]]
+    col[is.na(col)] <- 0
+    V <- V + beta[[v]] * col
+  }
+}
+assist[, V := V]
+assist[, exp_V := exp(V - max(V)), by = chid]
+assist[, pred  := exp_V / sum(exp_V), by = chid]
+
+plan_summary <- assist[, .(
+  tot_nonmiss   = .N,
+  obs_purchase  = sum(choice, na.rm = TRUE),
+  pred_purchase = sum(pred,   na.rm = TRUE)
+), by = .(plan_id, region, year)]
+
+fwrite(plan_summary, "results/choice_point_estimates.csv")
+cat("  Predictions:", nrow(plan_summary),
+    "rows -> results/choice_point_estimates.csv\n")
+
+rm(assist); gc(verbose = FALSE)
 cat("Choice model ATT estimation complete.\n")

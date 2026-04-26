@@ -11,11 +11,6 @@ TEMP_DIR     <- "D:/temp-research-data/health-insurance-decision-support"
 SAMPLE_FRAC  <- 0.05
 MASTER_SEED  <- 20260224
 
-if (!dir.exists(TEMP_DIR)) dir.create(TEMP_DIR, recursive = TRUE)
-Sys.setenv(TEMP_DIR = TEMP_DIR)
-Sys.setenv(SAMPLE_FRAC = SAMPLE_FRAC)
-Sys.setenv(MASTER_SEED = MASTER_SEED)
-
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")
 

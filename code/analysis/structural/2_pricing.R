@@ -11,11 +11,6 @@
 
 # Dependencies: tidyverse, data.table, helpers (loaded by _structural.R)
 
-# Tuning parameters -------------------------------------------------------
-
-SAMPLE_FRAC   <- as.numeric(Sys.getenv("SAMPLE_FRAC"))
-MASTER_SEED   <- as.integer(Sys.getenv("MASTER_SEED"))
-TEMP_DIR      <- Sys.getenv("TEMP_DIR")
 # =========================================================================
 # Load coefficients and reference data
 # =========================================================================
@@ -249,7 +244,7 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   # Step 8: Save FOC inputs for cost-side GMM
   # -----------------------------------------------------------------------
-  foc_inputs_dir <- file.path(Sys.getenv("TEMP_DIR"), "foc_inputs")
+  foc_inputs_dir <- file.path(TEMP_DIR, "foc_inputs")
   if (!dir.exists(foc_inputs_dir)) dir.create(foc_inputs_dir, recursive = TRUE)
 
   saveRDS(list(

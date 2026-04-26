@@ -5,25 +5,13 @@
 ## Description:   Summary statistics, covariate balance, and figures.
 ##                IPW weights computed in 2_ipw.R (must run first).
 
-# Materialize the only two subsets this script uses (hh_ins, hh_clean) --
-# from hh_full, then drop hh_full to keep peak memory at ~hh_ins + hh_clean
-# (rather than all three).
-if (!exists("hh_full")) {
-  hh_full <- fread("data/output/hh_full.csv") %>% as_tibble()
-  cat("  Loaded hh_full from disk\n")
-}
-hh_ins   <- hh_full %>% filter(insured == 1L)
-hh_clean <- hh_full %>% filter(new_enrollee == 1L)
-rm(hh_full)
-gc(verbose = FALSE)
+hh_full   <- fread("data/output/hh_full.csv") %>% as_tibble()
+ipweights <- fread("data/output/ipweights.csv") %>% as_tibble()
 
-# Join IPW weights (from 2_ipw.R)
-if (!"ipweight" %in% names(hh_ins)) {
-  ipweights <- fread("data/output/ipweights.csv") %>% as_tibble()
-  hh_ins   <- hh_ins   %>% left_join(ipweights, by = "household_year")
-  hh_clean <- hh_clean %>% left_join(ipweights, by = "household_year")
-  rm(ipweights)
-}
+hh_ins   <- hh_full %>% filter(insured == 1L)     %>% left_join(ipweights, by = "household_year")
+hh_clean <- hh_full %>% filter(new_enrollee == 1L) %>% left_join(ipweights, by = "household_year")
+rm(hh_full, ipweights)
+gc(verbose = FALSE)
 
 # Grayscale theme for all figures ------------------------------------------
 
@@ -157,40 +145,52 @@ plot_ps_clean <- ggplot(hh_clean_ins, aes(x = pred_assist, fill = channel)) +
   theme_paper
 ggsave("results/figures/ps_assist_clean.png", plot_ps_clean, width = 7, height = 4, bg = "white")
 
-# Covariate balance (cobalt) ----------------------------------------------
+# Covariate balance (ATT, s.d. of treated) --------------------------------
 
 bal_vars <- c("FPL", "perc_0to17", "perc_18to25", "perc_65plus",
               "perc_black", "perc_hispanic", "perc_asian", "perc_male",
               "household_size")
 
-bal <- bal.tab(
-  x = hh_ins %>% select(all_of(bal_vars)),
-  treat = hh_ins %>% pull(assisted),
-  weights = hh_ins %>% pull(ipweight),
-  method = "weighting",
-  estimand = "ATT",
-  s.d.denom = "treated",
-  binary = "std",
-  un = TRUE
-)
-
 bal_labels <- c(
-  "FPL" = "Federal Poverty Level",
-  "perc_0to17" = "Share Age 0-17",
-  "perc_18to25" = "Share Age 18-25",
-  "perc_65plus" = "Share Age 65+",
-  "perc_black" = "Share Black",
-  "perc_hispanic" = "Share Hispanic",
-  "perc_asian" = "Share Asian",
-  "perc_male" = "Share Male",
-  "household_size" = "Household Size"
+  FPL = "Federal Poverty Level",
+  perc_0to17 = "Share Age 0-17",
+  perc_18to25 = "Share Age 18-25",
+  perc_65plus = "Share Age 65+",
+  perc_black = "Share Black",
+  perc_hispanic = "Share Hispanic",
+  perc_asian = "Share Asian",
+  perc_male = "Share Male",
+  household_size = "Household Size"
 )
 
-plot_bal <- love.plot(bal, thresholds = c(m = 0.1),
-                      abs = TRUE, var.order = "unadjusted",
-                      var.names = bal_labels,
-                      colors = c("gray60", "gray20"),
-                      shapes = c(17, 16)) +
+smd_att <- function(x, treat, w) {
+  ok_t  <- treat == 1L & !is.na(x)
+  ok_c  <- treat == 0L & !is.na(x)
+  m_t   <- mean(x[ok_t])
+  sd_t  <- sd(x[ok_t])
+  m_c_u <- mean(x[ok_c])
+  m_c_w <- sum(x[ok_c] * w[ok_c]) / sum(w[ok_c])
+  c(unadj = (m_t - m_c_u) / sd_t, adj = (m_t - m_c_w) / sd_t)
+}
+
+bal_df <- map_dfr(bal_vars, function(v) {
+  s <- smd_att(hh_ins[[v]], hh_ins$assisted, hh_ins$ipweight)
+  tibble(var = v, unadj = s["unadj"], adj = s["adj"])
+}) %>%
+  mutate(label = bal_labels[var]) %>%
+  arrange(abs(unadj)) %>%
+  mutate(label = factor(label, levels = label)) %>%
+  pivot_longer(c(unadj, adj), names_to = "sample", values_to = "smd") %>%
+  mutate(sample = factor(sample, levels = c("unadj", "adj"),
+                         labels = c("Unadjusted", "IPW-weighted")))
+
+plot_bal <- ggplot(bal_df, aes(x = abs(smd), y = label,
+                               color = sample, shape = sample)) +
+  geom_vline(xintercept = 0.1, linetype = "dashed", color = "gray50") +
+  geom_point(size = 3) +
+  scale_color_manual(values = c("Unadjusted" = "gray60", "IPW-weighted" = "gray20")) +
+  scale_shape_manual(values = c("Unadjusted" = 17, "IPW-weighted" = 16)) +
+  labs(x = "Absolute standardized mean difference", y = NULL) +
   theme_paper
 ggsave("results/figures/cov_balance.png", plot_bal, width = 7, height = 5, bg = "white")
 

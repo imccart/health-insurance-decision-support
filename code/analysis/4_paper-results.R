@@ -11,7 +11,7 @@
 
 source("code/0-setup.R")
 
-TEMP_DIR <- Sys.getenv("TEMP_DIR")
+TEMP_DIR <- "D:/temp-research-data/health-insurance-decision-support"
 
 # Ensure output dirs exist
 dir.create("results/tables", recursive = TRUE, showWarnings = FALSE)
