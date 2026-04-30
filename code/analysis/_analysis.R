@@ -10,6 +10,7 @@
 TEMP_DIR     <- "D:/temp-research-data/health-insurance-decision-support"
 SAMPLE_FRAC  <- 0.05
 MASTER_SEED  <- 20260224
+N_BOOT       <- 50L   # bootstrap reps for reduced-form CIs; set to 0 to skip
 
 # Setup -------------------------------------------------------------------
 source("code/0-setup.R")

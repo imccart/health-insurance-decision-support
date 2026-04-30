@@ -124,7 +124,6 @@ cat("\nPhase 3: OOS predictions on assisted enrollees...\n")
 assist <- pooled[assisted == 1L]
 keep_a <- assist[choice == 1L, unique(chid)]
 assist <- assist[chid %in% keep_a]
-rm(pooled); gc(verbose = FALSE)
 
 # V = X β per row, P(j | HH) = exp(V_j) / sum_k exp(V_k)
 beta <- coefs$estimate
@@ -153,4 +152,76 @@ cat("  Predictions:", nrow(plan_summary),
     "rows -> results/choice_point_estimates.csv\n")
 
 rm(assist); gc(verbose = FALSE)
+
+
+# Phase 4: bootstrap (within-cell chid resampling, stratified by region × year)
+
+n_boot <- if (exists("N_BOOT")) N_BOOT else 50L
+
+if (n_boot > 0L) {
+  cat("\nPhase 4: Bootstrap (", n_boot, "reps)...\n")
+  set.seed(MASTER_SEED + 1L)
+
+  chid_cells <- unique(pooled[, .(chid, region, year)])
+  boot_results <- vector("list", n_boot)
+
+  for (b in seq_len(n_boot)) {
+    # Within each (region, year), resample chids with replacement; preserve cell sizes
+    sampled <- chid_cells[, .(chid = sample(chid, .N, replace = TRUE)),
+                          by = .(region, year)]
+    sampled[, b_chid := paste0("b", b, "_", .I)]   # unique id per occurrence
+
+    pool_b <- merge(sampled[, .(chid, b_chid)], pooled, by = "chid",
+                    allow.cartesian = TRUE)
+    pool_b[, chid := b_chid][, b_chid := NULL]
+
+    un_b <- pool_b[assisted == 0L]
+    keep <- un_b[choice == 1L, unique(chid)]
+    un_b <- un_b[chid %in% keep]
+
+    fit_b <- tryCatch(
+      mlogit(fmla, data = un_b, chid.var = "chid", alt.var = "plan_id",
+             weights = hh_weight),
+      error = function(e) {
+        cat("  rep", b, "fit failed:", conditionMessage(e), "\n"); NULL
+      }
+    )
+    if (is.null(fit_b)) { rm(pool_b, un_b); gc(verbose = FALSE); next }
+
+    as_b <- pool_b[assisted == 1L]
+    keep_a <- as_b[choice == 1L, unique(chid)]
+    as_b <- as_b[chid %in% keep_a]
+    rm(pool_b, un_b)
+
+    beta_b <- coef(fit_b)
+    V_b <- numeric(nrow(as_b))
+    for (v in names(beta_b)) {
+      if (v %in% names(as_b)) {
+        col <- as_b[[v]]; col[is.na(col)] <- 0
+        V_b <- V_b + beta_b[[v]] * col
+      }
+    }
+    as_b[, V := V_b]
+    as_b[, exp_V := exp(V - max(V)), by = chid]
+    as_b[, pred  := exp_V / sum(exp_V), by = chid]
+
+    boot_results[[b]] <- as_b[, .(
+      tot_nonmiss   = .N,
+      obs_purchase  = sum(choice, na.rm = TRUE),
+      pred_purchase = sum(pred,   na.rm = TRUE),
+      boot          = b
+    ), by = .(plan_id, region, year)]
+
+    rm(as_b, fit_b); gc(verbose = FALSE)
+    if (b %% 5L == 0L) cat("  rep", b, "/", n_boot, "\n")
+  }
+
+  boot_long <- rbindlist(boot_results, fill = TRUE)
+  fwrite(boot_long, "results/choice_bootstrap_pred.csv")
+  cat("  Bootstrap output:", nrow(boot_long),
+      "rows -> results/choice_bootstrap_pred.csv\n")
+  rm(boot_results, boot_long, chid_cells)
+}
+
+rm(pooled); gc(verbose = FALSE)
 cat("Choice model ATT estimation complete.\n")

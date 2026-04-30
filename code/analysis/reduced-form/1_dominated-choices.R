@@ -171,26 +171,31 @@ att_nav   <- compute_att(hh_po, "navigator")
 
 
 # =========================================================================
-# Bootstrap
+# Bootstrap (within-cell HH resampling, stratified by region × year)
 # =========================================================================
 
 set.seed(42)
-max_boot <- 50
+B <- if (exists("N_BOOT")) N_BOOT else 50L
 
-boot_att <- function(df, channel_filter, B = max_boot) {
+boot_att <- function(df, channel_filter, B) {
   df$.grp <- paste(df$region, df$year, sep = "_")
   grp_rows <- split(seq_len(nrow(df)), df$.grp)
-  grp_names <- names(grp_rows)
   replicate(B, {
-    sampled <- sample(grp_names, length(grp_names), replace = TRUE)
-    row_idx <- unlist(grp_rows[sampled], use.names = FALSE)
+    row_idx <- unlist(
+      lapply(grp_rows, function(rows) sample(rows, length(rows), replace = TRUE)),
+      use.names = FALSE
+    )
     compute_att(df[row_idx, ], channel_filter)
   })
 }
 
-boot_any   <- boot_att(hh_po, "any_assist")
-boot_agent <- boot_att(hh_po, "agent")
-boot_nav   <- boot_att(hh_po, "navigator")
+if (B > 0) {
+  boot_any   <- boot_att(hh_po, "any_assist", B)
+  boot_agent <- boot_att(hh_po, "agent",      B)
+  boot_nav   <- boot_att(hh_po, "navigator",  B)
+} else {
+  boot_any <- boot_agent <- boot_nav <- NA_real_
+}
 
 
 # =========================================================================
