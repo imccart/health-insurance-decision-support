@@ -11,7 +11,7 @@
 ##                Two-step feasible GMM. Produces cost parameters consistent
 ##                with both rate filing data and the pricing FOC.
 
-# Dependencies: tidyverse, data.table, helpers (loaded by _structural.R)
+# Dependencies: tidyverse, data.table, helpers (loaded by _supply.R)
 
 # =========================================================================
 # LOAD DATA

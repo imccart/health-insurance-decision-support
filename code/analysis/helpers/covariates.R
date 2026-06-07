@@ -152,7 +152,7 @@ get_covariate_menu <- function() {
 
 
 # =========================================================================
-# Spec I/O — write/read for Julia and cf_worker subprocesses
+# Spec I/O — write/read for Julia and 4_counterfactuals subprocesses
 # =========================================================================
 
 write_demand_spec <- function(spec, asst, path) {
@@ -193,7 +193,7 @@ get_prem_interactions <- function(spec) {
 }
 
 # Returns character vector of raw demographic columns needed by the spec
-# (for exporting in cell CSVs so cf_worker can recompute interactions)
+# (for exporting in cell CSVs so 4_counterfactuals can recompute interactions)
 get_raw_demo_cols <- function(spec) {
   prem_ints <- get_prem_interactions(spec)
   unique(unlist(prem_ints))
@@ -203,7 +203,7 @@ get_raw_demo_cols <- function(spec) {
 # =========================================================================
 # Generic premium interaction recomputation
 # =========================================================================
-# Used by cf_worker when prices change in equilibrium solving
+# Used by 4_counterfactuals when prices change in equilibrium solving
 
 recompute_prem_interactions <- function(dt, spec) {
   prem_ints <- get_prem_interactions(spec)

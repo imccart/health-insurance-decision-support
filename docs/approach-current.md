@@ -38,16 +38,19 @@ Old scripts preserved in `code/data-build/_archive/`.
 
 ### Analysis flow (`code/analysis/_analysis.R`)
 
-1. Set `TEMP_DIR`, `SAMPLE_FRAC=0.02`, `MASTER_SEED=20260224`; export via
-   `Sys.setenv()`.
-2. Source `code/0-setup.R` (renv + packages).
+1. Set `TEMP_DIR`, `SAMPLE_FRAC=0.05`, `MASTER_SEED=20260224`, and
+   `N_BOOT=50L` once in `_analysis.R`; sub-scripts inherit them via the
+   global environment.
+2. Load packages via `library()` at the top (`tidyverse`, `data.table`,
+   `fixest`, `kableExtra`, `nleqslv`, `mlogit`); renv auto-activates via
+   `.Rprofile`.
 3. Source helpers in fixed order (`_analysis.R:24-32`):
    `data-build/_helpers.R`, `helpers/constants.R`, `helpers/covariates.R`,
    `helpers/choice.R`, `helpers/supply.R`, `helpers/ra.R`,
    `helpers/estimate_demand.R`, `helpers/cf_worker.R`, `S2-demand-specs.R`.
 4. Build analysis data (`1_decision-analysis.R`, `2_ipw.R`, `3_summary-stats.R`).
-5. Free big objects, run `reduced-form/_reduced-form.R` then
-   `structural/_structural.R`, then `4_paper-results.R`.
+5. Free big objects, run `reduced-form/_reduced-form.R`, then
+   `structural/_demand.R` and `structural/_supply.R`, then `4_paper-results.R`.
 
 `S2-demand-specs.R` is a standalone driver that can be sourced from a cold
 session — it activates renv, regenerates `hh_full.csv` from
@@ -240,7 +243,7 @@ The intersection-kept count is printed at
 
 ## 9. Sampling
 
-`SAMPLE_FRAC` (env-var, default 0.02) is applied **per channel**, before the
+`SAMPLE_FRAC` (default 0.05) is applied **per channel**, before the
 HH × choice-set cross-join:
 
 ```r
@@ -259,8 +262,8 @@ If the resulting sample has fewer than 50 unique HHs the cell is dropped
 (`helpers/choice.R:44`). Note: `channel != "Unassisted"` includes both
 broker/agent-assisted HHs and navigator HHs as "treated".
 
-Per-cell seeds are drawn once from `MASTER_SEED` in `_structural.R:188-189`
-and `S2-demand-specs.R:269-270`.
+Per-cell seeds are drawn once from `MASTER_SEED` in `structural/_inputs.R`
+(shared by `_demand.R` and `_supply.R`) and in `S2-demand-specs.R`.
 
 ## 10. CSR-enhanced silver handling
 
@@ -293,7 +296,7 @@ for, then collapses the short codes only after attribute indicators are set:
    `"Silver - Enhanced 73/87/94"` rows from the silver indicator on the
    non-collapsed plans.
 
-`structural/_structural.R:90-105` and `S2-demand-specs.R:106-122` apply the
+`0_data-prep.R` (plan_demographics) and `S2-demand-specs.R` apply the
 same `gsub` collapse when computing plan-level demographics
 (so SIL73/87/94 demographics roll into SIL).
 
@@ -390,7 +393,7 @@ are documented in `code/analysis/structural/optimizer.md`:
   spec covariates are silently zeroed (intersected with the file header
   in `load_one_cell`, `helpers/estimate_demand.R:38-40`).
 - **Starting values**: `theta0 = c(rep(0, K), 1.0)` from
-  `_structural.R`/`S2-demand-specs.R`. The structural pipeline always
+  `_demand.R`/`S2-demand-specs.R`. The structural pipeline always
   starts from zeros + λ=1 (no warm start).
 
 The cell loader (`load_one_cell`) requires every HH to have at least one
@@ -540,10 +543,10 @@ Set in `_analysis.R:9-17` and propagated via env vars:
 | Variable | Value | Set in |
 |----------|-------|--------|
 | `TEMP_DIR` | `D:/temp-research-data/health-insurance-decision-support` | `_analysis.R:10` |
-| `SAMPLE_FRAC` | `0.02` (current; `0.20` for final runs) | `_analysis.R:11` |
+| `SAMPLE_FRAC` | `0.05` (current; `0.20` for final runs) | `_analysis.R:11` |
 | `MASTER_SEED` | `20260224` | `_analysis.R:12` |
-| `STRUCTURAL_SPEC` | 20-term spec defined in `_structural.R:13-20` | `_structural.R` |
-| `STRUCTURAL_ASST` | 4-term assisted block (`_structural.R:22-25`) | `_structural.R` |
+| `STRUCTURAL_SPEC` | 20-term spec defined in `_demand.R:13-20` | `_demand.R` |
+| `STRUCTURAL_ASST` | 4-term assisted block (`_demand.R:22-25`) | `_demand.R` |
 | Tau grid for counterfactuals | `c(0, 0.25, 0.5, 0.75, 1.0)` | `cf_worker.R:23` |
 
 Outputs land in `results/`:

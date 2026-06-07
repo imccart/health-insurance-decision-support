@@ -9,7 +9,10 @@
 ##                whenever you want to update paper assets without re-running
 ##                estimation.
 
-source("code/0-setup.R")
+# Packages ----------------------------------------------------------------
+pacman::p_load(
+  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit
+)
 
 TEMP_DIR <- "D:/temp-research-data/health-insurance-decision-support"
 

@@ -9,7 +9,7 @@
 ##                broker-commission correction. Also estimates structural RA
 ##                regressions and validates FOC-implied MC against predicted MC.
 
-# Dependencies: tidyverse, data.table, helpers (loaded by _structural.R)
+# Dependencies: tidyverse, data.table, helpers (loaded by _supply.R)
 
 # =========================================================================
 # Load coefficients and reference data
@@ -17,7 +17,7 @@
 
 cat("\nLoading demand coefficients and reference data...\n")
 
-# plan_choice, commission_lookup loaded by _structural.R
+# plan_choice, commission_lookup loaded by _supply.R (via _inputs.R)
 coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
 lambda <- coefs %>% filter(term == "lambda") %>% pull(estimate)
 cat("  lambda =", round(lambda, 4), "\n")
@@ -59,7 +59,7 @@ rm(rsdata)
 # Identify cells and set seeds (same as demand)
 # =========================================================================
 
-# hh_split, cells, cell_seeds loaded by _structural.R
+# hh_split, cells, cell_seeds loaded by _supply.R (via _inputs.R)
 cat("  Region-year cells:", nrow(cells), "\n")
 
 # =========================================================================
@@ -98,7 +98,7 @@ for (i in seq_len(nrow(cells))) {
   }
 
   # Build supply choice data (same seed/sample as demand)
-  build_result <- build_supply_choice_data(plans, hhs, SAMPLE_FRAC, spec = STRUCTURAL_SPEC)
+  build_result <- build_structural(plans, hhs, SAMPLE_FRAC, spec = STRUCTURAL_SPEC)
   rm(hhs)
 
   if (is.null(build_result)) { n_skip <- n_skip + 1L; rm(plans); next }
@@ -161,7 +161,8 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   # Step 3: Ownership matrix and Omega
   # -----------------------------------------------------------------------
-  own_mat <- build_ownership_matrix(plan_ids_cell)
+  ins_own <- sub("_.*", "", plan_ids_cell)         # ownership matrix: 1 if same firm
+  own_mat <- outer(ins_own, ins_own, "==") * 1L
   Omega <- -own_mat * elast_mat  # positive diagonal
 
   # -----------------------------------------------------------------------

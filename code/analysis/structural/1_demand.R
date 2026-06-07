@@ -8,11 +8,11 @@
 ##                Phase 2 (R): L-BFGS-B nested logit via estimate_demand.R.
 ##                See docs/optimizer.md for algorithm details.
 
-# Dependencies: all loaded by _structural.R
+# Dependencies: all loaded by _demand.R
 
 CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
 
-# hh_split, cells, cell_seeds, plan_choice loaded by _structural.R
+# hh_split, cells, cell_seeds, plan_choice loaded by _demand.R (via _inputs.R)
 
 cat("Region-year cells:", nrow(cells), "\n")
 
@@ -40,9 +40,8 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  cd <- build_choice_data(plans, hhs, SAMPLE_FRAC,
-                          spec = c(STRUCTURAL_SPEC, STRUCTURAL_ASST),
-                          premium_type = "net")
+  cd <- build_structural(plans, hhs, SAMPLE_FRAC,
+                         spec = c(STRUCTURAL_SPEC, STRUCTURAL_ASST))$cell_data
   rm(hhs, plans)
 
   if (!is.null(cd)) {
@@ -109,11 +108,5 @@ if (file.exists(coefs_path)) {
 } else {
   cat("  Coefficients not found.\n")
 }
-
-# Reload hh_split for downstream scripts (pricing, counterfactuals)
-cat("Reloading shared HH data...\n")
-hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
-hh_split <- split(hh_all, by = c("region", "year"))
-rm(hh_all); gc(verbose = FALSE)
 
 cat("\nStructural demand estimation complete.\n")

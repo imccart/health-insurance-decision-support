@@ -2,7 +2,7 @@
 
 ## Author:        Ian McCarthy
 ## Description:   Single source of truth for analysis-side data prep.
-##                Sourced by both _reduced-form.R and _structural.R so the
+##                Sourced by both _reduced-form.R and _demand.R so the
 ##                two paths can never drift on filters, joins, or columns.
 ##
 ##                Inputs (all required):

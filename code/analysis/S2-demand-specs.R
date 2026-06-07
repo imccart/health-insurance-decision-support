@@ -5,9 +5,11 @@
 ##                level data for the nested logit estimator. Estimation
 ##                logic added separately on top of this foundation.
 
-# Setup -------------------------------------------------------------------
+# Packages ----------------------------------------------------------------
+pacman::p_load(
+  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit
+)
 
-source("code/0-setup.R")
 source("code/data-build/_helpers.R")
 source("code/analysis/helpers/constants.R")
 source("code/analysis/helpers/covariates.R")
@@ -100,11 +102,11 @@ library(mlogit)
 set.seed(MASTER_SEED)
 
 # Build per-cell long-format choice data (sampling stratified by CC/ACS
-# happens inside build_choice_data) and pool across target cells.
+# happens inside build_rf) and pool across target cells.
 cell_data <- bind_rows(lapply(seq_len(nrow(TARGET_CELLS)), function(i) {                                                                                                                                                                                                                           
   r <- TARGET_CELLS$region[i]                                                                                                                                                                                                                                                                      
   y <- TARGET_CELLS$year[i]                                                                                                                                                                                                                                                                        
-  build_choice_data(                                                                                                                                                                                                                                                                               
+  build_rf(                                                                                                                                                                                                                                                                               
     plans        = plan_choice %>% filter(region == r, year == y),
     hhs          = hh_choice   %>% filter(region == r, year == y),
     sample_frac  = SAMPLE_FRAC,
@@ -142,7 +144,7 @@ dir.create(cell_dir, recursive = TRUE)
 for (i in seq_len(nrow(TARGET_CELLS))) {
   r <- TARGET_CELLS$region[i]
   y <- TARGET_CELLS$year[i]
-  cd <- build_choice_data(
+  cd <- build_rf(
     plans        = plan_choice %>% filter(region == r, year == y),
     hhs          = hh_choice   %>% filter(region == r, year == y),
     sample_frac  = SAMPLE_FRAC,
@@ -167,7 +169,7 @@ unlink(cell_dir2, recursive = TRUE); dir.create(cell_dir2, recursive = TRUE)
 
 for (i in seq_len(nrow(TARGET_CELLS))) {
   r <- TARGET_CELLS$region[i]; y <- TARGET_CELLS$year[i]
-  cd <- build_choice_data(
+  cd <- build_rf(
     plans        = plan_choice %>% filter(region == r, year == y),
     hhs          = hh_choice   %>% filter(region == r, year == y),
     sample_frac  = SAMPLE_FRAC,
@@ -195,7 +197,7 @@ unlink(cell_dir3, recursive = TRUE); dir.create(cell_dir3, recursive = TRUE)
 
 for (i in seq_len(nrow(TARGET_CELLS))) {
   r <- TARGET_CELLS$region[i]; y <- TARGET_CELLS$year[i]
-  cd <- build_choice_data(
+  cd <- build_rf(
     plans        = plan_choice %>% filter(region == r, year == y),
     hhs          = hh_choice   %>% filter(region == r, year == y),
     sample_frac  = SAMPLE_FRAC,
@@ -220,7 +222,7 @@ unlink(cell_dir4, recursive = TRUE); dir.create(cell_dir4, recursive = TRUE)
 
 for (i in seq_len(nrow(TARGET_CELLS))) {
   r <- TARGET_CELLS$region[i]; y <- TARGET_CELLS$year[i]
-  cd <- build_choice_data(
+  cd <- build_rf(
     plans        = plan_choice %>% filter(region == r, year == y),
     hhs          = hh_choice   %>% filter(region == r, year == y),
     sample_frac  = SAMPLE_FRAC,

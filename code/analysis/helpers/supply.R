@@ -6,14 +6,17 @@
 ##                commission FOC evaluation). Used by 7_supply-simple.R.
 
 
-# build_supply_choice_data ------------------------------------------------
+# build_structural --------------------------------------------------------
 #
-# Like build_choice_data() but retains rating_factor, adj_subsidy, subsidized
-# flag, and hh_premium. Must use the SAME seed and SAMPLE_FRAC as point
-# estimation to get the identical HH sample.
+# Single structural choice-data builder, shared by the structural pipeline
+# (demand in 1_demand.R, supply in 2_pricing.R, counterfactuals in 4_counterfactuals.R).
+# Uses NET premium (matches the structural demand price); retains premium_posted
+# for the markup FOC and the posted->net chain rule. Returns
+# list(cell_data, plan_attrs). Callers must use the SAME seed and SAMPLE_FRAC
+# for an identical HH sample.
 
-build_supply_choice_data <- function(plans, hhs, sample_frac,
-                                     spec = NULL) {
+build_structural <- function(plans, hhs, sample_frac,
+                             spec = NULL) {
 
   hhs_dt <- as.data.table(hhs)
   plans_dt <- as.data.table(plans)
@@ -21,7 +24,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac,
   # Normalize empty-string plan_id (CSV roundtrip artifact) back to NA.
   hhs_dt[plan_id == "", plan_id := NA_character_]
 
-  # 0. Sample HH (identical logic to build_choice_data): sample sample_frac
+  # 0. Sample HH (identical logic to build_rf): sample sample_frac
   # of insured (CC) and the same sample_frac of uninsured (ACS), stratified
   # by source.
   cc_ids  <- hhs_dt[!is.na(plan_id), unique(household_id)]
@@ -120,17 +123,16 @@ build_supply_choice_data <- function(plans, hhs, sample_frac,
   )]
   dt[, insured := max(plan_choice), by = household_id]
 
-  # Posted premium: age-adjusted posted premium (no subsidy deduction).
-  # Subsidy effects captured via FPL x premium interactions in demand model.
+  # Net premium: out-of-pocket after subsidy, less the per-month penalty offset.
+  # Matches the structural demand price (choice.R premium_type = "net"). The
+  # posted premium is retained separately (premium_posted) for the markup FOC
+  # and the posted->net chain rule in compute_shares_and_elasticities.
+  dt[, adj_subsidy := fifelse(is.na(subsidy), 0, subsidy)]
   dt[, premium_hh := (premium_posted / RATING_FACTOR_AGE40) * rating_factor]
-  # Outside option premium = 0. Penalty effect captured by penalty_own.
-  # Keeps β_premium identified only from insured plan variation.
   dt[, premium_oop := fcase(
     issuer == "Outside_Option",        0.0,
-    default = premium_hh
+    default = pmax(premium_hh - adj_subsidy, 0) - penalty / 12
   )]
-  # adj_subsidy and subsidized still needed for benchmark elasticity split
-  dt[, adj_subsidy := fifelse(is.na(subsidy), 0, subsidy)]
   dt[, av := fcase(
     metal == "Minimum Coverage",     0.55,
     metal == "Bronze",               0.60,
@@ -300,7 +302,7 @@ build_supply_choice_data <- function(plans, hhs, sample_frac,
   setnames(dt, c("plan_choice", "net_premium", "household_id"),
                c("choice", "premium", "household_number"))
 
-  # Exclusion restriction + interactions (same as build_choice_data)
+  # Exclusion restriction + interactions (same as build_rf)
   # penalty_own identifies outside option utility separately from premium
   dt[, penalty_own := fifelse(plan_id == "Uninsured",
                                penalty / 12 / hh_size, 0)]
@@ -318,14 +320,29 @@ build_supply_choice_data <- function(plans, hhs, sample_frac,
   # Keep ALL households for supply-side aggregation
   dt[, assisted := fifelse(channel != "Unassisted", 1L, 0L)]
 
-  # Commission x broker interaction (structural path only)
+  # Assistance / commission interaction terms (structural). Defined identically
+  # to the demand path. Non-broker (navigator) assistance carries the metal
+  # advice effect; broker steering is carried entirely by commission_broker.
+  # NA any_agent -> non-broker; v_hat (NA on uninsured rows) coalesced to 0 so
+  # it doesn't poison all-HH shares.
   if ("comm_pmpm" %in% names(dt)) {
-    dt[, commission_broker := comm_pmpm * assisted]
+    if ("any_agent" %in% names(dt)) {
+      dt[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
+      dt[, commission_broker := comm_pmpm * fifelse(any_agent == 1L, assisted, 0L, na = 0L)]
+    } else {
+      dt[, nonbroker := assisted]
+      dt[, commission_broker := comm_pmpm * assisted]
+    }
+    dt[, `:=`(
+      assisted_silver = nonbroker * silver,
+      assisted_bronze = nonbroker * bronze,
+      assisted_gold   = nonbroker * gold,
+      assisted_plat   = nonbroker * platinum
+    )]
+    dt[, nonbroker := NULL]
   }
-
-  # CF x commission interaction (structural path only)
   if ("v_hat" %in% names(dt) && "commission_broker" %in% names(dt)) {
-    dt[, v_hat_commission := v_hat * commission_broker]
+    dt[, v_hat_commission := fcoalesce(v_hat, 0) * commission_broker]
   }
 
   # Keep only HH where exactly one plan is chosen
@@ -561,17 +578,6 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
   }
 
   list(shares = shares, elast_mat = elast_mat, plan_ids = plan_ids)
-}
-
-
-# build_ownership_matrix --------------------------------------------------
-#
-# J x J binary matrix where (j, l) = 1 if same firm.
-# Prefix before first underscore determines insurer.
-
-build_ownership_matrix <- function(plan_ids) {
-  insurers <- sub("_.*", "", plan_ids)
-  outer(insurers, insurers, "==") * 1L
 }
 
 

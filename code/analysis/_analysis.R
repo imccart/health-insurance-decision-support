@@ -12,9 +12,10 @@ SAMPLE_FRAC  <- 0.05
 MASTER_SEED  <- 20260224
 N_BOOT       <- 50L   # bootstrap reps for reduced-form CIs; set to 0 to skip
 
-# Setup -------------------------------------------------------------------
-source("code/0-setup.R")
-
+# Packages ----------------------------------------------------------------
+pacman::p_load(
+  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit
+)
 
 # Helpers (loaded once, used by all downstream scripts) -------------------
 source("code/data-build/_helpers.R")
@@ -24,7 +25,6 @@ source("code/analysis/helpers/choice.R")
 source("code/analysis/helpers/supply.R")
 source("code/analysis/helpers/ra.R")
 source("code/analysis/helpers/estimate_demand.R")
-source("code/analysis/helpers/cf_worker.R")
 
 
 # Build analysis data -----------------------------------------------------
@@ -32,17 +32,17 @@ source("code/analysis/1_decision-analysis.R")
 source("code/analysis/2_ipw.R")
 source("code/analysis/3_summary-stats.R")
 
-# Free data objects before reduced-form (functions/constants stay loaded).
-# 3_summary-stats.R already rm's hh_full after deriving its subsets, and
-# its own end leaves hh_ins / hh_clean live — sweep up whatever remains.
+## clean environment
 rm(list = intersect(c("hh_full", "hh_clean", "hh_ins", "hh_ins_ps"), ls()))
 gc(full = TRUE, verbose = FALSE)
+
 
 # Run reduced-form analysis ------------------------------------------------
 source('code/analysis/reduced-form/_reduced-form.R')
 
-# Run structural analysis ------------------------------------------------
-source('code/analysis/structural/_structural.R')
+# Run structural analysis  ------------------------------------------------
+source('code/analysis/structural/_demand.R') ## last run 2026-06-06
+source('code/analysis/structural/_supply.R')
 
 # Numbers in paper --------------------------------------------------------
 source("code/analysis/4_paper-results.R")

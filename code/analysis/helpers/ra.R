@@ -110,7 +110,7 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
   # P(j) = P(insured) * P(j | insured)
   ins_dt[, prob := P_ins * P_j_ins]
 
-  # HH-level weight (hh_size from build_choice_data)
+  # HH-level weight (hh_size from the choice-data builder)
   w <- if ("hh_weight" %in% names(ins_dt)) ins_dt$hh_weight else rep(1, nrow(ins_dt))
   ins_dt[, w := w]
   ins_dt[, wp := w * prob]

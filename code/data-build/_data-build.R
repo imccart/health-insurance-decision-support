@@ -10,7 +10,11 @@
 #   data/output/broker_density.csv     (region-year broker/agent counts)
 #   data/output/rate_filing_rsdata.csv (plan-level risk/rate data for supply)
 
-source("code/0-setup.R")
+# Packages ----------------------------------------------------------------
+pacman::p_load(
+  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit
+)
+
 source("code/data-build/_helpers.R")
 
 cat("=== Starting data build ===\n\n")

@@ -16,8 +16,10 @@
 ##   Treatment effect: delta_j (assistance shifts utility by plan)
 ##   Instrument: Z_i (broker density, excluded from utility)
 
-source("code/0-setup.R")
-library(mlogit)
+# Packages ----------------------------------------------------------------
+pacman::p_load(
+  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit
+)
 
 # =========================================================================
 # Parameters
