@@ -115,6 +115,49 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   mean_comm_pmpm <- mean(sr_cell$commission_pmpm[sr_cell$commission_pmpm > 0], na.rm = TRUE)
   if (is.na(mean_comm_pmpm)) mean_comm_pmpm <- 0
 
+  # update_premiums ---------------------------------------------------------
+  # Re-level the demand `premium` column for a candidate posted-premium vector,
+  # reproducing the builder's NET premium (helpers/supply.R): posted -> age-40-
+  # normalized HH premium -> OOP after subsidy and penalty offset -> per-member,
+  # per-$100. Single source of truth for both the FOC evaluation and the
+  # post-solution outcome recompute.
+  #
+  # ENDOGENOUS SUBSIDY (Saltzman RAND JE 2021, Eq. 8). The APTC moves with the
+  # benchmark (2nd-cheapest silver) premium: subsidy = max(0, premiumSLC(p) - zeta),
+  # where zeta_it = SLC_contribution is the fixed income cap (carried from the data
+  # build; NA for subsidy-ineligible HHs). We anchor the HH benchmark premium to its
+  # data-build value premiumSLC and add the HH-scaled change in the benchmark plan's
+  # posted price, so the observed scenario reproduces the data subsidy exactly
+  # (delta = 0 -> subsidy = pmax(0, premiumSLC - zeta), the data-build formula) while
+  # counterfactual benchmark moves feed through. Benchmark IDENTITY is held fixed at
+  # the baseline 2nd-cheapest silver; only its price moves. This makes the level
+  # consistent with the 4-case derivative already in compute_shares_and_elasticities
+  # and the FOC Jacobian (own-benchmark net price flat; other plans fall by rf_i as
+  # the benchmark rises). p_obs and benchmark_plan are closed over from run_cf_cell.
+  update_premiums <- function(dt, p_vec) {
+    rf_i <- dt$rating_factor / RATING_FACTOR_AGE40
+    if (!is.na(benchmark_plan) && benchmark_plan %in% names(p_vec)) {
+      d_bench       <- p_vec[[benchmark_plan]] - p_obs[[benchmark_plan]]
+      premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
+      sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
+      # Gate on the SAME `subsidized` flag the 4-case elasticity derivative uses, so
+      # the level and the derivative apply to the identical household set. subsidized==1L
+      # now implies finite SLC_contribution, so sub_endog is finite where it's used.
+      dt[, subsidy_cf := fifelse(subsidized == 1L, sub_endog, adj_subsidy)]
+    } else {
+      dt[, subsidy_cf := adj_subsidy]   # no benchmark silver -> fall back to baseline
+    }
+
+    for (pn in names(p_vec)) {
+      idx <- which(dt$plan_id == pn)
+      if (length(idx) == 0) next
+      premium_hh <- (p_vec[pn] / RATING_FACTOR_AGE40) * dt$rating_factor[idx]
+      oop <- pmax(premium_hh - dt$subsidy_cf[idx], 0) - dt$penalty[idx] / 12
+      set(dt, i = idx, j = "premium", value = oop / dt$hh_size[idx] / 100)
+    }
+    recompute_prem_interactions(dt, STRUCTURAL_SPEC)
+  }
+
   # FOC function and analytical Jacobian -------------------------------------
   # Returns list(fn, jac) sharing a cache. fn computes the FOC residual with
   # endogenous MC(p) (Saltzman RAND JE 2021, eq. 13) and caches intermediates.
@@ -162,18 +205,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     cache$iter <- 0L
     cache$p_vec_prev <- setNames(rep(0, J), plan_ids_cell)
 
-    # --- Helper: update premiums in a data.table copy ---
-    update_premiums <- function(dt, p_vec) {
-      for (pn in names(p_vec)) {
-        idx <- dt$plan_id == pn
-        if (sum(idx) == 0) next
-        hh_prem_new <- (p_vec[pn] / RATING_FACTOR_AGE40) * dt$rating_factor[idx]
-        dt$premium[idx] <- hh_prem_new / dt$hh_size[idx]
-      }
-      recompute_prem_interactions(dt[plan_id != "Uninsured"], STRUCTURAL_SPEC)
-      dt
-    }
-
     # --- Helper: compute all FOC quantities at a price vector ---
     eval_foc_quantities <- function(dt, p_vec) {
       util <- compute_utility(dt, coefs_cell)
@@ -187,7 +218,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       pn <- names(p_vec)
       shares <- se$shares[pn]
       elast <- se$elast_mat[pn, pn]
-      avg_p <- mean(p_vec, na.rm = TRUE)
+      # Enrollment-weighted statewide average premium (ACA RA scale), not a plan mean.
+      avg_p <- weighted.mean(p_vec, shares, na.rm = TRUE)
       demo <- tryCatch(compute_demographic_shares(dt, V, lambda), error = function(e) NULL)
       if (is.null(demo)) return(NULL)
       mc_res <- compute_mc(rs_coefs, claims_coefs, plan_chars_cell,
@@ -216,7 +248,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       q <- eval_foc_quantities(dt, p_vec)
       if (is.null(q)) return(rep(NA_real_, length(p_vec)))
 
-      Omega <- -own_mat[pn_solve, pn_solve] * q$elast_mat
+      # Multi-product Bertrand FOC: equation j contracts ds_k/dp_j = t(E)[j,k], so
+      # transpose the elasticity before forming Omega (matches 2_pricing.R).
+      Omega <- -own_mat[pn_solve, pn_solve] * t(q$elast_mat)
 
       # Cache for jac
       cache$dt <- dt
@@ -227,7 +261,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
       # FOC residual
       if (!is.null(q$broker_elast)) {
-        Omega_B <- -own_mat[pn_solve, pn_solve] * q$broker_elast
+        Omega_B <- -own_mat[pn_solve, pn_solve] * t(q$broker_elast)
         comm_vec <- comm_scenario[pn_solve]
         resid <- q$shares + q$ra_foc_p[pn_solve] -
           as.vector(Omega %*% (p_vec - q$mc_p)) +
@@ -237,15 +271,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
           as.vector(Omega %*% (p_vec - q$mc_p))
       }
 
-      # Per-iteration diagnostic
+      # Track fn evaluations (per-iteration printing removed — it flooded the
+      # console under the numerical Jacobian; per-scenario summaries below suffice).
       cache$iter <- cache$iter + 1L
-      if (cache$iter <= 5 || cache$iter %% 10 == 0) {
-        f_norm <- sqrt(sum(resid^2))
-        dp <- max(abs(p_vec - cache$p_vec_prev), na.rm = TRUE)
-        cat(sprintf("      iter %3d: |f|=%.6f, max|dp|=%.2f, mean(mc)=%.1f\n",
-                    cache$iter, f_norm, dp, mean(q$mc_p, na.rm = TRUE)))
-      }
-      cache$p_vec_prev <- p_vec
 
       resid
     }
@@ -372,6 +400,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
           s_dk <- setNames(demo_sh[[d]], demo_sh$plan_id)[pn_solve]
 
           ds_dk_dp_m <- (dD_vec - s_dk * dQ_vec) / Q_vec
+          # A plan whose choice prob underflows to ~0 (very negative utility when the
+          # solver pushes its price up) gives Q_vec = 0 and a 0/0 = NaN here, which
+          # propagates to a non-finite Jacobian — this is what broke the analytical
+          # jac on the larger (23-plan) cells. An empty plan has no enrollment-weighted
+          # composition, so its demographic-share derivative is 0.
+          ds_dk_dp_m[!is.finite(ds_dk_dp_m) | Q_vec < 1e-10] <- 0
           dr_dp_m <- dr_dp_m + gamma_d * ds_dk_dp_m
         }
         rs_vec <- q$rs_p[pn_solve]
@@ -399,6 +433,11 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         }
 
         dmc_dp[, m_idx] <- dc_dp_m * (1 - reins_local[pn_solve]) - dRA_dp_m
+        # Backstop: a non-finite MC derivative (e.g. from rs_vec underflow or an
+        # RA denominator collapsing at an extreme trial price) would make the whole
+        # Jacobian non-finite and abort the solve. Zero it instead so Newton can
+        # step away from the degenerate point rather than crash.
+        dmc_dp[!is.finite(dmc_dp[, m_idx]), m_idx] <- 0
         dr_dp_mat[, m_idx] <- dr_dp_m
 
         # T4: elasticity curvature
@@ -443,21 +482,31 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         rm(merged, m_info, dQ_k)
       }
 
+      T1T2_mat <- J_mat                          # E - Omega so far
+
       # T3: Omega %*% dmc_dp
-      J_mat <- J_mat + Omega %*% dmc_dp
+      T3_mat <- Omega %*% dmc_dp
+      J_mat <- J_mat + T3_mat
 
       # T4: elasticity curvature
       J_mat <- J_mat + T4_mat
 
       # T6: d(ra_foc_l)/dp_m  (cheap FD using analytical dr_dp)
+      T6_mat <- matrix(0, J_local, J_local, dimnames = list(pn_solve, pn_solve))
       eps_ra <- 1e-5
       for (m_idx in seq_along(pn_solve)) {
         shares_plus <- shares + E[, m_idx] * eps_ra
         rs_plus <- q$rs_p[pn_solve] + dr_dp_mat[, m_idx] * eps_ra
         ra_foc_plus <- compute_ra_foc(rs_plus, shares_plus, plan_avs, q$avg_prem,
                                        E, own_mat[pn_solve, pn_solve])
-        J_mat[, m_idx] <- J_mat[, m_idx] + (ra_foc_plus[pn_solve] - q$ra_foc_p[pn_solve]) / eps_ra
+        T6_mat[, m_idx] <- (ra_foc_plus[pn_solve] - q$ra_foc_p[pn_solve]) / eps_ra
+        J_mat[, m_idx] <- J_mat[, m_idx] + T6_mat[, m_idx]
       }
+
+      if (isTRUE(getOption("cf.jac.debug", FALSE)))
+        assign(".cf_jac_terms",
+               list(T1T2 = T1T2_mat, T3 = T3_mat, T4 = T4_mat, T6 = T6_mat,
+                    dmc_dp = dmc_dp, Omega = Omega), envir = globalenv())
 
       J_mat
     }
@@ -521,11 +570,105 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         ", any NA:", any(is.na(f0)), "\n")
     if (any(is.na(f0))) return(NULL)
 
+    # --- Jacobian diagnostic (options(cf.jac.debug = TRUE)): compare the analytical
+    # fns$jac against a central-difference numerical Jacobian at p_init, then stop. ---
+    if (isTRUE(getOption("cf.jac.debug", FALSE))) {
+      Ja <- fns$jac(p_init)                  # cache populated by f0 above (p_init)
+      n <- length(p_init)
+      Jn <- matrix(0, n, n, dimnames = list(names(p_init), names(p_init)))
+      hh <- 1e-4 * pmax(abs(p_init), 1)
+      for (j in seq_len(n)) {
+        pp <- p_init; pp[j] <- pp[j] + hh[j]
+        pm <- p_init; pm[j] <- pm[j] - hh[j]
+        Jn[, j] <- (fns$fn(pp) - fns$fn(pm)) / (2 * hh[j])
+      }
+      D <- Ja - Jn
+      cat("\n=== JAC DEBUG cell", r, y, " (J =", n, ") ===\n")
+      cat("max|A-N| =", signif(max(abs(D)), 4),
+          "  ||A-N||_F =", signif(sqrt(sum(D^2)), 4),
+          "  ||N||_F =", signif(sqrt(sum(Jn^2)), 4), "\n")
+      cat("per-column ||A-N|| (perturbed plan m):\n")
+      for (j in seq_len(n))
+        cat(sprintf("  col %2d %-10s  ||dA-N||=%10.4g   ||N||=%10.4g\n",
+            j, names(p_init)[j], sqrt(sum(D[, j]^2)), sqrt(sum(Jn[, j]^2))))
+      cat("top 12 worst entries [row,col]:\n")
+      ord <- order(abs(D), decreasing = TRUE)[seq_len(min(12, n * n))]
+      for (idx in ord) {
+        i <- ((idx - 1) %% n) + 1; j <- ((idx - 1) %/% n) + 1
+        cat(sprintf("  [%2d,%2d] %-9s<-%-9s  A=%11.4g  N=%11.4g  d=%11.4g\n",
+            i, j, names(p_init)[i], names(p_init)[j], Ja[i, j], Jn[i, j], D[i, j]))
+      }
+      if (exists(".cf_jac_terms", envir = globalenv())) {
+        tm <- get(".cf_jac_terms", envir = globalenv())
+        cat("per-term contribution (true total diag mean ~", signif(mean(diag(Jn)), 3), "):\n")
+        for (nm in c("T1T2", "T3", "T4", "T6")) {
+          dg <- diag(tm[[nm]])
+          cat(sprintf("  %-5s diag mean=%11.4g  ||diag||=%11.4g  ||mat||_F=%11.4g\n",
+              nm, mean(dg), sqrt(sum(dg^2)), sqrt(sum(tm[[nm]]^2))))
+        }
+        cat("  dmc_dp: diag mean=", signif(mean(diag(tm$dmc_dp)), 4),
+            " range [", signif(min(tm$dmc_dp), 4), ",", signif(max(tm$dmc_dp), 4), "]\n")
+      }
+      if (interactive()) stop("cf.jac.debug: comparison printed for cell ", r, " ", y)
+      else quit(save = "no")
+    }
+
+    # Broyden quasi-Newton with a Levenberg-Marquardt hook step. The analytical
+    # fns$jac is incorrect (the T4 curvature term is ~200x off — deferred), so we
+    # build the Jacobian from fn evaluations instead. The cells are ill-conditioned
+    # (near-substitute plans give cond(J) ~ 1e6, and the high-tau steering scenarios
+    # are outright singular), so a plain Broyden step fails to move. global = "hook"
+    # damps the step (solve (J'J + lambda I) dx), giving a minimum-norm step even
+    # when J is singular — it picks a particular equilibrium along the economically
+    # uninformative flat direction. maxit is capped low: the residual plateaus at the
+    # conditioning floor well before 150 iters, and the |f| < 0.05 acceptance below
+    # catches the plateaued solutions.
     sol <- tryCatch(
-      nleqslv(x = p_init, fn = fns$fn, jac = fns$jac, method = "Newton",
+      nleqslv(x = p_init, fn = fns$fn, method = "Broyden", global = "hook",
               control = list(maxit = 100, xtol = 1e-6, ftol = 1e-8)),
       error = function(e) { cat("    nleqslv error:", conditionMessage(e), "\n"); NULL }
     )
+
+    # --- Conditioning / smoothness diagnostic at the plateau (options(cf.cond.debug)) ---
+    if (isTRUE(getOption("cf.cond.debug", FALSE)) && !is.null(sol)) {
+      p_star <- sol$x; f_star <- fns$fn(p_star); n <- length(p_star)
+      cat("\n=== COND DEBUG cell", r, y, " (J =", n, ") ===\n")
+      cat("solver: termcd =", sol$termcd, " final |f| =", signif(sqrt(sum(f_star^2)), 4),
+          " iters =", sol$iter, "\n")
+      jac_at_h <- function(hrel) {
+        J <- matrix(0, n, n); hv <- hrel * pmax(abs(p_star), 1)
+        for (j in seq_len(n)) {
+          pp <- p_star; pp[j] <- pp[j] + hv[j]
+          pm <- p_star; pm[j] <- pm[j] - hv[j]
+          J[, j] <- (fns$fn(pp) - fns$fn(pm)) / (2 * hv[j])
+        }
+        J
+      }
+      J2 <- jac_at_h(1e-2); J4 <- jac_at_h(1e-4); J6 <- jac_at_h(1e-6)
+      cat("SMOOTHNESS (Jacobian vs FD step; large shift as h shrinks => non-smooth/kink):\n")
+      cat("  max|J(1e-2)-J(1e-4)| =", signif(max(abs(J2 - J4)), 4),
+          "   max|J(1e-4)-J(1e-6)| =", signif(max(abs(J4 - J6)), 4),
+          "   ||J(1e-4)||_F =", signif(sqrt(sum(J4^2)), 4), "\n")
+      sv <- svd(J4)$d
+      cat("CONDITIONING: cond(J) =", signif(max(sv) / min(sv), 4),
+          "  min sing =", signif(min(sv), 4), "  max sing =", signif(max(sv), 4), "\n")
+      if (!is.na(benchmark_plan) && benchmark_plan %in% names(p_star)) {
+        dtt <- as.data.table(cd_scenario)
+        hhd <- dtt[, .(premiumSLC = first(premiumSLC), SLC = first(SLC_contribution),
+                       rf = first(rating_factor)), by = household_number]
+        d_bench <- p_star[[benchmark_plan]] - p_obs[[benchmark_plan]]
+        hhd[, gap := premiumSLC + (rf / RATING_FACTOR_AGE40) * d_bench - SLC]  # subsidy = pmax(0, gap)
+        elig <- hhd[is.finite(SLC)]
+        cat("SUBSIDY KINK exposure at p* (eligible HH =", nrow(elig), "of", nrow(hhd),
+            "; benchmark moved $", signif(d_bench, 4), "):\n")
+        cat("  |gap| < $5/mo:", sum(abs(elig$gap) < 5),
+            "   |gap| < $20/mo:", sum(abs(elig$gap) < 20),
+            "   clipped (gap<=0):", sum(elig$gap <= 0),
+            "   positive:", sum(elig$gap > 0), "\n")
+      } else cat("SUBSIDY KINK: no benchmark silver in this cell\n")
+      if (interactive()) stop("cf.cond.debug done for cell ", r, " ", y)
+      else quit(save = "no")
+    }
 
     if (!is.null(sol) && sol$termcd > 2) {
       f_norm <- sqrt(sum(sol$fvec^2))
@@ -537,14 +680,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     p_sol <- sol$x
 
-    dt_sol <- as.data.table(copy(cd_scenario))
-    for (pn in names(p_sol)) {
-      idx <- dt_sol$plan_id == pn
-      if (sum(idx) == 0) next
-      hh_prem_new <- (p_sol[pn] / RATING_FACTOR_AGE40) * dt_sol$rating_factor[idx]
-      dt_sol$premium[idx] <- hh_prem_new / dt_sol$hh_size[idx]
-    }
-    recompute_prem_interactions(dt_sol[plan_id != "Uninsured"], STRUCTURAL_SPEC)
+    dt_sol <- update_premiums(as.data.table(copy(cd_scenario)), p_sol)
 
     util_sol <- compute_utility(dt_sol, coefs)
     se_sol <- tryCatch(
@@ -685,14 +821,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     if (!is.null(eq_tau)) {
       dt_cs <- eq_tau$dt_final
       if (is.null(dt_cs)) {
-        dt_cs <- as.data.table(copy(cd_tau))
-        for (pn in names(eq_tau$p)) {
-          idx <- dt_cs$plan_id == pn
-          if (sum(idx) == 0) next
-          hh_prem_new <- (eq_tau$p[pn] / RATING_FACTOR_AGE40) * dt_cs$rating_factor[idx]
-          dt_cs$premium[idx] <- hh_prem_new / dt_cs$hh_size[idx]
-        }
-        recompute_prem_interactions(dt_cs[plan_id != "Uninsured"], STRUCTURAL_SPEC)
+        dt_cs <- update_premiums(as.data.table(copy(cd_tau)), eq_tau$p)
       }
       cs_tau <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
                           error = function(e) NA_real_)
@@ -808,6 +937,11 @@ n_fail    <- 0L
 failed_cells <- character(0)
 t_start <- Sys.time()
 
+# Append each cell's result as it finishes so a partial/cancelled run still leaves
+# a readable file on disk. Phase 3 rewrites the clean combined file at the end.
+cf_out_path <- "results/counterfactual_results.csv"
+if (file.exists(cf_out_path)) file.remove(cf_out_path)
+
 for (i in seq_len(nrow(cells))) {
   r <- cells$region[i]
   y <- cells$year[i]
@@ -836,6 +970,7 @@ for (i in seq_len(nrow(cells))) {
   if (!is.null(cell_result)) {
     results_list[[i]] <- cell_result
     n_success <- n_success + 1L
+    write_csv(cell_result, cf_out_path, append = file.exists(cf_out_path))
   } else {
     n_fail <- n_fail + 1L
     failed_cells <- c(failed_cells, paste0(r, "_", y))

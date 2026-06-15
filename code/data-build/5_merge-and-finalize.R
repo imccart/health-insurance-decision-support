@@ -107,8 +107,11 @@ demand_hh <- demand_hh %>%
   mutate(subsidy = if_else(subsidy_eligible_fpl == 1,
                             pmax(0, premiumSLC - SLC_contribution),
                             0)) %>%
-  select(-subsidy_eligible_fpl, -fpl_LB, -fpl_UB, -perc_LB, -perc_UB,
-         -SLC_contribution)
+  select(-subsidy_eligible_fpl, -fpl_LB, -fpl_UB, -perc_LB, -perc_UB)
+# SLC_contribution (the income contribution cap zeta_it) and premiumSLC (the HH
+# benchmark premium) are RETAINED: the structural counterfactual endogenizes the
+# subsidy = pmax(0, premiumSLC(p) - SLC_contribution) as the benchmark price moves.
+# NA SLC_contribution flags subsidy-ineligible HHs (outside 138-400% FPL).
 
 
 # Mandate penalty ----------------------------------------------------------

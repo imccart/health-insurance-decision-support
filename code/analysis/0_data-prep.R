@@ -144,7 +144,8 @@ rm(plan_demographics)
 hh_choice <- hh_full %>%
   select(region, year, household_id, FPL, subsidized_members, rating_factor,
          plan_id, oldest_member, cheapest_premium, subsidy, penalty,
-         poverty_threshold, household_size, weight, ipweight, v_hat,
+         poverty_threshold, SLC_contribution, premiumSLC,
+         household_size, weight, ipweight, v_hat,
          perc_0to17, perc_18to34, perc_35to54,
          perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
          channel, channel_detail, any_agent, p_nav)

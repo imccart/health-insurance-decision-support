@@ -104,8 +104,10 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Blue_Shield <- as.integer(str_detect(pn, "^BS"))
   foc_cells[[k]]$Health_Net <- as.integer(str_detect(pn, "^HN"))
 
-  # Demographics (plan-year level)
-  demo <- plan_demo_yr %>% filter(year == y)
+  # Demographics (plan-year level). Drop the NA-plan_id aggregate row: a logical
+  # match `demo$plan_id == p` evaluates to NA at that row, and NA-indexing injects
+  # a spurious NA as v[1] for every plan (poisons pred_rs/claims/mc downstream).
+  demo <- plan_demo_yr %>% filter(year == y, !is.na(plan_id))
   foc_cells[[k]]$share_18to34 <- sapply(pn, function(p) {
     v <- demo$share_18to34[demo$plan_id == p]
     if (length(v) == 0) return(mean(demo$share_18to34, na.rm = TRUE))
@@ -217,7 +219,8 @@ compute_g_bar <- function(theta) {
     # RA transfers (budget-neutral within cell)
     sh <- fc$shares
     av <- fc$plan_avs
-    avg_p <- mean(fc$posted_premium, na.rm = TRUE)
+    # Enrollment-weighted statewide average premium (ACA RA scale), not a plan mean.
+    avg_p <- weighted.mean(fc$posted_premium, fc$shares, na.rm = TRUE)
 
     av_r <- as.character(round(av, 1))
     mh <- MH_LOOKUP[av_r]; mh[is.na(mh)] <- 1.0
@@ -230,8 +233,13 @@ compute_g_bar <- function(theta) {
     mc <- pred_claims * (1 - fc$reins_vec) - ra
 
     # FOC residual: s + ra_foc + Omega * (p - mc) + Omega_broker * comm
-    # Includes RA derivative (adverse selection in pricing)
-    ra_foc_cell <- if (!is.null(fc$ra_foc)) fc$ra_foc else rep(0, J)
+    # Includes RA derivative (adverse selection in pricing). RECOMPUTE ra_foc at the
+    # current cost parameters (it depends on pred_rs, which moves with theta) rather
+    # than reading the stale OLS-stage fc$ra_foc — matches what 4_counterfactuals does.
+    ra_foc_cell <- if (!is.null(fc$elast_mat) && !is.null(fc$own_mat)) {
+      compute_ra_foc(setNames(pred_rs, fc$plan_ids), fc$shares, fc$plan_avs,
+                     avg_p, fc$elast_mat, fc$own_mat)
+    } else if (!is.null(fc$ra_foc)) fc$ra_foc else rep(0, J)
     foc_resid <- fc$shares + ra_foc_cell -
                  as.vector(fc$Omega %*% (fc$posted_premium - mc)) +
                  as.vector(fc$Omega_broker %*% fc$comm_vec)

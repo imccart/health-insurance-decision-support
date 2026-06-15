@@ -163,7 +163,11 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   ins_own <- sub("_.*", "", plan_ids_cell)         # ownership matrix: 1 if same firm
   own_mat <- outer(ins_own, ins_own, "==") * 1L
-  Omega <- -own_mat * elast_mat  # positive diagonal
+  # Multi-product Bertrand FOC for plan j needs sum_k own[j,k] (p_k - mc_k) ds_k/dp_j.
+  # elast_mat[j,l] = ds_j/dp_l (row = responder), so equation j needs elast_mat[k,j]
+  # = t(elast_mat)[j,k]. Transpose before forming Omega. (Symmetric off the benchmark,
+  # so this only moves the silver/benchmark insurer's markups, but it is the correct FOC.)
+  Omega <- -own_mat * t(elast_mat)  # positive diagonal
 
   # -----------------------------------------------------------------------
   # Step 4: Broker shares and elasticities (assisted HH only)
@@ -173,7 +177,7 @@ for (i in seq_len(nrow(cells))) {
     spec = STRUCTURAL_SPEC
   )
   broker_elast_mat <- broker_result$broker_elast_mat
-  Omega_broker <- -own_mat * broker_elast_mat
+  Omega_broker <- -own_mat * t(broker_elast_mat)  # same transpose as Omega
 
   # -----------------------------------------------------------------------
   # Step 5: Risk scores and RA (needed for FOC RA derivative)
@@ -196,7 +200,9 @@ for (i in seq_len(nrow(cells))) {
     error = function(e) NULL
   )
 
-  avg_prem <- mean(posted_premium, na.rm = TRUE)
+  # Statewide average premium = enrollment-weighted (premium revenue / member-months),
+  # not an unweighted plan mean (ACA / Pope et al. RA formula).
+  avg_prem <- weighted.mean(posted_premium, shares, na.rm = TRUE)
   rf_cell <- reins_df %>% filter(year == y)
   reins_vec <- sapply(plan_ids_cell, function(pn) {
     rf <- rf_cell$reins_factor[rf_cell$plan_id == pn]
@@ -259,7 +265,9 @@ for (i in seq_len(nrow(cells))) {
     posted_premium = posted_premium,
     reins_vec      = reins_vec,
     plan_avs       = plan_avs,
-    ra_foc         = ra_foc
+    ra_foc         = ra_foc,
+    elast_mat      = elast_mat,   # raw (untransposed) E, so the GMM can recompute ra_foc at its theta
+    own_mat        = own_mat
   ), file.path(foc_inputs_dir, paste0("foc_", r, "_", y, ".rds")))
 
   # -----------------------------------------------------------------------

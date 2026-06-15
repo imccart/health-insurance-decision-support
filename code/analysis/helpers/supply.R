@@ -74,7 +74,7 @@ build_structural <- function(plans, hhs, sample_frac,
     household_id, FPL, subsidized_members, rating_factor,
     hh_plan_id = plan_id,
     oldest_member, cheapest_premium, subsidy, penalty,
-    poverty_threshold,
+    poverty_threshold, SLC_contribution, premiumSLC,
     cutoff = AFFORD_THRESHOLDS[as.character(year)]
   )]
 
@@ -145,7 +145,15 @@ build_structural <- function(plans, hhs, sample_frac,
     issuer == "Outside_Option",      0,
     default = NA_real_
   )]
-  dt[, subsidized := fifelse(subsidized_members > 0, 1L, 0L)]
+  # Subsidized = has a finite contribution cap (FPL 138-400%), i.e. the household for
+  # whom the price-linked subsidy is defined and responds to the benchmark. ONE flag,
+  # gating BOTH the subsidy level (update_premiums) and the benchmark 4-case derivative
+  # below, so the FOC residual and its gradient use the identical household set. Keyed
+  # on SLC_contribution (is.finite is FALSE, never NA, when absent) NOT on
+  # subsidized_members, which is NA for ~40% of rows — that NA would propagate into
+  # the net premium and poison the cell's shares (and was silently dropping those
+  # households from the elasticity benchmark column).
+  dt[, subsidized := as.integer(is.finite(SLC_contribution))]
 
   # premium_posted kept on data for supply-side use
 
@@ -174,6 +182,8 @@ build_structural <- function(plans, hhs, sample_frac,
       rating_factor  = first(rating_factor),
       adj_subsidy    = first(adj_subsidy),
       subsidized     = first(subsidized),
+      SLC_contribution = first(SLC_contribution),
+      premiumSLC     = first(premiumSLC),
       premium_hh     = min(premium_hh, na.rm = TRUE),
       premium_posted = min(premium_posted, na.rm = TRUE)
     ), by = .(household_id, base_metal)]
@@ -281,7 +291,11 @@ build_structural <- function(plans, hhs, sample_frac,
   # 9. Build plan_attrs — canonical plan attribute table (post-collapse)
   plan_attrs <- dt[plan_id != "Uninsured", .(
     issuer         = first(issuer),
-    metal          = first(metal),
+    # Base metal, NOT the CSR-enhanced label. first(metal) can pick up
+    # "Silver - Enhanced 73/87/94" depending on row order, which breaks every
+    # downstream exact match on metal == "Silver" (benchmark identification and
+    # the Silver dummy in the risk-score/MC prediction). Strip the CSR suffix.
+    metal          = sub(" - Enhanced.*", "", first(metal)),
     network_type   = first(network_type),
     av             = min(av, na.rm = TRUE),  # base metal AV (not CSR-enhanced)
     hmo            = as.integer(fifelse(is.na(first(network_type)), "", first(network_type)) == "HMO"),
@@ -415,7 +429,13 @@ compute_alpha_i <- function(cell_data, coefs, spec = NULL) {
       dVdp <- dVdp + get_coef(nm) * cell_data[[raw_col]]
   }
 
-  dVdp / cell_data$hh_size
+  # Per-DOLLAR price sensitivity for the supply FOC. dVdp is dV/d(net_premium),
+  # and net_premium is in $100/member units (premium_oop/hh_size/100), so the
+  # derivative w.r.t. a raw-$ posted premium needs both / hh_size and / 100. The
+  # /100 converts the $100 demand scale to the raw-dollar scale the FOC, markup
+  # inversion, and consumer surplus use. Single source — every supply-side price
+  # derivative draws alpha_i from here.
+  dVdp / cell_data$hh_size / 100
 }
 
 
@@ -432,9 +452,13 @@ compute_alpha_i <- function(cell_data, coefs, spec = NULL) {
 # Nested logit derivative (j, l both in insured nest):
 #   dq_ij/dV_il = q_ij * [I(j==l)/lambda + ((lambda-1)/lambda)*s_{il|g} - q_il]
 #
-# Chain rule from V to posted premium:
-#   dV_ij/d(net_premium_j) = alpha_i  (heterogeneous price sensitivity)
-#   d(net_premium_j)/d(posted_l) depends on benchmark/subsidy status (4-case rule)
+# Chain rule from V to posted premium (raw $/month, the insurer's choice variable):
+#   dV_il/d(posted_l) = alpha_i * rf_i, where alpha_i (from compute_alpha_i) is
+#   (dV/d net_premium)/hh_size/100 — it carries the /hh_size AND the $100->$1
+#   conversion, since net_premium is in $100/member — and rf_i =
+#   rating_factor/RATING_FACTOR_AGE40 is the age-rating pass-through. For the
+#   benchmark column of a subsidized HH the 4-case rule replaces this (the subsidy
+#   absorbs the own-price change and shifts every other plan's net premium).
 #
 # For non-benchmark l:
 #   Only V_il changes: dq_ij/d(posted_l) = dq_ij/dV_il * alpha_i * rf_i
