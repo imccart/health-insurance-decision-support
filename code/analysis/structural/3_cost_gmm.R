@@ -20,18 +20,9 @@
 cat("Loading data for cost-side GMM...\n")
 
 # --- Rate filing data (moments 1-2) ---
-rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
-plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
-rsdata <- rsdata %>%
-  left_join(plan_demo, by = c("plan_id", "year"))
-
-rsdata <- rsdata %>%
+rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE) %>%
   filter(!is.na(log_risk_score), is.finite(log_risk_score),
-         !is.na(log_cost), is.finite(log_cost),
-         EXP_MM > 0,
-         !is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic))
-
-cat("  Rate filing observations:", nrow(rsdata), "\n")
+         !is.na(log_cost), is.finite(log_cost), EXP_MM > 0)
 
 # --- FOC inputs per cell (moment 3) ---
 foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
@@ -40,6 +31,30 @@ if (length(foc_files) == 0) stop("No FOC input files found — run 2_pricing.R f
 
 foc_cells <- lapply(foc_files, readRDS)
 cat("  FOC cells loaded:", length(foc_cells), "\n")
+if (any(sapply(foc_cells, function(fc) is.null(fc$demo_shares)))) {
+  stop("foc_inputs lack demo_shares — re-run 2_pricing.R to save predicted demographic shares")
+}
+
+# --- Predicted demographic shares (Saltzman Eq. 16): from the demand model, NOT
+#     observed enrollment (which is endogenous). Aggregate per-cell predicted
+#     shares to plan-year (enrollment-weighted) for the M1 risk-score moment;
+#     the per-cell shares feed M3 below. Built from ALL cells (pre-Omega-filter)
+#     to maximize M1 plan-year coverage. ---
+demo_all <- rbindlist(lapply(foc_cells, function(fc) {
+  d <- as.data.table(fc$demo_shares); d[, year := fc$year]; d
+}), fill = TRUE)
+pred_py <- demo_all[, .(
+  share_18to34 = sum(share_18to34 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
+  share_35to54 = sum(share_35to54 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)
+), by = .(plan_id, year)]
+rsdata <- rsdata %>%
+  left_join(as.data.frame(pred_py), by = c("plan_id", "year")) %>%
+  # Small-insurer rows have NA PLAN_TYPE -> NA HMO. The old observed-share filter
+  # dropped them; drop here too so M1/M2 share a complete-case sample (the claims
+  # moment needs HMO). Small plans still enter the model on the application side,
+  # where structural HMO is keyed off the Kaiser prefix, not PLAN_TYPE.
+  filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(HMO))
+cat("  Rate filing observations:", nrow(rsdata), "\n")
 
 # Filter to cells with valid Omega (non-NA markup)
 foc_cells <- Filter(function(fc) {
@@ -47,13 +62,8 @@ foc_cells <- Filter(function(fc) {
 }, foc_cells)
 cat("  FOC cells with valid Omega:", length(foc_cells), "\n")
 
-# --- Supply results (for plan characteristics) ---
+# --- Supply results (for plan metal classification) ---
 supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
-
-# --- Demographics for FOC risk score prediction ---
-plan_demo_yr <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
-
-rm(plan_demo)
 
 # =========================================================================
 # PREPARE MOMENT DATA
@@ -66,7 +76,7 @@ w_rf <- sqrt(rsdata$EXP_MM)  # WLS weights
 
 # M1 regressors: risk score equation
 X_rs <- as.matrix(rsdata %>% select(Silver, Gold, Platinum,
-                                      share_18to34, share_35to54, share_hispanic))
+                                      share_18to34, share_35to54))
 y_rs <- rsdata$log_risk_score
 
 # M2 regressors: claims equation (exogenous only; log_rs is endogenous)
@@ -74,7 +84,7 @@ X_cl_exog <- as.matrix(rsdata %>% select(HMO, trend, Anthem, Blue_Shield, Health
 y_cl <- rsdata$log_cost
 
 # M1 instruments: intercept + regressors
-Z_rs <- cbind(1, X_rs)  # 7 columns
+Z_rs <- cbind(1, X_rs)  # 6 columns (intercept + Silver/Gold/Platinum/age shares)
 
 # M2 instruments: intercept + exogenous regressors (exclude endogenous log_rs)
 Z_cl <- cbind(1, X_cl_exog)  # 6 columns
@@ -104,10 +114,11 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Blue_Shield <- as.integer(str_detect(pn, "^BS"))
   foc_cells[[k]]$Health_Net <- as.integer(str_detect(pn, "^HN"))
 
-  # Demographics (plan-year level). Drop the NA-plan_id aggregate row: a logical
-  # match `demo$plan_id == p` evaluates to NA at that row, and NA-indexing injects
-  # a spurious NA as v[1] for every plan (poisons pred_rs/claims/mc downstream).
-  demo <- plan_demo_yr %>% filter(year == y, !is.na(plan_id))
+  # Predicted demographic shares for this cell (from the demand model, saved by
+  # 2_pricing in the foc_inputs RDS) — consistent with M1 and with the application
+  # in 2_pricing/4_counterfactuals. Hispanic/male dropped (unidentified). The
+  # cell-mean fallback guards any plan_id absent from demo_shares.
+  demo <- as.data.frame(fc$demo_shares)
   foc_cells[[k]]$share_18to34 <- sapply(pn, function(p) {
     v <- demo$share_18to34[demo$plan_id == p]
     if (length(v) == 0) return(mean(demo$share_18to34, na.rm = TRUE))
@@ -118,14 +129,9 @@ for (k in seq_along(foc_cells)) {
     if (length(v) == 0) return(mean(demo$share_35to54, na.rm = TRUE))
     v[1]
   })
-  foc_cells[[k]]$share_hispanic <- sapply(pn, function(p) {
-    v <- demo$share_hispanic[demo$plan_id == p]
-    if (length(v) == 0) return(mean(demo$share_hispanic, na.rm = TRUE))
-    v[1]
-  })
 }
 
-rm(plan_demo_yr, supply_results)
+rm(supply_results, demo_all, pred_py)
 
 # Count total FOC equations (one per plan per cell)
 n_foc_total <- sum(sapply(foc_cells, function(fc) length(fc$plan_ids)))
@@ -143,11 +149,11 @@ cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
 # PARAMETER LAYOUT
 # =========================================================================
 
-N_ALPHA <- 7L  # intercept, Silver, Gold, Platinum, share_18to34, share_35to54, share_hispanic
+N_ALPHA <- 6L  # intercept, Silver, Gold, Platinum, share_18to34, share_35to54
 N_GAMMA <- 7L  # intercept, log_risk_score, HMO, trend, Anthem, Blue_Shield, Health_Net
 
 alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum",
-                 "share_18to34", "share_35to54", "share_hispanic")
+                 "share_18to34", "share_35to54")
 gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend",
                  "Anthem", "Blue_Shield", "Health_Net")
 
@@ -205,8 +211,7 @@ compute_g_bar <- function(theta) {
     # Predict log risk scores for this cell's plans
     pred_log_rs <- alpha[1] +
       alpha[2] * fc$Silver + alpha[3] * fc$Gold + alpha[4] * fc$Platinum +
-      alpha[5] * fc$share_18to34 + alpha[6] * fc$share_35to54 +
-      alpha[7] * fc$share_hispanic
+      alpha[5] * fc$share_18to34 + alpha[6] * fc$share_35to54
 
     # Predict log claims
     pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs +
@@ -279,9 +284,9 @@ cat("  g_bar(theta0):", round(g_init, 4), "\n")
 cat("  any NA/NaN/Inf:", any(!is.finite(g_init)), "\n")
 if (any(!is.finite(g_init))) {
   cat("  non-finite indices:", which(!is.finite(g_init)), "\n")
-  cat("  M1 (1-7):", round(g_init[1:7], 4), "\n")
-  cat("  M2 (8-13):", round(g_init[8:13], 4), "\n")
-  cat("  M3 (14-22):", round(g_init[14:22], 4), "\n")
+  cat("  M1:", round(g_init[1:ncol(Z_rs)], 4), "\n")
+  cat("  M2:", round(g_init[(ncol(Z_rs)+1):(ncol(Z_rs)+ncol(Z_cl))], 4), "\n")
+  cat("  M3:", round(g_init[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 4), "\n")
   stop("Cannot proceed with non-finite initial moments")
 }
 

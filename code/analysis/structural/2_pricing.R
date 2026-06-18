@@ -267,7 +267,8 @@ for (i in seq_len(nrow(cells))) {
     plan_avs       = plan_avs,
     ra_foc         = ra_foc,
     elast_mat      = elast_mat,   # raw (untransposed) E, so the GMM can recompute ra_foc at its theta
-    own_mat        = own_mat
+    own_mat        = own_mat,
+    demo_shares    = demo_shares  # demand-model-predicted demographic shares (Saltzman Eq.16) for M1/M3
   ), file.path(foc_inputs_dir, paste0("foc_", r, "_", y, ".rds")))
 
   # -----------------------------------------------------------------------
