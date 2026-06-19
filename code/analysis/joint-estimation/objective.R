@@ -12,6 +12,9 @@
 
 MH_LOOKUP_JOINT <- c("0.6" = 1.00, "0.7" = 1.03, "0.8" = 1.08, "0.9" = 1.15)
 
+# per-objective-eval counter for the trace checkpoint (R-level, flushes reliably)
+.joint_eval_env <- new.env(parent = emptyenv()); .joint_eval_env$n <- 0L
+
 # tibble(term, estimate) coefs from a named beta vector + lambda (for the kernels)
 make_coefs <- function(beta, lambda, demand_covars) {
   tibble(term = c(demand_covars, "lambda"), estimate = c(unname(beta), lambda))
@@ -141,25 +144,42 @@ parse_theta <- function(theta, K) {
 }
 
 # ---- EXPENSIVE per-cell kernel outputs at (beta,lambda) ---------------------
-kernel_outputs <- function(beta, lambda, JC, cell_idx = NULL) {
-  cells <- JC$cells; if (!is.null(cell_idx)) cells <- cells[cell_idx]
+# one cell's kernel output; pure function of (cc, coefs, spec, lambda) -- no RNG,
+# so a parallel sweep is bit-identical to a serial one. Shared by both paths.
+.kernel_one <- function(cc, coefs_full, structural_spec, lambda) {
+  pid <- cc$plan_ids
+  V <- compute_utility(cc$cell_data, coefs_full)$V
+  se <- tryCatch(compute_shares_and_elasticities(cc$cell_data, V, lambda, cc$benchmark_plan,
+                                                 cc$plan_attrs, coefs_full, spec = structural_spec),
+                 error = function(e) NULL)
+  if (is.null(se)) return(NULL)
+  br <- tryCatch(compute_broker_shares_and_elasticities(cc$cell_data, V, lambda, cc$benchmark_plan,
+                                                        cc$plan_attrs, coefs_full, spec = structural_spec),
+                 error = function(e) NULL)
+  demo <- as.data.frame(compute_demographic_shares(cc$cell_data, V, lambda))
+  d18 <- sapply(pid, function(p){v<-demo$share_18to34[demo$plan_id==p]; if(length(v)==0) mean(demo$share_18to34,na.rm=TRUE) else v[1]})
+  d35 <- sapply(pid, function(p){v<-demo$share_35to54[demo$plan_id==p]; if(length(v)==0) mean(demo$share_35to54,na.rm=TRUE) else v[1]})
+  belast <- if (!is.null(br)) br$broker_elast_mat[pid, pid] else matrix(0, length(pid), length(pid), dimnames=list(pid,pid))
+  list(shares = se$shares[pid], elast = se$elast_mat[pid, pid], belast = belast, d18 = d18, d35 = d35)
+}
+
+# parallel worker: indexes the worker-global JC (exported once via clusterExport)
+# so the large cache is not re-serialized on every call. Top-level def => its
+# closure is globalenv, cheap to ship and resolves JC on the worker.
+.par_kernel_one <- function(i, coefs_full, ss, lambda) {
+  .kernel_one(JC$cells[[i]], coefs_full, ss, lambda)
+}
+
+# cl = PSOCK cluster with JC exported + kernel files sourced; NULL = serial.
+kernel_outputs <- function(beta, lambda, JC, cell_idx = NULL, cl = NULL) {
+  idx <- if (is.null(cell_idx)) seq_along(JC$cells) else cell_idx
   coefs_full <- make_coefs(beta, lambda, JC$demand_covars)
-  lapply(cells, function(cc) {
-    pid <- cc$plan_ids
-    V <- compute_utility(cc$cell_data, coefs_full)$V
-    se <- tryCatch(compute_shares_and_elasticities(cc$cell_data, V, lambda, cc$benchmark_plan,
-                                                   cc$plan_attrs, coefs_full, spec = JC$structural_spec),
-                   error = function(e) NULL)
-    if (is.null(se)) return(NULL)
-    br <- tryCatch(compute_broker_shares_and_elasticities(cc$cell_data, V, lambda, cc$benchmark_plan,
-                                                          cc$plan_attrs, coefs_full, spec = JC$structural_spec),
-                   error = function(e) NULL)
-    demo <- as.data.frame(compute_demographic_shares(cc$cell_data, V, lambda))
-    d18 <- sapply(pid, function(p){v<-demo$share_18to34[demo$plan_id==p]; if(length(v)==0) mean(demo$share_18to34,na.rm=TRUE) else v[1]})
-    d35 <- sapply(pid, function(p){v<-demo$share_35to54[demo$plan_id==p]; if(length(v)==0) mean(demo$share_35to54,na.rm=TRUE) else v[1]})
-    belast <- if (!is.null(br)) br$broker_elast_mat[pid, pid] else matrix(0, length(pid), length(pid), dimnames=list(pid,pid))
-    list(shares = se$shares[pid], elast = se$elast_mat[pid, pid], belast = belast, d18 = d18, d35 = d35)
-  })
+  ss <- JC$structural_spec
+  if (!is.null(cl)) {
+    parallel::parLapplyLB(cl, idx, .par_kernel_one, coefs_full = coefs_full, ss = ss, lambda = lambda)
+  } else {
+    lapply(idx, function(i) .kernel_one(JC$cells[[i]], coefs_full, ss, lambda))
+  }
 }
 
 # ---- M0 demand score (uses dense matrices; cheap relative to kernels) -------
@@ -218,9 +238,9 @@ moments_from_kernels <- function(theta, JC, kout, cell_idx = NULL, include_m0 = 
 }
 
 # ---- full moment vector (recomputes kernels) --------------------------------
-g_joint <- function(theta, JC, cell_idx = NULL, include_m0 = TRUE) {
+g_joint <- function(theta, JC, cell_idx = NULL, include_m0 = TRUE, cl = NULL) {
   p <- parse_theta(theta, JC$K)
-  kout <- kernel_outputs(p$beta, p$lambda, JC, cell_idx)
+  kout <- kernel_outputs(p$beta, p$lambda, JC, cell_idx, cl = cl)
   moments_from_kernels(theta, JC, kout, cell_idx, include_m0)
 }
 
@@ -236,18 +256,31 @@ build_W1 <- function(g_theta0, JC, block_weights = BLOCK_WEIGHTS) {
   as.matrix(Matrix::bdiag(blocks))
 }
 
-Q_joint <- function(theta, JC, W, cell_idx = NULL, include_m0 = TRUE) {
-  g <- g_joint(theta, JC, cell_idx, include_m0)
-  as.numeric(t(g) %*% W %*% g)
+Q_joint <- function(theta, JC, W, cl = NULL, trace_file = NULL, cell_idx = NULL, include_m0 = TRUE) {
+  g  <- g_joint(theta, JC, cell_idx, include_m0, cl = cl)
+  Qv <- as.numeric(t(g) %*% W %*% g)
+  if (!is.null(trace_file)) {
+    p <- parse_theta(theta, JC$K)
+    bs <- block_sizes(JC); ends <- cumsum(bs); st <- c(1, head(ends, -1) + 1)
+    nb <- function(b) sqrt(sum(g[st[b]:ends[b]]^2))
+    .joint_eval_env$n <- .joint_eval_env$n + 1L
+    row <- data.frame(eval = .joint_eval_env$n, time = as.character(Sys.time()),
+                      Q = Qv, lambda = p$lambda, beta_prem = p$beta[1],
+                      passthru = p$gamma_cl[2], M0 = nb(1), M1 = nb(2), M2 = nb(3), M3 = nb(4))
+    write.table(row, trace_file, sep = ",", row.names = FALSE,
+                col.names = !file.exists(trace_file), append = file.exists(trace_file))
+  }
+  Qv
 }
 
 # ---- hand-split numerical gradient of Q -------------------------------------
 # gamma-direction (alpha, gamma_cl) perturbations reuse the base kernel outputs
 # (shares/elast/demo depend only on beta,lambda); beta/lambda directions re-run kernels.
-grad_Q_split <- function(theta, JC, W, cell_idx = NULL, eps = 1e-6) {
+# trace_file accepted (and ignored) so optim can pass the same ... to fn and gr.
+grad_Q_split <- function(theta, JC, W, cl = NULL, trace_file = NULL, cell_idx = NULL, eps = 1e-6) {
   K <- JC$K
   p <- parse_theta(theta, K)
-  kout0 <- kernel_outputs(p$beta, p$lambda, JC, cell_idx)
+  kout0 <- kernel_outputs(p$beta, p$lambda, JC, cell_idx, cl = cl)
   g0 <- moments_from_kernels(theta, JC, kout0, cell_idx)
   Q0 <- as.numeric(t(g0) %*% W %*% g0)
   np <- length(theta); gr <- numeric(np)
@@ -256,11 +289,66 @@ grad_Q_split <- function(theta, JC, W, cell_idx = NULL, eps = 1e-6) {
     th <- theta; th[i] <- th[i] + eps
     if (i %in% betalambda_idx) {
       pp <- parse_theta(th, K)
-      ko <- kernel_outputs(pp$beta, pp$lambda, JC, cell_idx)   # expensive
+      ko <- kernel_outputs(pp$beta, pp$lambda, JC, cell_idx, cl = cl)   # expensive
       gi <- moments_from_kernels(th, JC, ko, cell_idx)
     } else {
-      gi <- moments_from_kernels(th, JC, kout0, cell_idx)      # cheap: reuse kernels
+      gi <- moments_from_kernels(th, JC, kout0, cell_idx)               # cheap: reuse kernels
     }
+    Qi <- as.numeric(t(gi) %*% W %*% gi)
+    gr[i] <- (Qi - Q0) / eps
+  }
+  gr
+}
+
+# ---- flattened gradient: one load-balanced pool over (variant x cell) --------
+# grad_Q_split runs 25 beta/lambda perturbation sweeps back to back, each with a
+# barrier -- so ~21 workers idle at the end of every sweep waiting on the single
+# heaviest cell, ~25x per gradient. This version dispatches ALL (variant x cell)
+# kernel evaluations as one load-balanced pool, so the heavy cell's 26 copies run
+# on different workers concurrently and no worker waits. Bit-identical math to
+# grad_Q_split (same eps, same kernels, same moments); cl=NULL falls back to a
+# serial flat lapply for correctness checks.
+#
+# worker task (top-level so its closure is globalenv => cheap to ship; resolves
+# the worker-global JC and the per-gradient-exported VARIANTS).
+.par_grad_task <- function(idx, ncell, ss) {
+  v <- ((idx - 1L) %/% ncell) + 1L; c <- ((idx - 1L) %% ncell) + 1L
+  .kernel_one(JC$cells[[c]], VARIANTS[[v]]$coefs_full, ss, VARIANTS[[v]]$lambda)
+}
+
+grad_Q_split_flat <- function(theta, JC, W, cl = NULL, trace_file = NULL, cell_idx = NULL, eps = 1e-6) {
+  if (!is.null(cell_idx)) stop("grad_Q_split_flat is full-sample only (cell_idx must be NULL)")
+  K <- JC$K; ncell <- length(JC$cells)
+  dc <- JC$demand_covars; ss <- JC$structural_spec
+  betalambda_idx <- 1:(K + 1)
+
+  # variant 1 = base theta; variants 2..(K+2) = +eps on beta/lambda dim i
+  thetas <- vector("list", K + 2); thetas[[1]] <- theta
+  for (i in betalambda_idx) { th <- theta; th[i] <- th[i] + eps; thetas[[i + 1]] <- th }
+  nv <- length(thetas)
+  VARIANTS <- lapply(thetas, function(th) {
+    p <- parse_theta(th, K); list(coefs_full = make_coefs(p$beta, p$lambda, dc), lambda = p$lambda)
+  })
+
+  # one wave of nv*ncell kernel evaluations, load-balanced
+  if (!is.null(cl)) {
+    parallel::clusterExport(cl, "VARIANTS", envir = environment())
+    flat <- parallel::parLapplyLB(cl, seq_len(nv * ncell), .par_grad_task, ncell = ncell, ss = ss)
+  } else {
+    flat <- lapply(seq_len(nv * ncell), function(idx) {
+      v <- ((idx - 1L) %/% ncell) + 1L; c <- ((idx - 1L) %% ncell) + 1L
+      .kernel_one(JC$cells[[c]], VARIANTS[[v]]$coefs_full, ss, VARIANTS[[v]]$lambda)
+    })
+  }
+  kout_v <- function(v) flat[((v - 1L) * ncell + 1L):(v * ncell)]
+
+  g0 <- moments_from_kernels(theta, JC, kout_v(1))
+  Q0 <- as.numeric(t(g0) %*% W %*% g0)
+  np <- length(theta); gr <- numeric(np)
+  for (i in seq_len(np)) {
+    th <- theta; th[i] <- th[i] + eps
+    gi <- if (i %in% betalambda_idx) moments_from_kernels(th, JC, kout_v(i + 1)) else
+                                     moments_from_kernels(th, JC, kout_v(1))   # gamma reuses base
     Qi <- as.numeric(t(gi) %*% W %*% gi)
     gr[i] <- (Qi - Q0) / eps
   }

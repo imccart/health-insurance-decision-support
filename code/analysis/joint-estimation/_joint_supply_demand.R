@@ -8,7 +8,8 @@
 # side with the sequential ones. To experiment (subset cells, tweak weighting),
 # use scratch/joint_smoke_test.R — keep this script clean and full-run-only.
 
-pacman::p_load(tidyverse, data.table, Matrix, nleqslv, mlogit, fixest)
+pacman::p_load(tidyverse, data.table, Matrix, nleqslv, mlogit, fixest, parallel)
+setDTthreads(1)
 
 TEMP_DIR    <- "D:/temp-research-data/health-insurance-decision-support"
 SAMPLE_FRAC <- 0.05
@@ -61,9 +62,29 @@ JC <- build_joint_cache(cells, cell_seeds, plan_choice, hh_split, SAMPLE_FRAC,
                         commission_lookup, beta0, lambda0,
                         "data/output/rate_filing_rsdata.csv", which_cells = NULL)
 
+# ---- parallel cluster: source kernels on workers, export JC once ------------
+# kernel_outputs sweeps all cells per objective/gradient eval; that loop is the
+# cost. Workers source the frozen kernels and hold one copy of JC (exported, not
+# re-shipped per call); .par_kernel_one indexes worker-global JC by cell index.
+n_cores  <- max(1L, detectCores() - 2L)
+cl       <- makeCluster(n_cores)
+jdir_abs <- normalizePath(jdir)
+clusterExport(cl, "jdir_abs")
+invisible(clusterEvalQ(cl, {
+  suppressMessages(pacman::p_load(tidyverse, data.table, Matrix, nleqslv, mlogit, fixest))
+  for (f in c("kernels_constants.R","kernels_covariates.R","kernels_datahelpers.R",
+              "kernels_demand.R","kernels_supply.R","kernels_ra.R",
+              "cell_matrices.R","objective.R"))
+    source(file.path(jdir_abs, f))
+  setDTthreads(1)
+  TRUE
+}))
+clusterExport(cl, "JC")
+cat("  parallel cluster:", n_cores, "workers\n")
+
 # ---- warm-start diagnostic (M0 should be ~0 at the full-sample MLE) ---------
 pp0   <- parse_theta(theta0, K)
-kout0 <- kernel_outputs(pp0$beta, pp0$lambda, JC)
+kout0 <- kernel_outputs(pp0$beta, pp0$lambda, JC, cl = cl)
 g0 <- moments_from_kernels(theta0, JC, kout0)
 W  <- build_W2(theta0, JC, kout0 = kout0)   # optimal inverse-variance weighting (BHHH + robust)
 bs <- block_sizes(JC); ends <- cumsum(bs); stx <- c(1, head(ends, -1) + 1)
@@ -72,13 +93,15 @@ cat(sprintf("theta0 blocks: M0 ||.||=%.4g (max|.|=%.4g)  M1=%.4g  M2=%.4g  M3=%.
             sqrt(sum(g0[stx[2]:ends[2]]^2)), sqrt(sum(g0[stx[3]:ends[3]]^2)), sqrt(sum(g0[stx[4]:ends[4]]^2))))
 cat("  (large M0 => cell mismatch; abort if so)\n")
 
-# ---- optimize (block-rescaled identity weighting; Step-2 optimal weighting + SEs deferred) ----
+# ---- optimize (parallel kernel sweep; per-eval trace checkpoint; SEs deferred) ----
 lb <- rep(-Inf, length(theta0)); ub <- rep(Inf, length(theta0))
 lb[K + 1] <- 0.001; ub[K + 1] <- 5
-cat("Optimizing (L-BFGS-B, hand-split gradient)...\n")
-fit <- optim(theta0, Q_joint, gr = grad_Q_split, JC = JC, W = W, method = "L-BFGS-B",
-             lower = lb, upper = ub,
-             control = list(maxit = 200, factr = 1e7, pgtol = 1e-6, trace = 1, REPORT = 10))
+trace_path <- file.path(TEMP_DIR, "joint_trace.csv")
+if (file.exists(trace_path)) file.remove(trace_path)   # fresh trace each run
+cat("Optimizing (L-BFGS-B, hand-split gradient)... trace ->", trace_path, "\n")
+fit <- optim(theta0, Q_joint, gr = grad_Q_split_flat, JC = JC, W = W, cl = cl, trace_file = trace_path,
+             method = "L-BFGS-B", lower = lb, upper = ub,
+             control = list(maxit = 200, factr = 1e7, pgtol = 1e-6, trace = 1, REPORT = 1))
 cat("  convergence code:", fit$convergence, " | Q:", format(fit$value, digits = 6), "\n")
 
 # ---- write outputs (side by side; never overwrite sequential) --------------
@@ -93,12 +116,12 @@ cat(sprintf("  lambda (joint): %.4f vs warm start %.4f   premium beta: %.4f vs %
             p$lambda, lambda0, p$beta[1], beta0[1]))
 
 # ---- solution diagnostics: FOC reduction, risk coefs, negative-MC count -----
-g_hat <- g_joint(fit$par, JC)
+g_hat <- g_joint(fit$par, JC, cl = cl)
 cat(sprintf("  FOC residual ||M3||: %.4g (theta0) -> %.4g (joint)\n",
             sqrt(sum(g0[stx[4]:ends[4]]^2)), sqrt(sum(g_hat[stx[4]:ends[4]]^2))))
 cat(sprintf("  risk-score age coefs (joint): %.3f, %.3f   (data-only ~ -1.8, -1.0; FOC-pulled-frozen was -2.6, -2.6)\n",
             p$alpha[5], p$alpha[6]))
-kh <- kernel_outputs(p$beta, p$lambda, JC); a <- p$alpha; gcl <- p$gamma_cl
+kh <- kernel_outputs(p$beta, p$lambda, JC, cl = cl); a <- p$alpha; gcl <- p$gamma_cl
 negc <- 0L; totc <- 0L; plat_min <- Inf
 for (m in seq_along(JC$cells)) {
   cc <- JC$cells[[m]]; ko <- kh[[m]]; if (is.null(ko)) next
@@ -113,3 +136,5 @@ for (m in seq_along(JC$cells)) {
   if (any(cc$Platinum==1)) plat_min <- min(plat_min, min(mc[cc$Platinum==1]))
 }
 cat(sprintf("  negative MC at joint solution: %d / %d   (min platinum mc: %.0f)\n", negc, totc, plat_min))
+
+stopCluster(cl)
