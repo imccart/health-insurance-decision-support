@@ -47,11 +47,17 @@ estimate_ra_regressions <- function(rsdata) {
       ", demographics =", has_demo, "\n")
   cat("  R² =", round(summary(rs_reg)$r.squared, 4), "\n")
 
-  # Claims regression
+  # Claims regression. AV (actuarial value) enters directly: holding the risk
+  # score fixed, more generous plans induce higher utilization (moral hazard), so
+  # platinum claims exceed bronze at the same morbidity. Omitting AV forced that
+  # generosity through the morbidity score, which inflated platinum RA transfers
+  # and drove marginal cost negative. AV is net of the risk score (which still
+  # captures selection), so this is not double-counting.
   claims_valid <- rs_valid %>%
-    filter(!is.na(log_cost), is.finite(log_cost))
+    filter(!is.na(log_cost), is.finite(log_cost), !is.na(AV_METAL)) %>%
+    mutate(AV = AV_METAL)
 
-  claims_reg <- lm(log_cost ~ log_risk_score + HMO + trend +
+  claims_reg <- lm(log_cost ~ log_risk_score + AV + HMO + trend +
                       Anthem + Blue_Shield + Health_Net + Kaiser,
                     data = claims_valid, weights = claims_valid$EXP_MM)
 
@@ -237,7 +243,7 @@ compute_ra_transfers <- function(predicted_risk_scores, plan_shares, avg_premium
 #' Predict plan-level claims from risk scores and claims regression.
 #'
 #' @param claims_coefs  Named coefficient vector from claims regression
-#' @param plan_chars    Tibble with plan_id, HMO, trend, insurer dummies
+#' @param plan_chars    Tibble with plan_id, AV, HMO, trend, insurer dummies
 #' @param log_rs        Named vector of log predicted risk scores
 #' @return Named vector of predicted claims PMPM
 
@@ -247,6 +253,10 @@ predict_claims <- function(claims_coefs, plan_chars, log_rs) {
   log_cost <- claims_coefs[["(Intercept)"]] +
     claims_coefs[["log_risk_score"]] * log_rs[pn]
 
+  # Add AV (generosity / moral hazard) if in model
+  if ("AV" %in% names(claims_coefs) && "AV" %in% names(plan_chars)) {
+    log_cost <- log_cost + claims_coefs[["AV"]] * plan_chars$AV
+  }
   # Add HMO if in model
   if ("HMO" %in% names(claims_coefs)) {
     log_cost <- log_cost + claims_coefs[["HMO"]] * plan_chars$HMO

@@ -187,6 +187,7 @@ for (i in seq_len(nrow(cells))) {
     Silver      = as.integer(unname(plan_metal) == "Silver"),
     Gold        = as.integer(unname(plan_metal) == "Gold"),
     Platinum    = as.integer(unname(plan_metal) == "Platinum"),
+    AV          = unname(pa$av),
     HMO         = unname(setNames(pa$hmo, pa$plan_id)[plan_ids_cell]),
     trend       = y - 2014L,
     Anthem      = as.integer(str_detect(plan_ids_cell, "^ANT")),

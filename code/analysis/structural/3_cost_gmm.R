@@ -53,7 +53,7 @@ rsdata <- rsdata %>%
   # dropped them; drop here too so M1/M2 share a complete-case sample (the claims
   # moment needs HMO). Small plans still enter the model on the application side,
   # where structural HMO is keyed off the Kaiser prefix, not PLAN_TYPE.
-  filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(HMO))
+  filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(HMO), !is.na(AV_METAL))
 cat("  Rate filing observations:", nrow(rsdata), "\n")
 
 # Filter to cells with valid Omega (non-NA markup)
@@ -79,15 +79,19 @@ X_rs <- as.matrix(rsdata %>% select(Silver, Gold, Platinum,
                                       share_18to34, share_35to54))
 y_rs <- rsdata$log_risk_score
 
-# M2 regressors: claims equation (exogenous only; log_rs is endogenous)
-X_cl_exog <- as.matrix(rsdata %>% select(HMO, trend, Anthem, Blue_Shield, Health_Net))
+# M2 regressors: claims equation exogenous part (observed log_rs enters via Z_cl
+# below). AV (generosity / moral hazard) enters directly — see estimate_ra_regressions.
+X_cl_exog <- as.matrix(rsdata %>% transmute(AV = AV_METAL, HMO, trend, Anthem, Blue_Shield, Health_Net))
 y_cl <- rsdata$log_cost
 
 # M1 instruments: intercept + regressors
 Z_rs <- cbind(1, X_rs)  # 6 columns (intercept + Silver/Gold/Platinum/age shares)
 
-# M2 instruments: intercept + exogenous regressors (exclude endogenous log_rs)
-Z_cl <- cbind(1, X_cl_exog)  # 6 columns
+# M2 instruments: intercept + OBSERVED log_rs + exogenous regressors. The claims
+# equation regresses on the observed risk score (treated as exogenous), not the
+# metal+age-fitted one: the fitted score is ~collinear with AV (R^2~0.98) and cannot
+# identify the generosity coef, while observed log_rs has within-metal variation.
+Z_cl <- cbind(1, y_rs, X_cl_exog)  # 8 columns (intercept + log_rs + AV/HMO/trend/3 insurers)
 
 # --- M3: Precompute FOC cell data ---
 # For each cell, we need plan characteristics to predict MC(alpha, gamma).
@@ -113,6 +117,7 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Anthem <- as.integer(str_detect(pn, "^ANT"))
   foc_cells[[k]]$Blue_Shield <- as.integer(str_detect(pn, "^BS"))
   foc_cells[[k]]$Health_Net <- as.integer(str_detect(pn, "^HN"))
+  foc_cells[[k]]$AV <- unname(fc$plan_avs[pn])  # generosity term for the claims eq.
 
   # Predicted demographic shares for this cell (from the demand model, saved by
   # 2_pricing in the foc_inputs RDS) — consistent with M1 and with the application
@@ -150,11 +155,11 @@ cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
 # =========================================================================
 
 N_ALPHA <- 6L  # intercept, Silver, Gold, Platinum, share_18to34, share_35to54
-N_GAMMA <- 7L  # intercept, log_risk_score, HMO, trend, Anthem, Blue_Shield, Health_Net
+N_GAMMA <- 8L  # intercept, log_risk_score, AV, HMO, trend, Anthem, Blue_Shield, Health_Net
 
 alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum",
                  "share_18to34", "share_35to54")
-gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend",
+gamma_names <- c("(Intercept)", "log_risk_score", "AV", "HMO", "trend",
                  "Anthem", "Blue_Shield", "Health_Net")
 
 # Starting values from OLS
@@ -196,7 +201,9 @@ compute_g_bar <- function(theta) {
   g_rs <- colMeans(Z_rs * eps_rs)  # length 7
 
   # --- M2: Claims residuals ---
-  pred_log_cl_rf <- gamma[1] + gamma[2] * pred_log_rs_rf + X_cl_exog %*% gamma[3:N_GAMMA]
+  # Regress on OBSERVED risk score (gamma[2]); the M3 FOC block below still predicts
+  # claims with the fitted risk score, so endogenous selection is preserved downstream.
+  pred_log_cl_rf <- gamma[1] + gamma[2] * y_rs + X_cl_exog %*% gamma[3:N_GAMMA]
   eps_cl <- as.vector(y_cl - pred_log_cl_rf) * w_rf
   g_cl <- colMeans(Z_cl * eps_cl)  # length 6
 
@@ -213,10 +220,10 @@ compute_g_bar <- function(theta) {
       alpha[2] * fc$Silver + alpha[3] * fc$Gold + alpha[4] * fc$Platinum +
       alpha[5] * fc$share_18to34 + alpha[6] * fc$share_35to54
 
-    # Predict log claims
-    pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs +
-      gamma[3] * fc$HMO + gamma[4] * fc$trend +
-      gamma[5] * fc$Anthem + gamma[6] * fc$Blue_Shield + gamma[7] * fc$Health_Net
+    # Predict log claims (AV = gamma[3], generosity term)
+    pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs + gamma[3] * fc$AV +
+      gamma[4] * fc$HMO + gamma[5] * fc$trend +
+      gamma[6] * fc$Anthem + gamma[7] * fc$Blue_Shield + gamma[8] * fc$Health_Net
 
     pred_claims <- exp(pred_log_cl)
     pred_rs <- exp(pred_log_rs)
@@ -389,6 +396,32 @@ comp <- data.frame(
   change = round(result2$par - theta0, 4)
 )
 print(comp, row.names = FALSE)
+
+# Negative-MC check at the GMM solution, by metal. The OLS-coef MC in 2_pricing
+# was already non-negative; the negatives appeared once the FOC bent the cost
+# coefs in GMM. With AV in the claims equation, platinum should clear (down to
+# roughly the data's own tail) and the risk-score age coef should relax.
+cat("\n  Negative MC at GMM solution (by metal):\n")
+mc_rows <- lapply(foc_cells, function(fc) {
+  plr <- alpha_gmm[1] + alpha_gmm[2]*fc$Silver + alpha_gmm[3]*fc$Gold + alpha_gmm[4]*fc$Platinum +
+         alpha_gmm[5]*fc$share_18to34 + alpha_gmm[6]*fc$share_35to54
+  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$AV + gamma_gmm[4]*fc$HMO +
+         gamma_gmm[5]*fc$trend + gamma_gmm[6]*fc$Anthem + gamma_gmm[7]*fc$Blue_Shield + gamma_gmm[8]*fc$Health_Net
+  prs <- exp(plr); pclm <- exp(pcl); sh <- fc$shares; av <- fc$plan_avs
+  avg_p <- weighted.mean(fc$posted_premium, sh, na.rm = TRUE)
+  mh <- MH_LOOKUP[as.character(round(av, 1))]; mh[is.na(mh)] <- 1
+  util <- av * mh
+  ra <- (prs / sum(prs*sh, na.rm = TRUE) - util / sum(util*sh, na.rm = TRUE)) * avg_p
+  mc <- pclm * (1 - fc$reins_vec) - ra
+  metal <- ifelse(fc$Platinum==1,"Platinum",ifelse(fc$Gold==1,"Gold",ifelse(fc$Silver==1,"Silver","Bronze")))
+  tibble(metal = metal, mc = mc)
+})
+mc_check <- bind_rows(mc_rows) %>%
+  group_by(metal) %>%
+  summarise(n = n(), negative = sum(mc < 0), pct_neg = round(100*mean(mc < 0), 1), .groups = "drop")
+print(mc_check)
+cat("  AV (claims generosity) coef:", round(gamma_gmm[3], 4),
+    " | risk-score age coefs:", round(alpha_gmm[5], 3), round(alpha_gmm[6], 3), "\n")
 
 # =========================================================================
 # SAVE COEFFICIENTS
