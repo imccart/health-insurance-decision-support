@@ -12,6 +12,12 @@
 STRUCTURAL_SPEC <- c(
   "premium",
   "silver", "bronze", "hmo", "hsa",
+  # Big-four brand dummies only. The seven regionals are kept as SEPARATE plans
+  # (own premium, commission, and cost), but carry NO brand fixed effect — adding
+  # one per regional pushes the nesting parameter lambda from 0.47 to 4.27
+  # (non-RUM). They sit in the dummy-less small baseline, exactly as the lumped
+  # "Small" always did. Per-regional commission/cost key off the plan_id prefix,
+  # not these dummies, so they are unaffected by this choice.
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
   "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
   "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",

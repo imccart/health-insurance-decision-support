@@ -71,6 +71,20 @@ supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 
 cat("Preparing moment data...\n")
 
+# Cost-side insurer dummies: big four (Kaiser is absorbed by the HMO indicator,
+# which is keyed off the Kaiser prefix) + the seven larger regionals. Other_Small
+# is the baseline (no dummy). COST_PREFIX maps each name to its plan_id prefix for
+# the M3 per-cell indicators. Defined once so the moment matrices, parameter
+# vector, instruments, and predictions all stay in sync.
+INS_COST <- c("Anthem", "Blue_Shield", "Health_Net",
+              "Molina", "LA_Care", "SHARP", "Chinese_Community",
+              "Oscar", "Western", "Valley")
+COST_PREFIX <- c(Anthem = "ANT", Blue_Shield = "BS", Health_Net = "HN",
+                 Molina = "MOL", LA_Care = "LA", SHARP = "SH",
+                 Chinese_Community = "CC", Oscar = "OSC",
+                 Western = "WEST", Valley = "VAL")
+N_INS_COST <- length(INS_COST)
+
 # --- M1-M2 data matrices (rate filings) ---
 w_rf <- sqrt(rsdata$EXP_MM)  # WLS weights
 
@@ -81,7 +95,8 @@ y_rs <- rsdata$log_risk_score
 
 # M2 regressors: claims equation exogenous part (observed log_rs enters via Z_cl
 # below). AV (generosity / moral hazard) enters directly — see estimate_ra_regressions.
-X_cl_exog <- as.matrix(rsdata %>% transmute(AV = AV_METAL, HMO, trend, Anthem, Blue_Shield, Health_Net))
+X_cl_exog <- as.matrix(rsdata %>% transmute(AV = AV_METAL, HMO, trend,
+                                            across(all_of(INS_COST))))
 y_cl <- rsdata$log_cost
 
 # M1 instruments: intercept + regressors
@@ -91,7 +106,7 @@ Z_rs <- cbind(1, X_rs)  # 6 columns (intercept + Silver/Gold/Platinum/age shares
 # equation regresses on the observed risk score (treated as exogenous), not the
 # metal+age-fitted one: the fitted score is ~collinear with AV (R^2~0.98) and cannot
 # identify the generosity coef, while observed log_rs has within-metal variation.
-Z_cl <- cbind(1, y_rs, X_cl_exog)  # 8 columns (intercept + log_rs + AV/HMO/trend/3 insurers)
+Z_cl <- cbind(1, y_rs, X_cl_exog)  # intercept + log_rs + AV/HMO/trend + INS_COST
 
 # --- M3: Precompute FOC cell data ---
 # For each cell, we need plan characteristics to predict MC(alpha, gamma).
@@ -114,9 +129,9 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Platinum <- as.integer(plan_metal == "Platinum")
   foc_cells[[k]]$HMO <- as.integer(str_detect(pn, "^KA"))
   foc_cells[[k]]$trend <- y - 2014L
-  foc_cells[[k]]$Anthem <- as.integer(str_detect(pn, "^ANT"))
-  foc_cells[[k]]$Blue_Shield <- as.integer(str_detect(pn, "^BS"))
-  foc_cells[[k]]$Health_Net <- as.integer(str_detect(pn, "^HN"))
+  for (ins in INS_COST) {
+    foc_cells[[k]][[ins]] <- as.integer(str_detect(pn, paste0("^", COST_PREFIX[[ins]])))
+  }
   foc_cells[[k]]$AV <- unname(fc$plan_avs[pn])  # generosity term for the claims eq.
 
   # Predicted demographic shares for this cell (from the demand model, saved by
@@ -144,7 +159,7 @@ cat("  Total FOC equations:", n_foc_total, "\n")
 
 # M3 instruments: plan characteristics (same for each plan within the FOC)
 # We'll compute Z_foc * eps_foc inside compute_g_bar by accumulating across cells
-N_Z_FOC <- 9L  # intercept, Silver, Gold, Platinum, HMO, trend, Anthem, BS, HN
+N_Z_FOC <- 6L + N_INS_COST  # intercept, Silver, Gold, Platinum, HMO, trend + INS_COST
 
 N_MOMENTS <- ncol(Z_rs) + ncol(Z_cl) + N_Z_FOC
 cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
@@ -155,12 +170,11 @@ cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
 # =========================================================================
 
 N_ALPHA <- 6L  # intercept, Silver, Gold, Platinum, share_18to34, share_35to54
-N_GAMMA <- 8L  # intercept, log_risk_score, AV, HMO, trend, Anthem, Blue_Shield, Health_Net
+N_GAMMA <- 5L + N_INS_COST  # intercept, log_risk_score, AV, HMO, trend + INS_COST
 
 alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum",
                  "share_18to34", "share_35to54")
-gamma_names <- c("(Intercept)", "log_risk_score", "AV", "HMO", "trend",
-                 "Anthem", "Blue_Shield", "Health_Net")
+gamma_names <- c("(Intercept)", "log_risk_score", "AV", "HMO", "trend", INS_COST)
 
 # Starting values from OLS
 rs_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs.csv"), show_col_types = FALSE)
@@ -220,10 +234,13 @@ compute_g_bar <- function(theta) {
       alpha[2] * fc$Silver + alpha[3] * fc$Gold + alpha[4] * fc$Platinum +
       alpha[5] * fc$share_18to34 + alpha[6] * fc$share_35to54
 
-    # Predict log claims (AV = gamma[3], generosity term)
+    # Predict log claims (AV = gamma[3], generosity term). Insurer dummies are
+    # gamma[6:(5+N_INS_COST)], in INS_COST order.
     pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs + gamma[3] * fc$AV +
-      gamma[4] * fc$HMO + gamma[5] * fc$trend +
-      gamma[6] * fc$Anthem + gamma[7] * fc$Blue_Shield + gamma[8] * fc$Health_Net
+      gamma[4] * fc$HMO + gamma[5] * fc$trend
+    for (j in seq_len(N_INS_COST)) {
+      pred_log_cl <- pred_log_cl + gamma[5 + j] * fc[[INS_COST[j]]]
+    }
 
     pred_claims <- exp(pred_log_cl)
     pred_rs <- exp(pred_log_rs)
@@ -256,9 +273,9 @@ compute_g_bar <- function(theta) {
                  as.vector(fc$Omega %*% (fc$posted_premium - mc)) +
                  as.vector(fc$Omega_broker %*% fc$comm_vec)
 
-    # Instruments for this cell: intercept + plan characteristics
-    Z_cell <- cbind(1, fc$Silver, fc$Gold, fc$Platinum,
-                    fc$HMO, fc$trend, fc$Anthem, fc$Blue_Shield, fc$Health_Net)
+    # Instruments for this cell: intercept + plan characteristics + insurer dummies
+    Z_cell <- cbind(1, fc$Silver, fc$Gold, fc$Platinum, fc$HMO, fc$trend,
+                    sapply(INS_COST, function(ins) fc[[ins]]))
 
     # Accumulate Z' * foc_resid
     g_foc_sum <- g_foc_sum + colSums(Z_cell * foc_resid)
@@ -406,7 +423,8 @@ mc_rows <- lapply(foc_cells, function(fc) {
   plr <- alpha_gmm[1] + alpha_gmm[2]*fc$Silver + alpha_gmm[3]*fc$Gold + alpha_gmm[4]*fc$Platinum +
          alpha_gmm[5]*fc$share_18to34 + alpha_gmm[6]*fc$share_35to54
   pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$AV + gamma_gmm[4]*fc$HMO +
-         gamma_gmm[5]*fc$trend + gamma_gmm[6]*fc$Anthem + gamma_gmm[7]*fc$Blue_Shield + gamma_gmm[8]*fc$Health_Net
+         gamma_gmm[5]*fc$trend
+  for (j in seq_len(N_INS_COST)) pcl <- pcl + gamma_gmm[5 + j] * fc[[INS_COST[j]]]
   prs <- exp(plr); pclm <- exp(pcl); sh <- fc$shares; av <- fc$plan_avs
   avg_p <- weighted.mean(fc$posted_premium, sh, na.rm = TRUE)
   mh <- MH_LOOKUP[as.character(round(av, 1))]; mh[is.na(mh)] <- 1

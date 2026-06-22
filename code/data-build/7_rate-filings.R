@@ -75,6 +75,16 @@ rdata <- rdata %>%
       ISSUER_ID == 67138             ~ "Health_Net_HMO",
       ISSUER_ID == 99110             ~ "Health_Net_PPO",
       grepl("Health Net", COMPANY)   ~ "Health_Net_PPO",
+      # Seven larger regionals, pulled out by name (matches the demand-side
+      # un-lumping; micro-carriers — United, Contra Costa, Cigna, Sutter, etc. —
+      # stay in the "Small" baseline).
+      grepl("Molina", COMPANY)       ~ "Molina",
+      grepl("L\\.A\\. Care|Los Angeles County", COMPANY) ~ "LA_Care",
+      grepl("Sharp", COMPANY)        ~ "SHARP",
+      grepl("Chinese Community", COMPANY) ~ "Chinese_Community",
+      grepl("Oscar", COMPANY)        ~ "Oscar",
+      grepl("Western Health", COMPANY) ~ "Western",
+      grepl("Valley Health", COMPANY) ~ "Valley",
       TRUE                           ~ "Small"
     ),
     # Simplified insurer for regressions (HN_HMO and HN_PPO → Health_Net)
@@ -103,13 +113,22 @@ rdata <- rdata %>%
       insurer_small == "Blue_Shield" ~ "BS",
       insurer_small == "Kaiser"      ~ "KA",
       insurer_small == "Health_Net"  ~ "HN",
+      insurer_small == "Molina"      ~ "MOL",
+      insurer_small == "LA_Care"     ~ "LA",
+      insurer_small == "SHARP"       ~ "SH",
+      insurer_small == "Chinese_Community" ~ "CC",
+      insurer_small == "Oscar"       ~ "OSC",
+      insurer_small == "Western"     ~ "WEST",
+      insurer_small == "Valley"      ~ "VAL",
       TRUE                           ~ "Small"
     ),
     metal_abbr = metal_map[METAL],
-    # Network suffix: HMO gets "3" except for Kaiser (always HMO)
+    # Network suffix: HMO gets "3" except for Kaiser (always HMO). Regionals and
+    # the "Small" baseline get no suffix, matching the demand-side plan_id codes.
     network_suffix = case_when(
       insurer_small == "Kaiser"      ~ "",   # Kaiser always HMO, no suffix
-      insurer_small == "Small"       ~ "",   # Small insurers, no network split
+      insurer_small %in% c("Small", "Molina", "LA_Care", "SHARP",
+                           "Chinese_Community", "Oscar", "Western", "Valley") ~ "",
       PLAN_TYPE == "HMO"             ~ "3",
       TRUE                           ~ ""
     ),
@@ -201,6 +220,13 @@ rsdata <- rsdata %>%
     Blue_Shield = as.integer(insurer_small == "Blue_Shield"),
     Health_Net  = as.integer(insurer_small == "Health_Net"),
     Kaiser      = as.integer(insurer_small == "Kaiser"),
+    Molina            = as.integer(insurer_small == "Molina"),
+    LA_Care           = as.integer(insurer_small == "LA_Care"),
+    SHARP             = as.integer(insurer_small == "SHARP"),
+    Chinese_Community = as.integer(insurer_small == "Chinese_Community"),
+    Oscar             = as.integer(insurer_small == "Oscar"),
+    Western           = as.integer(insurer_small == "Western"),
+    Valley            = as.integer(insurer_small == "Valley"),
     trend    = year - min(year),
     AV_Demean = AV_LOOKUP[METAL] - 0.70,
     log_cost = log(if_else(EXP_INC_CLM_PMPM > 0, EXP_INC_CLM_PMPM, NA_real_))

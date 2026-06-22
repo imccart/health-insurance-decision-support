@@ -101,7 +101,14 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     Anthem      = as.integer(str_detect(plan_ids_cell, "^ANT")),
     Blue_Shield = as.integer(str_detect(plan_ids_cell, "^BS")),
     Health_Net  = as.integer(str_detect(plan_ids_cell, "^HN")),
-    Kaiser      = as.integer(str_detect(plan_ids_cell, "^KA"))
+    Kaiser      = as.integer(str_detect(plan_ids_cell, "^KA")),
+    Molina            = as.integer(str_detect(plan_ids_cell, "^MOL")),
+    LA_Care           = as.integer(str_detect(plan_ids_cell, "^LA")),
+    SHARP             = as.integer(str_detect(plan_ids_cell, "^SH")),
+    Chinese_Community = as.integer(str_detect(plan_ids_cell, "^CC")),
+    Oscar             = as.integer(str_detect(plan_ids_cell, "^OSC")),
+    Western           = as.integer(str_detect(plan_ids_cell, "^WEST")),
+    Valley            = as.integer(str_detect(plan_ids_cell, "^VAL"))
   )
 
   # Reinsurance factors for this year

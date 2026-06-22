@@ -157,11 +157,19 @@ build_structural <- function(plans, hhs, sample_frac,
 
   # premium_posted kept on data for supply-side use
 
-  # 6. Collapse small insurers (group by base metal so CSR variants fold in)
-  big_four <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net")
+  # 6. Keep the big four AND the seven larger regionals separate, each as its own
+  # brand/firm (own plan_id, own commission via prefix, own ownership block in the
+  # supply FOC). Collapse ONLY the micro-carriers (United, Contra Costa, and any
+  # other leftover) into a single "Other_Small" bucket, which serves as the demand
+  # baseline. Group by base metal so CSR variants fold in. Prefix "OS" is absent
+  # from commission_lookup, so the micro-carriers correctly carry ~0 commission
+  # (rather than inheriting the old blended "Small" rate).
+  keep_separate <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+                     "Molina", "LA_Care", "SHARP", "Chinese_Community",
+                     "Oscar", "Western", "Valley")
 
-  large <- dt[issuer %in% c(big_four, "Outside_Option")]
-  small_raw <- dt[!issuer %in% c(big_four, "Outside_Option")]
+  large <- dt[issuer %in% c(keep_separate, "Outside_Option")]
+  small_raw <- dt[!issuer %in% c(keep_separate, "Outside_Option")]
   rm(dt)
 
   has_comm <- "comm_pmpm" %in% names(small_raw)
@@ -193,14 +201,14 @@ build_structural <- function(plans, hhs, sample_frac,
       small <- merge(small, comm_agg, by = c("household_id", "base_metal"), all.x = TRUE)
     }
     small[, `:=`(
-      issuer = "Small_Insurer",
+      issuer = "Other_Small",
       metal  = base_metal,
       plan_id = fcase(
-        base_metal == "Platinum",         "Small_P",
-        base_metal == "Gold",             "Small_G",
-        base_metal == "Silver",           "Small_SIL",
-        base_metal == "Bronze",           "Small_BR",
-        base_metal == "Minimum Coverage", "Small_CAT",
+        base_metal == "Platinum",         "OS_P",
+        base_metal == "Gold",             "OS_G",
+        base_metal == "Silver",           "OS_SIL",
+        base_metal == "Bronze",           "OS_BR",
+        base_metal == "Minimum Coverage", "OS_CAT",
         default = NA_character_
       )
     )]
@@ -251,6 +259,9 @@ build_structural <- function(plans, hhs, sample_frac,
     Blue_Shield    = fifelse(issuer == "Blue_Shield", 1L, 0L),
     Kaiser         = fifelse(issuer == "Kaiser", 1L, 0L),
     Health_Net     = fifelse(issuer == "Health_Net", 1L, 0L),
+    # No regional brand dummies: the seven regionals stay separate plans (step 6
+    # keeps them un-collapsed for per-regional commission/cost), but a brand FE
+    # per regional pushes the nesting parameter non-RUM. See _demand.R.
     hh_weight      = as.numeric(weight)
   )]
 

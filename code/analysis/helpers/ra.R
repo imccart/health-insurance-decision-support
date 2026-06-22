@@ -58,7 +58,9 @@ estimate_ra_regressions <- function(rsdata) {
     mutate(AV = AV_METAL)
 
   claims_reg <- lm(log_cost ~ log_risk_score + AV + HMO + trend +
-                      Anthem + Blue_Shield + Health_Net + Kaiser,
+                      Anthem + Blue_Shield + Health_Net + Kaiser +
+                      Molina + LA_Care + SHARP + Chinese_Community +
+                      Oscar + Western + Valley,
                     data = claims_valid, weights = claims_valid$EXP_MM)
 
   cat("  Claims regression: N =", nrow(claims_valid), "\n")
@@ -265,8 +267,11 @@ predict_claims <- function(claims_coefs, plan_chars, log_rs) {
   if ("trend" %in% names(claims_coefs)) {
     log_cost <- log_cost + claims_coefs[["trend"]] * plan_chars$trend
   }
-  # Add insurer FEs (NA coefficient = reference category, treat as 0)
-  for (ins in c("Anthem", "Blue_Shield", "Health_Net", "Kaiser")) {
+  # Add insurer FEs (NA coefficient = reference category, treat as 0). Big four +
+  # the seven larger regionals; Other_Small carries no dummy (baseline).
+  for (ins in c("Anthem", "Blue_Shield", "Health_Net", "Kaiser",
+                "Molina", "LA_Care", "SHARP", "Chinese_Community",
+                "Oscar", "Western", "Valley")) {
     if (ins %in% names(claims_coefs) && ins %in% names(plan_chars)) {
       coef_val <- claims_coefs[[ins]]
       if (!is.na(coef_val)) {

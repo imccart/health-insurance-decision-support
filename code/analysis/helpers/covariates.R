@@ -83,6 +83,9 @@ get_covariate_menu <- function() {
     cf_resid       = list(type = "cf_correction"),
 
     # --- Insurer fixed effects ---
+    # Big four only. The seven larger regionals are kept as separate plans (so
+    # their commission and cost vary), but carry NO brand dummy: one per regional
+    # pushes the nesting parameter lambda from ~0.47 to 4.27 (non-RUM). See _demand.R.
     Anthem         = list(type = "insurer_fe"),
     Blue_Shield    = list(type = "insurer_fe"),
     Kaiser         = list(type = "insurer_fe"),
