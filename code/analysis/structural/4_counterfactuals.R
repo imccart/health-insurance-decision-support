@@ -112,6 +112,17 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     mean(rf, na.rm = TRUE)
   })
 
+  # omega cost residual ------------------------------------------------------
+  # Plan-level structural cost shock (BLP/Nevo): MC(p) = compute_mc(p) + omega,
+  # held FIXED across scenarios. omega is CALIBRATED below at the observed scenario
+  # so the CF's own FOC holds exactly at observed prices (omega = -solve(Omega, f0)
+  # with f0 = fn(p_obs) at omega = 0; equals mc_foc - mc_structural but from the CF's
+  # own Omega, so it is self-consistent even though the cell is ill-conditioned). The
+  # closures below read omega_vec by lexical scope, so it must exist before they run;
+  # it is overwritten in the observed-scenario block. Counterfactual responses come
+  # only from how the risk pool moves the compute_mc(p) part.
+  omega_vec <- setNames(rep(0, length(plan_ids_cell)), plan_ids_cell)
+
   # Mean observed commission for uniform scenario
   mean_comm_pmpm <- mean(sr_cell$commission_pmpm[sr_cell$commission_pmpm > 0], na.rm = TRUE)
   if (is.na(mean_comm_pmpm)) mean_comm_pmpm <- 0
@@ -235,7 +246,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       )
       br_elast <- if (!is.null(br)) br$broker_elast_mat[pn, pn] else NULL
       list(V = V, shares = shares, elast_mat = elast, mc_result = mc_res,
-           mc_p = mc_res$mc[pn], rs_p = rs, ra_foc_p = ra_foc,
+           mc_p = mc_res$mc[pn] + omega_vec[pn], rs_p = rs, ra_foc_p = ra_foc,
            demo_shares = demo, avg_prem = avg_p, broker_elast = br_elast)
     }
 
@@ -512,7 +523,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       J_mat
     }
 
-    list(fn = fn, jac = jac)
+    list(fn = fn, jac = jac, cache = cache)
   }
 
   # Consumer surplus --------------------------------------------------------
@@ -697,10 +708,13 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       error = function(e) NULL
     )
     mc_sol <- compute_mc(rs_coefs, claims_coefs, plan_chars_cell,
-                          demo_sol, shares_sol, mean(p_sol, na.rm = TRUE),
+                          demo_sol, shares_sol,
+                          weighted.mean(p_sol, shares_sol, na.rm = TRUE),
                           plan_avs, reins_vec)
+    # Same omega cost residual carried into the reported MC (see run_cf_cell head).
+    mc_eff <- mc_sol$mc + omega_vec[names(mc_sol$mc)]
 
-    list(sol = sol, p = p_sol, mc = mc_sol$mc, shares = shares_sol,
+    list(sol = sol, p = p_sol, mc = mc_eff, shares = shares_sol,
          dt_final = dt_sol)
   }
 
@@ -781,6 +795,24 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # Scenario 1: Observed
   comm_obs_sc <- comm_obs[plan_ids_cell]
   cd_obs <- build_scenario_data(cell_data_base, comm_obs_sc)
+
+  # Calibrate omega so the CF's own FOC holds exactly at observed prices. With
+  # omega = 0, f0 = fn(p_obs); the FOC is linear in MC, so adding omega shifts the
+  # residual by Omega %*% omega. omega = -solve(Omega, f0) zeroes fn(p_obs), making
+  # p_obs a fixed point of the observed scenario; the cost shock then carries into the
+  # counterfactual re-solves. Uses the CF's own Omega at p_obs, so it is self-consistent
+  # even in ill-conditioned cells (borrowing mc_foc from 2_pricing left a ~0.05 residual
+  # that the cond~2e6 geometry amplified into large price swings).
+  fns_cal <- build_foc_function(cd_obs, coefs, comm_obs_sc, benchmark_plan, plan_attrs,
+                                rs_coefs, claims_coefs, plan_chars_cell, plan_avs,
+                                reins_vec, lambda, plan_ids_cell)
+  f0 <- fns_cal$fn(p_obs[plan_ids_cell])
+  om_sol <- tryCatch(as.numeric(-solve(fns_cal$cache$Omega, f0)),
+                     error = function(e) rep(0, length(plan_ids_cell)))
+  om_sol[!is.finite(om_sol)] <- 0
+  omega_vec <- setNames(om_sol, plan_ids_cell)
+  rm(fns_cal, f0, om_sol)
+
   eq_obs <- solve_equilibrium(cd_obs, comm_obs_sc, p_obs)
 
   if (!is.null(eq_obs)) {
@@ -932,68 +964,62 @@ rm(hh_all); gc(verbose = FALSE)
 
 cat("\nPhase 2: Running counterfactual simulations...\n")
 
-results_list <- vector("list", nrow(cells))
-n_success <- 0L
-n_fail    <- 0L
-failed_cells <- character(0)
-t_start <- Sys.time()
+# Build one task per cell, each carrying its own household slice, so parallel
+# workers never hold the full household panel (memory stays flat per worker).
+tasks <- lapply(seq_len(nrow(cells)), function(i) {
+  hhs <- hh_split_cf[[paste0(cells$region[i], ".", cells$year[i])]]
+  list(r = cells$region[i], y = cells$year[i], seed = cell_seeds[i],
+       hhs = if (is.null(hhs) || nrow(hhs) == 0) NULL else as.data.frame(hhs))
+})
+rm(hh_split_cf); gc(verbose = FALSE)
 
-# Append each cell's result as it finishes so a partial/cancelled run still leaves
-# a readable file on disk. Phase 3 rewrites the clean combined file at the end.
-cf_out_path <- "results/counterfactual_results.csv"
-if (file.exists(cf_out_path)) file.remove(cf_out_path)
-
-for (i in seq_len(nrow(cells))) {
-  r <- cells$region[i]
-  y <- cells$year[i]
-
-  cell_key <- paste0(r, ".", y)
-  hhs_raw <- hh_split_cf[[cell_key]]
-  if (is.null(hhs_raw) || nrow(hhs_raw) == 0) {
-    n_fail <- n_fail + 1L
-    failed_cells <- c(failed_cells, paste0(r, "_", y))
-    next
-  }
-  hhs_raw <- as.data.frame(hhs_raw)
-
-  cell_result <- tryCatch(
-    run_cf_cell(r, y, cell_seeds[i], SAMPLE_FRAC, hhs_raw,
-                plan_choice, supply_results, coefs,
-                commission_lookup, rs_coefs, claims_coefs,
-                reins_df, STRUCTURAL_SPEC),
-    error = function(e) {
-      cat("  ERROR in cell", r, y, ":", conditionMessage(e), "\n")
-      NULL
-    }
+# Solve one cell. Returns NULL (not an error) for empty or failed cells.
+run_one_cf <- function(task) {
+  if (is.null(task$hhs)) return(NULL)
+  tryCatch(
+    run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
+                plan_choice, supply_results, coefs, commission_lookup,
+                rs_coefs, claims_coefs, reins_df, STRUCTURAL_SPEC),
+    error = function(e) { cat("  ERROR cell", task$r, task$y, ":", conditionMessage(e), "\n"); NULL }
   )
-  rm(hhs_raw)
-
-  if (!is.null(cell_result)) {
-    results_list[[i]] <- cell_result
-    n_success <- n_success + 1L
-    write_csv(cell_result, cf_out_path, append = file.exists(cf_out_path))
-  } else {
-    n_fail <- n_fail + 1L
-    failed_cells <- c(failed_cells, paste0(r, "_", y))
-  }
-
-  gc(verbose = FALSE)
-  if (i %% 5 == 0) {
-    elapsed <- as.numeric(difftime(Sys.time(), t_start, units = "mins"))
-    cat(sprintf("  Progress: %d/%d cells (%.1f min elapsed)\n", i, nrow(cells), elapsed))
-  }
 }
 
-rm(hh_split_cf)
-gc(verbose = FALSE)
+t_start <- Sys.time()
 
+# Run cells in parallel (PSOCK, load-balanced); fall back to serial if the
+# cluster can't be created. Each worker sources the helpers and receives
+# run_cf_cell plus the small reference objects; household data rides with the task.
+n_workers <- max(1L, parallel::detectCores() - 2L)
+cl <- tryCatch(parallel::makeCluster(n_workers, type = "PSOCK"), error = function(e) NULL)
+
+if (!is.null(cl)) {
+  cat("  Parallel:", n_workers, "workers\n")
+  parallel::clusterEvalQ(cl, {
+    suppressMessages({ library(tidyverse); library(data.table); library(nleqslv) })
+    source("code/data-build/_helpers.R")
+    source("code/analysis/helpers/constants.R")
+    source("code/analysis/helpers/covariates.R")
+    source("code/analysis/helpers/choice.R")
+    source("code/analysis/helpers/supply.R")
+    source("code/analysis/helpers/ra.R")
+    source("code/analysis/helpers/estimate_demand.R")
+    data.table::setDTthreads(1)
+  })
+  parallel::clusterExport(cl, c("run_cf_cell", "SAMPLE_FRAC", "plan_choice",
+    "supply_results", "coefs", "commission_lookup", "rs_coefs", "claims_coefs",
+    "reins_df", "STRUCTURAL_SPEC"))
+  results_list <- parallel::parLapplyLB(cl, tasks, run_one_cf)
+  parallel::stopCluster(cl)
+} else {
+  cat("  Cluster unavailable — running serial\n")
+  results_list <- lapply(tasks, run_one_cf)
+}
+
+n_success <- sum(vapply(results_list, Negate(is.null), logical(1)))
+n_fail    <- length(results_list) - n_success
 elapsed_total <- as.numeric(difftime(Sys.time(), t_start, units = "mins"))
 cat(sprintf("\nComplete: %d success, %d failed (%.1f min total)\n",
             n_success, n_fail, elapsed_total))
-
-if (n_fail > 0) {
-  cat("  Failed cells:", paste(failed_cells, collapse = ", "), "\n")
-}
 
 # =========================================================================
 # PHASE 3: Collect and write results
