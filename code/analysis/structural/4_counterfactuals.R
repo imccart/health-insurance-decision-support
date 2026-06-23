@@ -568,7 +568,11 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     ), by = household_number]
 
     hh_cs[, mx := pmax(V_0, log_D_lam)]
-    hh_cs[, cs := (1 / alpha_i) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500))))]
+    # alpha_i is dV/dp (negative). The McFadden surplus divides the log-sum by the
+    # marginal utility of income, which is the POSITIVE quantity -alpha_i. Use
+    # abs(alpha_i) so CS is a positive dollar value and welfare differences carry
+    # the intuitive sign (assistance / lower premiums raise CS).
+    hh_cs[, cs := (1 / abs(alpha_i)) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500))))]
 
     total_weight <- sum(hh_cs$hh_weight)
     weighted_cs <- sum(hh_cs$hh_weight * hh_cs$cs) / total_weight
