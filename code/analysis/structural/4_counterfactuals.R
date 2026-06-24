@@ -20,6 +20,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                         reins_df, STRUCTURAL_SPEC) {
 
   TAU_GRID <- c(0, 0.25, 0.5, 0.75, 1.0)
+  # Commission-level sweep: brokers stay brokers, commissions scaled down.
+  SCALE_GRID <- c(0.25, 0.5, 0.75)
+  # Commission utility terms — zeroed for the non-commission welfare metric
+  # (cs_nocomm), so welfare comparisons don't rest on commission steering being a
+  # genuine preference rather than a wedge.
+  COMM_TERMS <- c("commission_broker", "v_hat_commission")
 
   coef_map <- setNames(coefs$estimate, coefs$term)
   lambda <- coef_map[["lambda"]]
@@ -534,9 +540,24 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   }
 
   # Consumer surplus --------------------------------------------------------
-  compute_consumer_surplus <- function(cell_data, coefs_cell) {
+  # welfare_drop: column names zeroed before utility is computed, so their
+  # coefficients do not enter the welfare log-sum. Used to value scenarios on the
+  # NON-commission part of utility (welfare_drop = the commission terms), which
+  # makes the welfare comparison robust to whether commission steering reflects a
+  # genuine preference or a behavioral wedge.
+  # deterministic = TRUE replaces the logit log-sum with each household's best
+  # available option (max over inside plans vs the outside good). Used for the
+  # planner first-best: everyone in their best-fit plan, no steering, no logit
+  # noise. With FALSE (default) this is the standard McFadden inclusive value.
+  compute_consumer_surplus <- function(cell_data, coefs_cell, welfare_drop = character(),
+                                       deterministic = FALSE) {
     coef_map_cs <- setNames(coefs_cell$estimate, coefs_cell$term)
     lambda_cs <- coef_map_cs[["lambda"]]
+
+    if (length(welfare_drop) > 0) {
+      cell_data <- as.data.table(copy(cell_data))
+      for (cn in intersect(welfare_drop, names(cell_data))) cell_data[[cn]] <- 0
+    }
 
     util <- compute_utility(cell_data, coefs_cell)
     V <- util$V
@@ -547,12 +568,17 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V[1]), by = household_number]
 
     ins_dt <- dt[plan_id != "Uninsured"]
-    ins_dt[, V_scaled := V / lambda_cs]
-    ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
-    ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
-    ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
-    ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
-    ins_dt[, log_D_lam := lambda_cs * log_D]
+    if (deterministic) {
+      # Best inside plan per HH (no nesting smoothing, no logit error).
+      ins_dt[, log_D_lam := max(V), by = household_number]
+    } else {
+      ins_dt[, V_scaled := V / lambda_cs]
+      ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
+      ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
+      ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
+      ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
+      ins_dt[, log_D_lam := lambda_cs * log_D]
+    }
 
     alpha_vec <- compute_alpha_i(ins_dt, coefs_cell, STRUCTURAL_SPEC)
     ins_dt[, alpha_i := alpha_vec]
@@ -572,7 +598,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     # marginal utility of income, which is the POSITIVE quantity -alpha_i. Use
     # abs(alpha_i) so CS is a positive dollar value and welfare differences carry
     # the intuitive sign (assistance / lower premiums raise CS).
-    hh_cs[, cs := (1 / abs(alpha_i)) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500))))]
+    if (deterministic) {
+      # Each HH realizes the better of its best inside plan and the outside option.
+      hh_cs[, cs := (1 / abs(alpha_i)) * mx]
+    } else {
+      hh_cs[, cs := (1 / abs(alpha_i)) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500))))]
+    }
 
     total_weight <- sum(hh_cs$hh_weight)
     weighted_cs <- sum(hh_cs$hh_weight * hh_cs$cs) / total_weight
@@ -775,20 +806,29 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       }
     }
 
-    # Steering terms — same definition as build_structural: non-broker advice
-    # on metal, broker-only commission (set above), v_hat coalesced.
+    # Steering terms — same definition as build_structural: navigator (non-broker)
+    # and broker each carry their own metal terms; broker-only commission (set
+    # above); v_hat coalesced. Converting a broker to navigator (any_agent -> 0)
+    # therefore moves its metal steering from broker_* onto assisted_*.
     if ("any_agent" %in% names(cd)) {
       cd[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
+      cd[, broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
     } else {
       cd[, nonbroker := assisted]
+      cd[, broker    := 0L]
     }
     cd[, `:=`(
-      assisted_silver = nonbroker * silver,
-      assisted_bronze = nonbroker * bronze,
-      assisted_gold   = nonbroker * gold,
-      assisted_plat   = nonbroker * platinum
+      assisted_silver  = nonbroker * silver,
+      assisted_bronze  = nonbroker * bronze,
+      assisted_gold    = nonbroker * gold,
+      assisted_plat    = nonbroker * platinum,
+      broker_silver    = broker * silver,
+      broker_bronze    = broker * bronze,
+      assisted_premium = nonbroker * premium,
+      broker_premium   = broker * premium
     )]
-    cd[, nonbroker := NULL]
+    # nonbroker / broker kept: raw_demo for the premium interactions, which
+    # recompute_prem_interactions updates as premiums move in the solve.
 
     if ("v_hat" %in% names(cd) && "commission_broker" %in% names(cd)) {
       cd[, v_hat_commission := fcoalesce(v_hat, 0) * commission_broker]
@@ -827,8 +867,13 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   eq_obs <- solve_equilibrium(cd_obs, comm_obs_sc, p_obs)
 
   if (!is.null(eq_obs)) {
-    cs_obs <- tryCatch(compute_consumer_surplus(eq_obs$dt_final %||% cd_obs, coefs),
+    obs_dt <- eq_obs$dt_final %||% cd_obs
+    cs_obs <- tryCatch(compute_consumer_surplus(obs_dt, coefs),
                         error = function(e) NA_real_)
+    cs_obs_nc <- tryCatch(compute_consumer_surplus(obs_dt, coefs, welfare_drop = COMM_TERMS),
+                          error = function(e) NA_real_)
+    wf_obs <- tryCatch(scenario_welfare(obs_dt, coefs, lambda, y, CS_TABLE),
+                       error = function(e) c(nav = NA_real_, obj = NA_real_))
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "observed", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -841,6 +886,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       commission_pmpm = comm_obs_sc[plan_ids_cell],
       markup_cf = eq_obs$p[plan_ids_cell] - eq_obs$mc[plan_ids_cell],
       cs_weighted = cs_obs,
+      cs_nocomm = cs_obs_nc,
+      cs_welfare_nav = wf_obs[["nav"]],
+      cs_welfare_obj = wf_obs[["obj"]],
       nleqslv_termcd = eq_obs$sol$termcd,
       nleqslv_iter = eq_obs$sol$iter
     )
@@ -869,6 +917,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       }
       cs_tau <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
                           error = function(e) NA_real_)
+      wf_tau <- tryCatch(scenario_welfare(dt_cs, coefs, lambda, y, CS_TABLE),
+                         error = function(e) c(nav = NA_real_, obj = NA_real_))
 
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = tau,
@@ -882,6 +932,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         commission_pmpm = comm_zero[plan_ids_cell],
         markup_cf = eq_tau$p[plan_ids_cell] - eq_tau$mc[plan_ids_cell],
         cs_weighted = cs_tau,
+        cs_welfare_nav = wf_tau[["nav"]],
+        cs_welfare_obj = wf_tau[["obj"]],
         nleqslv_termcd = eq_tau$sol$termcd,
         nleqslv_iter = eq_tau$sol$iter
       )
@@ -903,6 +955,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   if (!is.null(eq_unif)) {
     cs_unif <- tryCatch(compute_consumer_surplus(eq_unif$dt_final %||% cd_unif, coefs),
                          error = function(e) NA_real_)
+    wf_unif <- tryCatch(scenario_welfare(eq_unif$dt_final %||% cd_unif, coefs, lambda, y, CS_TABLE),
+                        error = function(e) c(nav = NA_real_, obj = NA_real_))
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "uniform", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -915,6 +969,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       commission_pmpm = comm_uniform[plan_ids_cell],
       markup_cf = eq_unif$p[plan_ids_cell] - eq_unif$mc[plan_ids_cell],
       cs_weighted = cs_unif,
+      cs_welfare_nav = wf_unif[["nav"]],
+      cs_welfare_obj = wf_unif[["obj"]],
       nleqslv_termcd = eq_unif$sol$termcd,
       nleqslv_iter = eq_unif$sol$iter
     )
@@ -923,6 +979,135 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     cat("  uniform - did not converge\n")
   }
   rm(cd_unif)
+
+  # Scenario 4: Commission-level sweep (brokers intact, commissions scaled down)
+  for (sc in SCALE_GRID) {
+    sc_label <- paste0("scale_", sprintf("%.2f", sc))
+    comm_scaled <- setNames(comm_obs_sc * sc, plan_ids_cell)
+    cd_sc <- build_scenario_data(cell_data_base, comm_scaled)
+    eq_sc <- solve_equilibrium(cd_sc, comm_scaled, p_obs)
+    if (!is.null(eq_sc)) {
+      sc_dt <- eq_sc$dt_final %||% cd_sc
+      cs_sc    <- tryCatch(compute_consumer_surplus(sc_dt, coefs),
+                           error = function(e) NA_real_)
+      cs_sc_nc <- tryCatch(compute_consumer_surplus(sc_dt, coefs, welfare_drop = COMM_TERMS),
+                           error = function(e) NA_real_)
+      wf_sc <- tryCatch(scenario_welfare(sc_dt, coefs, lambda, y, CS_TABLE),
+                        error = function(e) c(nav = NA_real_, obj = NA_real_))
+      results_list[[length(results_list) + 1]] <- tibble(
+        region = r, year = y, scenario = sc_label, tau = NA_real_,
+        plan_id = plan_ids_cell,
+        premium_obs = p_obs[plan_ids_cell],
+        premium_cf = eq_sc$p[plan_ids_cell],
+        premium_change = eq_sc$p[plan_ids_cell] - p_obs[plan_ids_cell],
+        share_obs = setNames(sr_cell$share, sr_cell$plan_id)[plan_ids_cell],
+        share_cf = eq_sc$shares[plan_ids_cell],
+        mc = eq_sc$mc[plan_ids_cell],
+        commission_pmpm = comm_scaled[plan_ids_cell],
+        markup_cf = eq_sc$p[plan_ids_cell] - eq_sc$mc[plan_ids_cell],
+        cs_weighted = cs_sc,
+        cs_nocomm = cs_sc_nc,
+        cs_welfare_nav = wf_sc[["nav"]],
+        cs_welfare_obj = wf_sc[["obj"]],
+        nleqslv_termcd = eq_sc$sol$termcd,
+        nleqslv_iter = eq_sc$sol$iter
+      )
+      cat("  ", sc_label, "- converged (nleqslv iter =", eq_sc$sol$iter, ")\n")
+    } else {
+      cat("  ", sc_label, "- did not converge\n")
+    }
+    rm(cd_sc); gc(verbose = FALSE)
+  }
+
+  # Scenario 5: Commissions aligned with consumer value (re-allocation, not level)
+  # Value score = plan-level mean of the NON-commission indirect utility across the
+  # cell's households (the model's own measure of consumer fit). Commission is set
+  # proportional to that score and rescaled to hold the observed commission budget
+  # fixed (sum comm * observed-share), so this isolates ALIGNMENT, not the level.
+  # Brokers then steer toward high-fit plans; welfare is read on cs_nocomm.
+  cd_base_nc <- as.data.table(copy(cell_data_base))
+  for (cn in intersect(COMM_TERMS, names(cd_base_nc))) cd_base_nc[[cn]] <- 0
+  cd_base_nc[, V_nc := compute_utility(cd_base_nc, coefs)$V]
+  plan_val <- cd_base_nc[plan_id != "Uninsured", .(val = mean(V_nc, na.rm = TRUE)), by = plan_id]
+  val_vec <- setNames(plan_val$val, plan_val$plan_id)[plan_ids_cell]
+  val_vec[!is.finite(val_vec)] <- min(val_vec[is.finite(val_vec)], na.rm = TRUE)
+  obs_share <- setNames(sr_cell$share, sr_cell$plan_id)[plan_ids_cell]
+  obs_share[!is.finite(obs_share)] <- 0
+  w_val  <- val_vec - min(val_vec)                         # shift to non-negative
+  budget <- sum(comm_obs_sc * obs_share, na.rm = TRUE)     # observed commission budget
+  denom  <- sum(w_val * obs_share, na.rm = TRUE)
+  comm_aligned <- setNames(
+    as.numeric(if (denom > 0) w_val * (budget / denom) else comm_obs_sc),
+    plan_ids_cell)
+  cd_al <- build_scenario_data(cell_data_base, comm_aligned)
+  eq_al <- solve_equilibrium(cd_al, comm_aligned, p_obs)
+  if (!is.null(eq_al)) {
+    al_dt <- eq_al$dt_final %||% cd_al
+    cs_al    <- tryCatch(compute_consumer_surplus(al_dt, coefs),
+                         error = function(e) NA_real_)
+    cs_al_nc <- tryCatch(compute_consumer_surplus(al_dt, coefs, welfare_drop = COMM_TERMS),
+                         error = function(e) NA_real_)
+    wf_al <- tryCatch(scenario_welfare(al_dt, coefs, lambda, y, CS_TABLE),
+                      error = function(e) c(nav = NA_real_, obj = NA_real_))
+    results_list[[length(results_list) + 1]] <- tibble(
+      region = r, year = y, scenario = "aligned", tau = NA_real_,
+      plan_id = plan_ids_cell,
+      premium_obs = p_obs[plan_ids_cell],
+      premium_cf = eq_al$p[plan_ids_cell],
+      premium_change = eq_al$p[plan_ids_cell] - p_obs[plan_ids_cell],
+      share_obs = obs_share,
+      share_cf = eq_al$shares[plan_ids_cell],
+      mc = eq_al$mc[plan_ids_cell],
+      commission_pmpm = comm_aligned[plan_ids_cell],
+      markup_cf = eq_al$p[plan_ids_cell] - eq_al$mc[plan_ids_cell],
+      cs_weighted = cs_al,
+      cs_nocomm = cs_al_nc,
+      cs_welfare_nav = wf_al[["nav"]],
+      cs_welfare_obj = wf_al[["obj"]],
+      nleqslv_termcd = eq_al$sol$termcd,
+      nleqslv_iter = eq_al$sol$iter
+    )
+    cat("   aligned - converged (nleqslv iter =", eq_al$sol$iter, ")\n")
+  } else {
+    cat("   aligned - did not converge\n")
+  }
+  # Scenario 6: Planner first-best (welfare frontier). Each household assigned its
+  # best-fit plan on NON-commission utility at observed prices, valued
+  # deterministically (no steering, no logit noise). The reference the aligned
+  # commission CF tries to approach; reported on the non-commission metric only.
+  cs_planner <- tryCatch(
+    compute_consumer_surplus(cd_base_nc, coefs, welfare_drop = COMM_TERMS, deterministic = TRUE),
+    error = function(e) NA_real_)
+  # Planner-assignment shares: each HH -> argmax non-commission utility (or outside).
+  pl_in <- cd_base_nc[plan_id != "Uninsured",
+                      .(best_plan = plan_id[which.max(V_nc)], wt = first(hh_weight),
+                        Vbest = max(V_nc, na.rm = TRUE)), by = household_number]
+  pl_v0 <- cd_base_nc[plan_id == "Uninsured", .(household_number, V0 = V_nc)]
+  pl_in <- merge(pl_in, pl_v0, by = "household_number", all.x = TRUE)
+  pl_in[is.na(V0), V0 := 0]
+  pl_in[, chosen := fifelse(Vbest >= V0, best_plan, "Uninsured")]
+  pl_sh <- pl_in[, .(w = sum(wt)), by = chosen]
+  planner_share <- setNames(pl_sh$w / sum(pl_sh$w), pl_sh$chosen)[plan_ids_cell]
+  planner_share[!is.finite(planner_share)] <- 0
+  results_list[[length(results_list) + 1]] <- tibble(
+    region = r, year = y, scenario = "planner", tau = NA_real_,
+    plan_id = plan_ids_cell,
+    premium_obs = p_obs[plan_ids_cell],
+    premium_cf = p_obs[plan_ids_cell],
+    premium_change = 0,
+    share_obs = setNames(sr_cell$share, sr_cell$plan_id)[plan_ids_cell],
+    share_cf = planner_share,
+    mc = NA_real_,
+    commission_pmpm = 0,
+    markup_cf = NA_real_,
+    cs_weighted = NA_real_,
+    cs_nocomm = cs_planner,
+    nleqslv_termcd = NA_integer_,
+    nleqslv_iter = NA_integer_
+  )
+  cat("   planner first-best - cs_nocomm =", round(cs_planner, 2), "\n")
+
+  rm(cd_al, cd_base_nc); gc(verbose = FALSE)
 
   # Return results
   if (length(results_list) > 0) {
@@ -959,7 +1144,17 @@ rs_coefs <- setNames(rs_coefs_df$estimate, rs_coefs_df$term)
 claims_coefs <- setNames(claims_coefs_df$estimate, claims_coefs_df$term)
 
 demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
-STRUCTURAL_SPEC <- demand_spec$base
+# Full spec (base + assisted): STRUCTURAL_SPEC here only feeds the price-interaction
+# machinery, which must see assisted_premium / broker_premium (assisted group) so
+# the channel-specific price slopes enter alpha_i and the equilibrium recompute.
+STRUCTURAL_SPEC <- demand_spec$all
+
+# Welfare engine (objective money-metric helpers + CA cost-sharing table). Loaded
+# for the main session and the serial fallback; parallel workers source these in
+# clusterEvalQ below and receive CS_TABLE via clusterExport.
+source("code/analysis/helpers/welfare_objective.R")
+source("code/analysis/helpers/welfare_engine.R")
+CS_TABLE <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors = FALSE)
 
 cat("  Region-year cells:", nrow(cells), "\n")
 
@@ -1014,11 +1209,13 @@ if (!is.null(cl)) {
     source("code/analysis/helpers/supply.R")
     source("code/analysis/helpers/ra.R")
     source("code/analysis/helpers/estimate_demand.R")
+    source("code/analysis/helpers/welfare_objective.R")
+    source("code/analysis/helpers/welfare_engine.R")
     data.table::setDTthreads(1)
   })
   parallel::clusterExport(cl, c("run_cf_cell", "SAMPLE_FRAC", "plan_choice",
     "supply_results", "coefs", "commission_lookup", "rs_coefs", "claims_coefs",
-    "reins_df", "STRUCTURAL_SPEC"))
+    "reins_df", "STRUCTURAL_SPEC", "CS_TABLE"))
   results_list <- parallel::parLapplyLB(cl, tasks, run_one_cf)
   parallel::stopCluster(cl)
 } else {
@@ -1115,6 +1312,57 @@ if (nrow(tau_scenarios) > 0) {
       round(tau_summary$mean_delta_cs[tau_summary$tau == 1] -
               tau_summary$mean_delta_cs[tau_summary$tau == 0], 2),
       "$/month/HH\n")
+}
+
+# Commission-design counterfactuals (level sweep + aligned), vs observed
+comm_scenarios <- cf_results %>% filter(scenario %in% c("aligned", "planner") | str_detect(scenario, "^scale_"))
+if (nrow(comm_scenarios) > 0) {
+  cat("\n--- Commission-Design Counterfactuals (vs observed) ---\n")
+  cat("    delta_cs = full welfare; delta_cs_nc = welfare excluding commission utility\n")
+
+  obs_cs <- cf_results %>%
+    filter(scenario == "observed") %>%
+    distinct(region, year, cs_weighted, cs_nocomm) %>%
+    rename(cs_obs = cs_weighted, cs_obs_nc = cs_nocomm)
+
+  cs_summary <- comm_scenarios %>%
+    distinct(region, year, scenario, cs_weighted, cs_nocomm) %>%
+    left_join(obs_cs, by = c("region", "year")) %>%
+    mutate(delta_cs = cs_weighted - cs_obs,
+           delta_cs_nc = cs_nocomm - cs_obs_nc) %>%
+    group_by(scenario) %>%
+    summarize(mean_delta_cs = mean(delta_cs, na.rm = TRUE),
+              mean_delta_cs_nc = mean(delta_cs_nc, na.rm = TRUE),
+              n_cells = n(), .groups = "drop")
+
+  prem_summary <- comm_scenarios %>%
+    group_by(scenario) %>%
+    summarize(mean_premium_change = mean(premium_change, na.rm = TRUE), .groups = "drop")
+
+  comm_summary <- cs_summary %>% left_join(prem_summary, by = "scenario")
+  cat("\n")
+  print(comm_summary %>% mutate(across(where(is.numeric), ~round(., 2))), n = Inf)
+}
+
+# Welfare at actual choices (navigator vs objective benchmark), mean change vs observed
+if ("cs_welfare_obj" %in% names(cf_results)) {
+  cat("\n--- Welfare at actual choices (mean change vs observed) ---\n")
+  cat("    nav = navigator-informed V^N ($, utils / informed alpha); obj = objective money metric ($)\n")
+  wbase <- cf_results %>%
+    filter(scenario == "observed") %>%
+    distinct(region, year, cs_welfare_nav, cs_welfare_obj) %>%
+    rename(nav0 = cs_welfare_nav, obj0 = cs_welfare_obj)
+  wsum <- cf_results %>%
+    filter(!is.na(cs_welfare_obj)) %>%
+    distinct(region, year, scenario, tau, cs_welfare_nav, cs_welfare_obj) %>%
+    left_join(wbase, by = c("region", "year")) %>%
+    mutate(d_nav = cs_welfare_nav - nav0, d_obj = cs_welfare_obj - obj0) %>%
+    group_by(scenario, tau) %>%
+    summarize(d_nav = mean(d_nav, na.rm = TRUE), d_obj = mean(d_obj, na.rm = TRUE),
+              n_cells = n(), .groups = "drop") %>%
+    arrange(scenario, tau)
+  cat("\n")
+  print(wsum %>% mutate(across(where(is.numeric), ~round(., 2))), n = Inf)
 }
 
 cat("\nCounterfactual simulation complete.\n")

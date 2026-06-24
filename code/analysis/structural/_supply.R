@@ -26,7 +26,12 @@ if (length(missing) > 0) {
 # Specification (single-sourced from what _demand.R wrote) ----------------
 
 demand_spec     <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
-STRUCTURAL_SPEC <- demand_spec$base
+# Full spec (base + assisted): on the supply side STRUCTURAL_SPEC only feeds the
+# price-interaction machinery (compute_alpha_i, recompute_prem_interactions, raw-
+# demo export), which must see the channel premium interactions assisted_premium /
+# broker_premium (assigned to the assisted group). No estimation happens here, so
+# the base/assisted split is irrelevant.
+STRUCTURAL_SPEC <- demand_spec$all
 
 # Shared structural inputs ------------------------------------------------
 

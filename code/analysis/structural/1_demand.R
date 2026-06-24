@@ -101,7 +101,8 @@ if (file.exists(coefs_path)) {
   if (length(beta_p) == 1 && length(beta_c) == 1 && abs(beta_p) > 1e-10) {
     cat(sprintf("\n  beta_commission / |beta_premium| = %.4f\n", beta_c / abs(beta_p)))
   }
-  for (m in c("assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat")) {
+  for (m in c("assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
+              "broker_silver", "broker_bronze", "assisted_premium", "broker_premium")) {
     b <- coefs_structural$estimate[coefs_structural$term == m]
     if (length(b) == 1) cat(sprintf("  %s = %.6f\n", m, b))
   }

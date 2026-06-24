@@ -106,12 +106,25 @@ for (i in seq_len(nrow(cells))) {
   plan_attrs <- build_result$plan_attrs
   rm(build_result)
 
-  # Assisted x metal interactions (if not already present)
+  # Assisted x metal interactions (if not already present). Navigator (non-broker)
+  # and broker metal steering kept separate, matching build_structural.
   if (!"assisted_silver" %in% names(cell_data)) {
-    cell_data$assisted_silver <- cell_data$assisted * cell_data$silver
-    cell_data$assisted_bronze <- cell_data$assisted * cell_data$bronze
-    cell_data$assisted_gold   <- cell_data$assisted * cell_data$gold
-    cell_data$assisted_plat   <- cell_data$assisted * cell_data$platinum
+    if ("any_agent" %in% names(cell_data)) {
+      nb <- cell_data$assisted * ifelse(is.na(cell_data$any_agent) | cell_data$any_agent != 1L, 1L, 0L)
+      br <- cell_data$assisted * ifelse(!is.na(cell_data$any_agent) & cell_data$any_agent == 1L, 1L, 0L)
+    } else {
+      nb <- cell_data$assisted; br <- 0L
+    }
+    cell_data$assisted_silver  <- nb * cell_data$silver
+    cell_data$assisted_bronze  <- nb * cell_data$bronze
+    cell_data$assisted_gold    <- nb * cell_data$gold
+    cell_data$assisted_plat    <- nb * cell_data$platinum
+    cell_data$broker_silver    <- br * cell_data$silver
+    cell_data$broker_bronze    <- br * cell_data$bronze
+    cell_data$assisted_premium <- nb * cell_data$premium
+    cell_data$broker_premium   <- br * cell_data$premium
+    cell_data$nonbroker        <- nb   # raw_demo for the premium interactions
+    cell_data$broker           <- br
   }
   # Commission x broker interaction (broker/agent only, not navigators)
   if (!"commission_broker" %in% names(cell_data)) {

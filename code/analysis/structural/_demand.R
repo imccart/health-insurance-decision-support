@@ -26,6 +26,15 @@ STRUCTURAL_SPEC <- c(
 
 STRUCTURAL_ASST <- c(
   "assisted_silver", "assisted_bronze",
+  # Broker metal steering, estimated rather than assumed zero (symmetric with the
+  # navigator assisted_* terms). Brokers also carry commission_broker; navigators
+  # do not (institutional, not a behavioral assumption).
+  "broker_silver", "broker_bronze",
+  # Channel-specific price response: navigator and broker each shift the premium
+  # coefficient (price interactions, raw_demo = nonbroker / broker). Lets the data
+  # say whether assistance makes people respond to price more like the informed
+  # benchmark — the friction channel for the welfare side.
+  "assisted_premium", "broker_premium",
   "commission_broker", "v_hat_commission"
 )
 

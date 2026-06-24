@@ -409,33 +409,44 @@ build_rf <- function(plans, hhs, sample_frac,
   treated[, assisted := 1L]
 
   # Assisted x metal interactions (structural path only).
-  # Scoped to NON-BROKER (navigator) assistance, so these capture the pure
-  # advice effect on metal-tier choice. Broker metal steering is carried
-  # entirely by commission_broker below, so brokers (any_agent == 1) are
-  # excluded here to keep the assisted dummies from absorbing the commission
-  # gradient. NA any_agent is treated as non-broker.
+  # Both channels carry their own metal-steering terms (assisted_* for
+  # navigators, broker_* for brokers) so the broker metal effect is estimated
+  # rather than assumed zero. Broker commission steering is carried separately
+  # by commission_broker below (navigators are not commissioned). NA any_agent
+  # is treated as non-broker.
   if ("comm_pmpm" %in% names(untreated)) {
     if ("any_agent" %in% names(untreated)) {
       untreated[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
       treated[,   nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
+      untreated[, broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
+      treated[,   broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
     } else {
       untreated[, nonbroker := assisted]
       treated[,   nonbroker := assisted]
+      untreated[, broker    := 0L]
+      treated[,   broker    := 0L]
     }
     untreated[, `:=`(
-      assisted_silver = nonbroker * silver,
-      assisted_bronze = nonbroker * bronze,
-      assisted_gold   = nonbroker * gold,
-      assisted_plat   = nonbroker * platinum
+      assisted_silver  = nonbroker * silver,
+      assisted_bronze  = nonbroker * bronze,
+      assisted_gold    = nonbroker * gold,
+      assisted_plat    = nonbroker * platinum,
+      broker_silver    = broker * silver,
+      broker_bronze    = broker * bronze,
+      assisted_premium = nonbroker * premium,
+      broker_premium   = broker * premium
     )]
     treated[, `:=`(
-      assisted_silver = nonbroker * silver,
-      assisted_bronze = nonbroker * bronze,
-      assisted_gold   = nonbroker * gold,
-      assisted_plat   = nonbroker * platinum
+      assisted_silver  = nonbroker * silver,
+      assisted_bronze  = nonbroker * bronze,
+      assisted_gold    = nonbroker * gold,
+      assisted_plat    = nonbroker * platinum,
+      broker_silver    = broker * silver,
+      broker_bronze    = broker * bronze,
+      assisted_premium = nonbroker * premium,
+      broker_premium   = broker * premium
     )]
-    untreated[, nonbroker := NULL]
-    treated[,   nonbroker := NULL]
+    # nonbroker / broker kept as raw_demo columns for the premium interactions.
   }
 
   # Commission x broker interaction (structural path only)

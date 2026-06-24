@@ -230,8 +230,14 @@ if (nrow(coefs_structural) > 0) {
     "BS_bronze"          = "Blue Shield $\\times$ Bronze",
     "Kaiser_bronze"      = "Kaiser $\\times$ Bronze",
     "HN_bronze"          = "Health Net $\\times$ Bronze",
-    "commission_broker"  = "Commission $\\times$ assisted",
-    "v_hat_commission"   = "CF $\\times$ commission $\\times$ assisted",
+    "assisted_silver"    = "Navigator $\\times$ Silver",
+    "assisted_bronze"    = "Navigator $\\times$ Bronze",
+    "broker_silver"      = "Broker $\\times$ Silver",
+    "broker_bronze"      = "Broker $\\times$ Bronze",
+    "assisted_premium"   = "Navigator $\\times$ premium",
+    "broker_premium"     = "Broker $\\times$ premium",
+    "commission_broker"  = "Commission $\\times$ broker",
+    "v_hat_commission"   = "CF $\\times$ commission $\\times$ broker",
     "lambda"             = "$\\lambda$ (nesting parameter)"
   )
 

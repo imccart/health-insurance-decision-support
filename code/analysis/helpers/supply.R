@@ -346,25 +346,36 @@ build_structural <- function(plans, hhs, sample_frac,
   dt[, assisted := fifelse(channel != "Unassisted", 1L, 0L)]
 
   # Assistance / commission interaction terms (structural). Defined identically
-  # to the demand path. Non-broker (navigator) assistance carries the metal
-  # advice effect; broker steering is carried entirely by commission_broker.
-  # NA any_agent -> non-broker; v_hat (NA on uninsured rows) coalesced to 0 so
-  # it doesn't poison all-HH shares.
+  # to the demand path. Both channels carry their own metal-steering terms
+  # (assisted_* for navigators, broker_* for brokers) so the broker metal effect
+  # is estimated rather than assumed zero; brokers additionally carry
+  # commission_broker (navigators are not commissioned). NA any_agent ->
+  # non-broker; v_hat (NA on uninsured rows) coalesced to 0 so it doesn't poison
+  # all-HH shares.
   if ("comm_pmpm" %in% names(dt)) {
     if ("any_agent" %in% names(dt)) {
       dt[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
+      dt[, broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
       dt[, commission_broker := comm_pmpm * fifelse(any_agent == 1L, assisted, 0L, na = 0L)]
     } else {
       dt[, nonbroker := assisted]
+      dt[, broker    := 0L]
       dt[, commission_broker := comm_pmpm * assisted]
     }
     dt[, `:=`(
-      assisted_silver = nonbroker * silver,
-      assisted_bronze = nonbroker * bronze,
-      assisted_gold   = nonbroker * gold,
-      assisted_plat   = nonbroker * platinum
+      assisted_silver  = nonbroker * silver,
+      assisted_bronze  = nonbroker * bronze,
+      assisted_gold    = nonbroker * gold,
+      assisted_plat    = nonbroker * platinum,
+      broker_silver    = broker * silver,
+      broker_bronze    = broker * bronze,
+      assisted_premium = nonbroker * premium,
+      broker_premium   = broker * premium
     )]
-    dt[, nonbroker := NULL]
+    # nonbroker / broker are KEPT as columns: they are the raw_demo for the
+    # assisted_premium / broker_premium price interactions, so compute_alpha_i
+    # and recompute_prem_interactions (which fire when premiums change) can find
+    # them. Do not delete.
   }
   if ("v_hat" %in% names(dt) && "commission_broker" %in% names(dt)) {
     dt[, v_hat_commission := fcoalesce(v_hat, 0) * commission_broker]

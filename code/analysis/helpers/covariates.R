@@ -132,10 +132,28 @@ get_covariate_menu <- function() {
     FPL_400plus_insured   = list(type = "insured_interaction", raw_demo = "FPL_400plus"),
 
     # --- Assisted x metal interactions ---
+    # Navigator (non-broker) metal steering.
     assisted_silver = list(type = "assisted"),
     assisted_bronze = list(type = "assisted"),
     assisted_gold   = list(type = "assisted"),
     assisted_plat   = list(type = "assisted"),
+
+    # --- Broker x metal interactions ---
+    # Broker metal steering, estimated rather than assumed zero (symmetric with
+    # the navigator assisted_* terms). Brokers additionally carry the commission
+    # terms below; navigators are not commissioned.
+    broker_silver   = list(type = "assisted"),
+    broker_bronze   = list(type = "assisted"),
+
+    # --- Channel x premium (channel-specific price response) ---
+    # Price interactions whose raw_demo is the channel indicator, so
+    # compute_alpha_i and recompute_prem_interactions treat them like any other
+    # _prem term: a navigator household's price slope is beta_premium +
+    # beta_assisted_premium, a broker's is beta_premium + beta_broker_premium.
+    # The nonbroker / broker indicator columns are kept on the choice data for
+    # exactly this reason (see build_structural).
+    assisted_premium = list(type = "price_interaction", raw_demo = "nonbroker"),
+    broker_premium   = list(type = "price_interaction", raw_demo = "broker"),
 
     # --- Commission / CF ---
     commission_broker  = list(type = "commission"),
