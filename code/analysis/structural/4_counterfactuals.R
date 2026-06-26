@@ -25,7 +25,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # Commission utility terms — zeroed for the non-commission welfare metric
   # (cs_nocomm), so welfare comparisons don't rest on commission steering being a
   # genuine preference rather than a wedge.
-  COMM_TERMS <- c("commission_broker", "v_hat_commission")
+  COMM_TERMS <- c("commission_broker")
 
   coef_map <- setNames(coefs$estimate, coefs$term)
   lambda <- coef_map[["lambda"]]
@@ -830,8 +830,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     # nonbroker / broker kept: raw_demo for the premium interactions, which
     # recompute_prem_interactions updates as premiums move in the solve.
 
-    if ("v_hat" %in% names(cd) && "commission_broker" %in% names(cd)) {
-      cd[, v_hat_commission := fcoalesce(v_hat, 0) * commission_broker]
+    # Pareto-dominated flag rides on cd from build_structural (premium-independent,
+    # so it never changes in the solve); rebuild the channel interactions for the
+    # reassigned channels.
+    if ("dominated_plan" %in% names(cd)) {
+      cd[, nav_dominated    := nonbroker * dominated_plan]
+      cd[, broker_dominated := broker    * dominated_plan]
     }
 
     cd

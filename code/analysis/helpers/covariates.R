@@ -116,6 +116,19 @@ get_covariate_menu <- function() {
     FPL_250to400_prem  = list(type = "price_interaction", raw_demo = "FPL_250to400"),
     FPL_400plus_prem   = list(type = "price_interaction", raw_demo = "FPL_400plus"),
 
+    # --- Age x metal interactions (demographic sorting across tiers) ---
+    # age share x metal dummy, so the metal preference varies by household age mix
+    # and the young tilt into bronze beyond the common price effect (fixes the
+    # inverted age-by-metal sorting). Premium-INDEPENDENT, so plain covariates: no
+    # compute_alpha_i contribution and no premium recompute. Built in
+    # build_structural from the age and metal columns.
+    perc_0to17_silver  = list(type = "demo_metal"),
+    perc_0to17_bronze  = list(type = "demo_metal"),
+    perc_18to34_silver = list(type = "demo_metal"),
+    perc_18to34_bronze = list(type = "demo_metal"),
+    perc_35to54_silver = list(type = "demo_metal"),
+    perc_35to54_bronze = list(type = "demo_metal"),
+
     # --- Demographic x insured interactions ---
     # Convention: {raw_demo}_insured = raw_demo * I(insured)
     # These shift the insured/uninsured margin by demographics, helping identify λ
@@ -154,6 +167,16 @@ get_covariate_menu <- function() {
     # exactly this reason (see build_structural).
     assisted_premium = list(type = "price_interaction", raw_demo = "nonbroker"),
     broker_premium   = list(type = "price_interaction", raw_demo = "broker"),
+
+    # --- Channel x Pareto-dominated plan (reduced-form definition) ---
+    # dominated_plan = 1 on a CSR-eligible household's Gold/Platinum alternatives,
+    # which its enhanced Silver dominates (higher AV, lower premium): Gold or
+    # Platinum for CSR-94 (FPL <= 1.50), Gold only for CSR-87 (FPL 1.50-2.00).
+    # nav_dominated / broker_dominated = channel * dominated_plan. Premium-
+    # INDEPENDENT (AV/metal/CSR only), so they are plain covariates: no alpha_i
+    # contribution, no premium recompute, and not collinear with the premium effect.
+    nav_dominated    = list(type = "assisted"),
+    broker_dominated = list(type = "assisted"),
 
     # --- Commission / CF ---
     commission_broker  = list(type = "commission"),

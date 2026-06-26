@@ -210,6 +210,13 @@ if (nrow(coefs_structural) > 0) {
     "premium_sq"         = "Premium$^2$",
     "silver"             = "Silver",
     "bronze"             = "Bronze",
+    "av"                 = "Actuarial value (AV)",
+    "perc_0to17_bronze"  = "Age 0--17 $\\times$ Bronze",
+    "perc_18to34_bronze" = "Age 18--34 $\\times$ Bronze",
+    "perc_35to54_bronze" = "Age 35--54 $\\times$ Bronze",
+    "perc_0to17_silver"  = "Age 0--17 $\\times$ Silver",
+    "perc_18to34_silver" = "Age 18--34 $\\times$ Silver",
+    "perc_35to54_silver" = "Age 35--54 $\\times$ Silver",
     "hh_size_prem"       = "HH size $\\times$ premium",
     "any_0to17_prem"     = "Children $\\times$ premium",
     "FPL_250to400_prem"  = "FPL 250--400\\% $\\times$ premium",
@@ -236,8 +243,9 @@ if (nrow(coefs_structural) > 0) {
     "broker_bronze"      = "Broker $\\times$ Bronze",
     "assisted_premium"   = "Navigator $\\times$ premium",
     "broker_premium"     = "Broker $\\times$ premium",
+    "nav_dominated"      = "Navigator $\\times$ dominated plan",
+    "broker_dominated"   = "Broker $\\times$ dominated plan",
     "commission_broker"  = "Commission $\\times$ broker",
-    "v_hat_commission"   = "CF $\\times$ commission $\\times$ broker",
     "lambda"             = "$\\lambda$ (nesting parameter)"
   )
 

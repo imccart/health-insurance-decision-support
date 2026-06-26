@@ -367,7 +367,11 @@ print(summary(supply_results$commission_pmpm))
 
 # MC comparison: FOC-implied vs structural
 cat("\n--- MC Validation: FOC vs Structural ---\n")
-mc_valid <- supply_results %>% filter(!is.na(mc_foc), !is.na(mc_structural))
+n_below_floor <- sum(supply_results$share < SHARE_FLOOR_FOC, na.rm = TRUE)
+cat("  Share floor", SHARE_FLOOR_FOC, "excludes", n_below_floor,
+    "near-zero-share plan-cells (ill-conditioned FOC)\n")
+mc_valid <- supply_results %>%
+  filter(!is.na(mc_foc), !is.na(mc_structural), share >= SHARE_FLOOR_FOC)
 if (nrow(mc_valid) > 0) {
   mc_cor <- cor(mc_valid$mc_foc, mc_valid$mc_structural, use = "complete.obs")
   cat("  Correlation:", round(mc_cor, 4), "\n")

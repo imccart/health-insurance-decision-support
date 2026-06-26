@@ -156,6 +156,9 @@ rm(supply_results, demo_all, pred_py)
 # Count total FOC equations (one per plan per cell)
 n_foc_total <- sum(sapply(foc_cells, function(fc) length(fc$plan_ids)))
 cat("  Total FOC equations:", n_foc_total, "\n")
+n_foc_below <- sum(sapply(foc_cells, function(fc) sum(fc$shares < SHARE_FLOOR_FOC)))
+cat("  Below share floor", SHARE_FLOOR_FOC, "(dropped from M3):",
+    n_foc_below, "of", n_foc_total, "\n")
 
 # M3 instruments: plan characteristics (same for each plan within the FOC)
 # We'll compute Z_foc * eps_foc inside compute_g_bar by accumulating across cells
@@ -277,9 +280,15 @@ compute_g_bar <- function(theta) {
     Z_cell <- cbind(1, fc$Silver, fc$Gold, fc$Platinum, fc$HMO, fc$trend,
                     sapply(INS_COST, function(ins) fc[[ins]]))
 
-    # Accumulate Z' * foc_resid
-    g_foc_sum <- g_foc_sum + colSums(Z_cell * foc_resid)
-    n_foc <- n_foc + J
+    # Share floor: a plan with near-zero share has an ill-conditioned, uninformative
+    # pricing FOC (the markup inversion blows up as share -> 0), so drop its FOC
+    # equation from the M3 moments. It stays in the cell's Omega, so its cross-price
+    # effects on the retained plans' FOCs are kept, and it stays in M1/M2.
+    keep <- fc$shares >= SHARE_FLOOR_FOC
+    if (any(keep)) {
+      g_foc_sum <- g_foc_sum + colSums(Z_cell[keep, , drop = FALSE] * foc_resid[keep])
+      n_foc <- n_foc + sum(keep)
+    }
   }
 
   g_foc <- g_foc_sum / n_foc  # average across all plan-cell observations

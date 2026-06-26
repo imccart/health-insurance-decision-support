@@ -40,6 +40,15 @@ build_structural <- function(plans, hhs, sample_frac,
 
   if (length(unique(hhs_dt$household_id)) < 50) return(NULL)
 
+  # Household-level CSR eligibility for the Pareto-dominated flag (RF definition;
+  # subsidized_members coalesced to 0 as in 1_decision-analysis.R). Computed on the
+  # household input and carried via the demographics merge so it survives the
+  # small-carrier aggregation.
+  hhs_dt[, csr94_elig := as.integer(fcoalesce(as.numeric(subsidized_members), 0) > 0 &
+                                      fcoalesce(FPL, 99) <= 1.5)]
+  hhs_dt[, csr87_elig := as.integer(fcoalesce(as.numeric(subsidized_members), 0) > 0 &
+                                      fcoalesce(FPL, 99) > 1.5 & fcoalesce(FPL, 99) <= 2.0)]
+
   # 1. Choice set (one row per plan_id + Uninsured)
   choice_set <- plans_dt[, .(
     issuer         = first(issuer),
@@ -225,7 +234,8 @@ build_structural <- function(plans, hhs, sample_frac,
   demo_cols <- c("household_id", "household_size", "weight",
                  "perc_0to17", "perc_18to34", "perc_35to54",
                  "perc_black", "perc_hispanic", "perc_asian",
-                 "perc_other", "perc_male", "channel")
+                 "perc_other", "perc_male", "channel",
+                 "csr94_elig", "csr87_elig")
   for (extra in c("v_hat", "channel_detail", "any_agent", "p_nav")) {
     if (extra %in% names(hhs_dt)) demo_cols <- c(demo_cols, extra)
   }
@@ -278,6 +288,16 @@ build_structural <- function(plans, hhs, sample_frac,
     perc_other_prem    = perc_other * net_premium,
     FPL_250to400_prem  = FPL_250to400 * net_premium,
     FPL_400plus_prem   = FPL_400plus * net_premium
+  )]
+
+  # Age x metal interactions: let metal preference vary by household age mix, so the
+  # young tilt into bronze beyond the common price effect. Fixes the inverted
+  # age-by-metal sorting (predicted young share was lowest in bronze, now highest).
+  # Premium-independent — plain covariates, no alpha_i / recompute handling.
+  dt[, `:=`(
+    perc_0to17_silver  = perc_0to17  * silver, perc_0to17_bronze  = perc_0to17  * bronze,
+    perc_18to34_silver = perc_18to34 * silver, perc_18to34_bronze = perc_18to34 * bronze,
+    perc_35to54_silver = perc_35to54 * silver, perc_35to54_bronze = perc_35to54 * bronze
   )]
 
   # Demographic x insured interactions (cross-nest margin shifters)
@@ -376,9 +396,21 @@ build_structural <- function(plans, hhs, sample_frac,
     # assisted_premium / broker_premium price interactions, so compute_alpha_i
     # and recompute_prem_interactions (which fire when premiums change) can find
     # them. Do not delete.
-  }
-  if ("v_hat" %in% names(dt) && "commission_broker" %in% names(dt)) {
-    dt[, v_hat_commission := fcoalesce(v_hat, 0) * commission_broker]
+
+    # Pareto-dominated plan (RF definition, applied at the plan level). A CSR-
+    # eligible household's Gold/Platinum alternatives are dominated by the enhanced
+    # Silver it qualifies for (higher AV at lower premium): Gold or Platinum for
+    # CSR-94 (FPL <= 1.50), Gold only for CSR-87 (FPL 1.50-2.00). Premium-
+    # INDEPENDENT (AV/metal/CSR only), so the channel interactions are plain
+    # covariates - no alpha_i term, no premium recompute, not collinear with price.
+    dt[, dominated_plan := fcase(
+      plan_id == "Uninsured", 0L,
+      csr94_elig == 1L & (gold == 1L | platinum == 1L), 1L,
+      csr87_elig == 1L & gold == 1L, 1L,
+      default = 0L
+    )]
+    dt[, nav_dominated    := nonbroker * dominated_plan]
+    dt[, broker_dominated := broker    * dominated_plan]
   }
 
   # Keep only HH where exactly one plan is chosen

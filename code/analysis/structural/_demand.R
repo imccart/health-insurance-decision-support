@@ -21,7 +21,14 @@ STRUCTURAL_SPEC <- c(
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
   "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
   "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
-  "FPL_250to400_prem", "FPL_400plus_prem"
+  "FPL_250to400_prem", "FPL_400plus_prem",
+  # Age x metal: the metal preference varies by household age mix so the young tilt
+  # into bronze beyond the common price effect, which fixes the inverted age-by-metal
+  # sorting (predicted young share was lowest in bronze; now matches the data with it
+  # highest). Premium-independent; see covariates.R / build_structural.
+  "perc_0to17_silver", "perc_0to17_bronze",
+  "perc_18to34_silver", "perc_18to34_bronze",
+  "perc_35to54_silver", "perc_35to54_bronze"
 )
 
 STRUCTURAL_ASST <- c(
@@ -35,7 +42,17 @@ STRUCTURAL_ASST <- c(
   # say whether assistance makes people respond to price more like the informed
   # benchmark — the friction channel for the welfare side.
   "assisted_premium", "broker_premium",
-  "commission_broker", "v_hat_commission"
+  # Channel x Pareto-dominated plan (RF definition): a CSR-eligible household's
+  # Gold/Platinum alternatives, dominated by the enhanced Silver it qualifies for.
+  # Premium-independent (CSR x metal), so it does not fight the premium effect the
+  # way a within-tier price gap would. See covariates.R / supply.R.
+  "nav_dominated", "broker_dominated",
+  # Commission steering enters as a level term only. v_hat is dropped from the
+  # structural side: it is a household constant, so in the logit it can enter only
+  # via a plan-varying interaction, and that interaction (v_hat_commission) was
+  # collinear with the commission level and masked it. Commission is now read off
+  # the raw level; the channel terms carry no selection correction.
+  "commission_broker"
 )
 
 write_demand_spec(STRUCTURAL_SPEC, STRUCTURAL_ASST,
