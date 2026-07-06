@@ -41,35 +41,30 @@ source("code/analysis/helpers/welfare_objective.R")
 source("code/analysis/helpers/welfare_engine.R")
 
 
+# Each family reads its inputs from disk and frees its own large objects, so
+# no object is carried across a block and the families run independently.
+
 # build: shared data construction -----------------------------------------
 source("code/analysis/build1_decision-analysis.R")   # writes hh_full.csv
 source("code/analysis/build2_ipw.R")                 # writes ipweights.csv
-source("code/analysis/build3_data-prep.R")           # writes plan_choice/hh_choice; leaves hh_full
-rm(list = intersect(c("hh_clean", "hh_ins", "hh_ins_ps"), ls()))
-gc(full = TRUE, verbose = FALSE)
+source("code/analysis/build3_data-prep.R")           # writes hh_full_prepped/plan_choice/hh_choice
 
-# rf: reduced form (uses hh_full) -----------------------------------------
-source("code/analysis/rf1_dominated.R")
+# rf: reduced form --------------------------------------------------------
+source("code/analysis/rf1_dominated.R")              # reads hh_full_prepped.csv
 source("code/analysis/rf2_choice-att.R")
 source("code/analysis/rf3_summary.R")
-rm(hh_full); gc(full = TRUE, verbose = FALSE)
 
 # s: structural -----------------------------------------------------------
 source("code/analysis/s1_inputs.R")          # cells + seeds (needs build3 outputs)
 source("code/analysis/s2_demand.R")          # writes demand_spec.csv, estimates
 source("code/analysis/s3_pricing.R")
-gc(full = TRUE, verbose = FALSE)
 source("code/analysis/s4_cost-gmm.R")
-gc(full = TRUE, verbose = FALSE)
 source("code/analysis/s5_se.R")
-rm(hh_split); gc(full = TRUE, verbose = FALSE)   # free before the CF
 
 # cf: counterfactuals -----------------------------------------------------
 source("code/analysis/cf1_estimate.R")
 source("code/analysis/cf2_se.R")             # slow (re-runs the CF per draw); comment out to skip
-rm(list = intersect(c("cells", "cell_seeds", "plan_choice", "commission_lookup"), ls()))
-gc(full = TRUE, verbose = FALSE)
 
-# paper: tables + figures -------------------------------------------------
-source("code/analysis/paper1_summary-stats.R")   # reads hh_full.csv from disk
-source("code/analysis/paper2_results.R")
+# sum: summary tables + figures -------------------------------------------
+source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk
+source("code/analysis/sum2_results.R")

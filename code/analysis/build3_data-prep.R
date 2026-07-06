@@ -16,10 +16,11 @@
 ##                  plan_choice.csv         — region × year × plan, w/ cf_resid, comm_pmpm
 ##                  plan_demographics.csv   — plan × year shares (structural)
 ##                  hh_choice.csv           — HH-year panel for cell estimation
+##                  hh_full_prepped.csv     — augmented HH panel (adds v_hat/p_nav),
+##                                            read from disk by rf1_dominated
 ##
-##                Side effect: leaves `hh_full` in caller's environment.
-##                The RF steps (rf1_dominated) need it; the driver rm()s it
-##                before the structural block.
+##                Reads its inputs from disk and writes its outputs to disk, so
+##                no HH object is carried into a later step in memory.
 ##
 ##                hh_full.csv is assumed already filtered to market-eligible
 ##                rows by build1_decision-analysis.R. No re-filter here.
@@ -154,7 +155,12 @@ fwrite(hh_choice, file.path(TEMP_DIR, "hh_choice.csv"))
 n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))
 cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice),
     "cols,", n_cells, "cells -> hh_choice.csv\n")
-rm(hh_choice, ipweights, broker_density, plan_data)
+
+# Augmented HH panel (adds v_hat/p_nav) — rf1_dominated reads this from disk.
+fwrite(hh_full, file.path(TEMP_DIR, "hh_full_prepped.csv"))
+cat("  hh_full_prepped:", nrow(hh_full), "rows -> hh_full_prepped.csv\n")
+
+rm(hh_choice, hh_full, ipweights, broker_density, plan_data)
 gc(verbose = FALSE)
 
 cat("=== Data prep complete ===\n\n")

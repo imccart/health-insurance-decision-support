@@ -61,7 +61,11 @@ rm(rsdata)
 # Identify cells and set seeds (same as demand)
 # =========================================================================
 
-# hh_split, cells, cell_seeds loaded by _supply.R (via _inputs.R)
+# cells, cell_seeds, plan_choice come from s1_inputs. Re-read hh_split from disk
+# here (s2_demand freed its own copy) so pricing is self-contained.
+hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
+hh_split <- split(hh_all, by = c("region", "year"))
+rm(hh_all)
 cat("  Region-year cells:", nrow(cells), "\n")
 
 # =========================================================================
@@ -348,7 +352,7 @@ cat("  Completed:", n_done, "  Skipped:", n_skip, "\n")
 # =========================================================================
 
 supply_results <- bind_rows(results_list)
-rm(results_list)
+rm(results_list, hh_split)
 
 write_csv(supply_results, "results/supply_results.csv")
 cat("\nSupply results:", nrow(supply_results), "rows -> results/supply_results.csv\n")

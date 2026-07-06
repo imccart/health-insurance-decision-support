@@ -5,7 +5,8 @@
 ## Date Edited:   2026-04-23
 ## Description:   Dominated choice regressions and potential outcomes ATT.
 ##                Includes control function (v_hat) for selection correction.
-##                Expects hh_full in memory from _reduced-form.R.
+##                Reads the prepped HH panel (hh_full_prepped.csv) written by
+##                build3_data-prep, so it runs without any prior step in memory.
 ##                Manages hh_full → hh_clean → hh_po lifecycle internally
 ##                to keep only one big HH object in memory at a time.
 
@@ -14,6 +15,9 @@
 # =========================================================================
 
 cat("Dominated choice regressions...\n")
+
+# Prepped HH panel (augmented with v_hat) from build3_data-prep.
+hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
 
 # Model 1: all enrollees, no CF (hh_full)
 mod1 <- feols(
