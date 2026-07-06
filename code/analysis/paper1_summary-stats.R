@@ -3,7 +3,7 @@
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-21
 ## Description:   Summary statistics, covariate balance, and figures.
-##                IPW weights computed in 2_ipw.R (must run first).
+##                IPW weights computed in build2_ipw.R (must run first).
 
 hh_full   <- fread("data/output/hh_full.csv") %>% as_tibble()
 ipweights <- fread("data/output/ipweights.csv") %>% as_tibble()

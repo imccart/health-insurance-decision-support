@@ -6,8 +6,8 @@
 ##                the two paths can never drift on filters, joins, or columns.
 ##
 ##                Inputs (all required):
-##                  data/output/hh_full.csv         (from 1_decision-analysis.R)
-##                  data/output/ipweights.csv       (from 2_ipw.R)
+##                  data/output/hh_full.csv         (from build1_decision-analysis.R)
+##                  data/output/ipweights.csv       (from build2_ipw.R)
 ##                  data/output/broker_density.csv  (data-build)
 ##                  data/output/commission_lookup.csv (data-build)
 ##                  data/input/Covered California/plan_data.csv
@@ -18,11 +18,11 @@
 ##                  hh_choice.csv           — HH-year panel for cell estimation
 ##
 ##                Side effect: leaves `hh_full` in caller's environment.
-##                The RF runner needs it for 1_dominated-choices.R; the
-##                structural runner can rm() it after sourcing.
+##                The RF steps (rf1_dominated) need it; the driver rm()s it
+##                before the structural block.
 ##
 ##                hh_full.csv is assumed already filtered to market-eligible
-##                rows by 1_decision-analysis.R. No re-filter here.
+##                rows by build1_decision-analysis.R. No re-filter here.
 
 cat("=== Data prep ===\n")
 

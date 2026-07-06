@@ -6,14 +6,14 @@
 ##                sampling distribution and re-solves the CF, so the spread across
 ##                draws is the SE of the welfare outcomes. Run SEPARATELY from the
 ##                main pipeline -- it re-runs the CF per draw and is slow.
-##                  source("code/analysis/12_cf-se.R")
+##                  source("code/analysis/cf2_se.R")
 ##
 ## Design:
 ##   * Demand params ~ N(theta_d, V_d) and cost params ~ N(theta_c, V_c) are drawn
 ##     INDEPENDENTLY. Justified because the cost-GMM down-weights the FOC block
 ##     (M3) ~5000x, so the cost estimates barely depend on demand -- the two
 ##     blocks are effectively orthogonal, and no joint covariance is needed.
-##     V_d / V_c are the sandwich vcovs written by 10_struc-se.R.
+##     V_d / V_c are the sandwich vcovs written by s5_se.R.
 ##   * Observed premiums and shares (supply_results) are DATA, held fixed across
 ##     draws; only the parameters move, propagating into the CF equilibria.
 ##   * lambda is clamped to (0.05, 0.999) to stay RUM-consistent (rarely binds).
@@ -48,9 +48,9 @@ SE_PATH    <- "results/cf_bootstrap_se.csv"
 cat("=== CF parametric bootstrap ===\n  draws:", N_BOOT_CF, "\n")
 
 # Shared structural inputs (cells, cell_seeds, hh_split, plan_choice, commission)
-source("code/analysis/helpers/inputs.R")
+source("code/analysis/s1_inputs.R")
 
-# The per-cell CF solver, shared with 11_cf.R
+# The per-cell CF solver, shared with cf1_estimate.R
 source("code/analysis/helpers/cf_cell.R")
 
 # Static CF inputs the skipped driver would have loaded. lazy = FALSE forces

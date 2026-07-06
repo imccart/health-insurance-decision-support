@@ -28,7 +28,7 @@ TARGET_CELLS   <- expand.grid(region = TARGET_REGIONS, year = TARGET_YEARS)
 # Data prep ---------------------------------------------------------------
 
 # Regenerate hh_full.csv from the current data-build outputs.
-source("code/analysis/1_decision-analysis.R")
+source("code/analysis/build1_decision-analysis.R")
 rm(hh_full, hh_ins)
 gc(verbose = FALSE)
 

@@ -4,13 +4,13 @@
 ## Description:   Analytical standard errors for the structural parameters.
 ##                Demand: HH-robust sandwich (reloads the cells + reads the saved
 ##                coefficients). Cost: GMM sandwich, reusing the machinery left in
-##                the session by 9_cost-gmm (result2 / W2 / compute_g_bar); if this
-##                step is run on its own it sources 9_cost-gmm first. Writes the SE
+##                the session by s4_cost-gmm (result2 / W2 / compute_g_bar); if this
+##                step is run on its own it sources s4_cost-gmm first. Writes the SE
 ##                tables and the full vcov matrices (the latter feed the CF
-##                bootstrap, step 12). Sandwich math in helpers/se.R.
+##                bootstrap, cf2_se). Sandwich math in helpers/se.R.
 ##
-## Dependencies: preamble loaded by _analysis.R; 7_demand (choice_cells + demand
-##               coefficients) and 9_cost-gmm run first.
+## Dependencies: preamble loaded by _analysis.R; s2_demand (choice_cells + demand
+##               coefficients) and s4_cost-gmm run first.
 
 # --- Demand SE (HH-robust sandwich) --------------------------------------
 cat("\n--- Demand standard errors (sandwich) ---\n"); flush.console()
@@ -30,8 +30,8 @@ write.csv(data.frame(term = rownames(dse$vcov), dse$vcov, check.names = FALSE),
 rm(cells_se); gc(verbose = FALSE)
 
 # --- Cost SE (GMM sandwich) ----------------------------------------------
-# Reuse the GMM machinery left by 9_cost-gmm; source it if running standalone.
-if (!exists("compute_g_bar")) source("code/analysis/9_cost-gmm.R")
+# Reuse the GMM machinery left by s4_cost-gmm; source it if running standalone.
+if (!exists("compute_g_bar")) source("code/analysis/s4_cost-gmm.R")
 cat("\n--- Cost standard errors (sandwich) ---\n"); flush.console()
 cse <- cost_gmm_sandwich_se(
   theta_hat   = result2$par, W = W2, gbar_fn = compute_g_bar,

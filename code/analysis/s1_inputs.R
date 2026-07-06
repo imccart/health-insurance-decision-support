@@ -1,10 +1,11 @@
 # Meta --------------------------------------------------------------------
 
-## Description:   Shared structural inputs, sourced by both _demand.R and
-##                _supply.R. Reads the 0_data-prep outputs from disk and builds
-##                the cell index and per-cell seeds. Generating cell_seeds here
-##                (once, from MASTER_SEED over the same cells) guarantees demand
-##                and supply draw identical SAMPLE_FRAC subsamples per cell.
+## Description:   Head of the structural block: builds the cell index and
+##                per-cell seeds. Sourced by the driver before s2_demand, and
+##                standalone by cf2_se. Reads the build3_data-prep outputs from
+##                disk. Generating cell_seeds here (once, from MASTER_SEED over
+##                the same cells) guarantees demand, pricing, and the CF draw
+##                identical SAMPLE_FRAC subsamples per cell.
 
 cat("Loading shared structural data...\n")
 hh_all   <- fread(file.path(TEMP_DIR, "hh_choice.csv"))

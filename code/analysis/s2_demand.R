@@ -8,7 +8,7 @@
 ##                Phase 2 (R): L-BFGS-B nested logit via estimate_demand.R.
 ##                See docs/optimizer.md for algorithm details.
 
-# Dependencies: preamble + helpers/inputs.R (cells, seeds, plan_choice) loaded
+# Dependencies: preamble + s1_inputs.R (cells, seeds, plan_choice) loaded
 # by _analysis.R before this step.
 
 # Structural specification ------------------------------------------------
