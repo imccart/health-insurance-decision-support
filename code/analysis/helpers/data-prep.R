@@ -1,9 +1,9 @@
 # Meta --------------------------------------------------------------------
 
 ## Author:        Ian McCarthy
-## Description:   Single source of truth for analysis-side data prep.
-##                Sourced by both _reduced-form.R and _demand.R so the
-##                two paths can never drift on filters, joins, or columns.
+## Description:   Single source of truth for analysis-side data prep. Sourced once
+##                by _analysis.R (before the reduced-form and structural steps) so
+##                the two paths can never drift on filters, joins, or columns.
 ##
 ##                Inputs (all required):
 ##                  data/output/hh_full.csv         (from 1_decision-analysis.R)

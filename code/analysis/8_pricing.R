@@ -9,7 +9,10 @@
 ##                broker-commission correction. Also estimates structural RA
 ##                regressions and validates FOC-implied MC against predicted MC.
 
-# Dependencies: tidyverse, data.table, helpers (loaded by _supply.R)
+# Dependencies: preamble + helpers/inputs.R (plan_choice, commission_lookup)
+# loaded by _analysis.R before this step. Full spec (base + assisted) feeds the
+# price-interaction machinery; read from what 7_demand wrote.
+STRUCTURAL_SPEC <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$all
 
 # =========================================================================
 # Load coefficients and reference data
@@ -17,7 +20,6 @@
 
 cat("\nLoading demand coefficients and reference data...\n")
 
-# plan_choice, commission_lookup loaded by _supply.R (via _inputs.R)
 coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
 lambda <- coefs %>% filter(term == "lambda") %>% pull(estimate)
 cat("  lambda =", round(lambda, 4), "\n")

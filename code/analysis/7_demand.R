@@ -8,11 +8,54 @@
 ##                Phase 2 (R): L-BFGS-B nested logit via estimate_demand.R.
 ##                See docs/optimizer.md for algorithm details.
 
-# Dependencies: all loaded by _demand.R
+# Dependencies: preamble + helpers/inputs.R (cells, seeds, plan_choice) loaded
+# by _analysis.R before this step.
+
+# Structural specification ------------------------------------------------
+
+STRUCTURAL_SPEC <- c(
+  "premium",
+  "silver", "bronze", "hmo", "hsa",
+  # Big-four brand dummies only. The seven regionals are kept as SEPARATE plans
+  # (own premium, commission, and cost), but carry NO brand fixed effect — adding
+  # one per regional pushes the nesting parameter lambda from 0.47 to 4.27
+  # (non-RUM). They sit in the dummy-less small baseline. Per-regional
+  # commission/cost key off the plan_id prefix, not these dummies.
+  "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+  "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
+  "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
+  "FPL_250to400_prem", "FPL_400plus_prem",
+  # Age x metal: the metal preference varies by household age mix so the young tilt
+  # into bronze beyond the common price effect (fixes the inverted age-by-metal
+  # sorting). Premium-independent; see covariates.R / build_structural.
+  "perc_0to17_silver", "perc_0to17_bronze",
+  "perc_18to34_silver", "perc_18to34_bronze",
+  "perc_35to54_silver", "perc_35to54_bronze"
+)
+
+STRUCTURAL_ASST <- c(
+  "assisted_silver", "assisted_bronze",
+  # Broker metal steering, estimated rather than assumed zero (symmetric with the
+  # navigator assisted_* terms). Brokers also carry commission_broker; navigators
+  # do not (institutional, not a behavioral assumption).
+  "broker_silver", "broker_bronze",
+  # Channel-specific price response: navigator and broker each shift the premium
+  # coefficient (price interactions, raw_demo = nonbroker / broker).
+  "assisted_premium", "broker_premium",
+  # Channel x Pareto-dominated plan (RF definition): a CSR-eligible household's
+  # Gold/Platinum alternatives, dominated by the enhanced Silver it qualifies for.
+  # Premium-independent (CSR x metal). See covariates.R / cf_cell.R.
+  "nav_dominated", "broker_dominated",
+  # Commission steering enters as a level term only. v_hat is dropped from the
+  # structural side (a household constant cannot enter the logit except via a
+  # plan-varying interaction, and that interaction was collinear with the level).
+  "commission_broker"
+)
+
+write_demand_spec(STRUCTURAL_SPEC, STRUCTURAL_ASST,
+                  file.path(TEMP_DIR, "demand_spec.csv"))
 
 CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
-
-# hh_split, cells, cell_seeds, plan_choice loaded by _demand.R (via _inputs.R)
 
 cat("Region-year cells:", nrow(cells), "\n")
 

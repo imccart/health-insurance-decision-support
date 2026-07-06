@@ -207,7 +207,13 @@ cat("    gamma:", round(gamma0, 4), "\n")
 #   foc_j = s_j + sum_k Omega_{jk} * (p_k - MC_k(alpha,gamma)) + sum_k Omega_broker_{jk} * comm_k
 # which should equal zero at the true parameters.
 
-compute_g_bar <- function(theta) {
+# return_contributions = TRUE additionally returns the per-observation moment
+# contributions (the matrices whose column means / sums make up g_bar): M12_mat
+# (n_rf x [M1+M2], one row per rate-filing obs) and the M3 FOC contributions both
+# per kept plan-cell (M3_obs) and aggregated within region-year cell (M3_cell, for
+# cluster-robust meat). The default averaged return is unchanged, so the GMM
+# objective and the SE sandwich share one code path (cost_gmm_sandwich_se).
+compute_g_bar <- function(theta, return_contributions = FALSE) {
 
   alpha <- theta[1:N_ALPHA]
   gamma <- theta[(N_ALPHA + 1):(N_ALPHA + N_GAMMA)]
@@ -215,19 +221,22 @@ compute_g_bar <- function(theta) {
   # --- M1: Risk score residuals ---
   pred_log_rs_rf <- alpha[1] + X_rs %*% alpha[2:N_ALPHA]
   eps_rs <- as.vector(y_rs - pred_log_rs_rf) * w_rf
-  g_rs <- colMeans(Z_rs * eps_rs)  # length 7
+  M1_mat <- Z_rs * eps_rs           # n_rf x ncol(Z_rs)
+  g_rs <- colMeans(M1_mat)
 
   # --- M2: Claims residuals ---
   # Regress on OBSERVED risk score (gamma[2]); the M3 FOC block below still predicts
   # claims with the fitted risk score, so endogenous selection is preserved downstream.
   pred_log_cl_rf <- gamma[1] + gamma[2] * y_rs + X_cl_exog %*% gamma[3:N_GAMMA]
   eps_cl <- as.vector(y_cl - pred_log_cl_rf) * w_rf
-  g_cl <- colMeans(Z_cl * eps_cl)  # length 6
+  M2_mat <- Z_cl * eps_cl           # n_rf x ncol(Z_cl)
+  g_cl <- colMeans(M2_mat)
 
   # --- M3: FOC residuals (evaluated directly per cell) ---
   # Accumulate Z_foc' * foc_resid across all cells
   g_foc_sum <- rep(0, N_Z_FOC)
   n_foc <- 0L
+  if (return_contributions) { m3_obs_list <- list(); m3_cell_list <- list(); ki <- 0L }
 
   for (fc in foc_cells) {
     J <- length(fc$plan_ids)
@@ -286,14 +295,27 @@ compute_g_bar <- function(theta) {
     # effects on the retained plans' FOCs are kept, and it stays in M1/M2.
     keep <- fc$shares >= SHARE_FLOOR_FOC
     if (any(keep)) {
-      g_foc_sum <- g_foc_sum + colSums(Z_cell[keep, , drop = FALSE] * foc_resid[keep])
+      contrib <- Z_cell[keep, , drop = FALSE] * foc_resid[keep]
+      g_foc_sum <- g_foc_sum + colSums(contrib)
       n_foc <- n_foc + sum(keep)
+      if (return_contributions) {
+        ki <- ki + 1L
+        m3_obs_list[[ki]]  <- contrib
+        m3_cell_list[[ki]] <- colSums(contrib)
+      }
     }
   }
 
   g_foc <- g_foc_sum / n_foc  # average across all plan-cell observations
 
-  c(g_rs, g_cl, g_foc)
+  g <- c(g_rs, g_cl, g_foc)
+  if (!return_contributions) return(g)
+  list(g       = g,
+       M12_mat = cbind(M1_mat, M2_mat),
+       M3_obs  = do.call(rbind, m3_obs_list),
+       M3_cell = do.call(rbind, m3_cell_list),
+       n_rf    = nrow(Z_rs),
+       n_foc   = n_foc)
 }
 
 # =========================================================================
@@ -463,4 +485,6 @@ write_csv(rs_coefs_gmm, file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"))
 write_csv(cl_coefs_gmm, file.path(TEMP_DIR, "ra_claims_coefs_gmm.csv"))
 
 cat("  Saved GMM coefficients to", TEMP_DIR, "\n")
+# Standard errors are computed in 10_struc-se.R (reuses result2 / W2 / compute_g_bar).
+
 cat("\nCost-side GMM complete.\n")

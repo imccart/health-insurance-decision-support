@@ -9,6 +9,21 @@
 ##                enrollment, so synthetic off-year (uninsured) rows are
 ##                dropped from estimation.
 
+# Reduced-form specification (this MNL is the only RF step that uses it) ---
+REDUCED_FORM_SPEC <- c(
+  "premium",
+  "silver", "bronze", "hmo", "hsa",
+  "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+  "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
+  "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
+  "FPL_250to400_prem", "FPL_400plus_prem"
+)
+REDUCED_FORM_CF   <- c("cf_anthem", "cf_blue_shield", "cf_kaiser", "cf_health_net",
+                       "cf_silver", "cf_bronze")
+REDUCED_FORM_FULL <- c(REDUCED_FORM_SPEC, REDUCED_FORM_CF)
+write_demand_spec(REDUCED_FORM_FULL, character(0),
+                  file.path(TEMP_DIR, "demand_spec_reduced.csv"))
+
 CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
 
 plan_choice <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()
