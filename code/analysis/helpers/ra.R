@@ -47,17 +47,19 @@ estimate_ra_regressions <- function(rsdata) {
       ", demographics =", has_demo, "\n")
   cat("  R² =", round(summary(rs_reg)$r.squared, 4), "\n")
 
-  # Claims regression. AV (actuarial value) enters directly: holding the risk
-  # score fixed, more generous plans induce higher utilization (moral hazard), so
-  # platinum claims exceed bronze at the same morbidity. Omitting AV forced that
-  # generosity through the morbidity score, which inflated platinum RA transfers
-  # and drove marginal cost negative. AV is net of the risk score (which still
-  # captures selection), so this is not double-counting.
+  # Claims regression (Saltzman Eq. 18). Claims are regressed on the PREDICTED
+  # risk score (the fitted values from rs_reg), not the observed one, so the
+  # elasticity is estimated on the same object the FOC and counterfactual apply
+  # it to; on observed data the score is noisy and the pass-through attenuates
+  # below one. AV is OMITTED — it is collinear with the risk score and, if
+  # included, collapses the pass-through; AV still enters the RA transfer's
+  # utilization factor, so generosity is not lost.
   claims_valid <- rs_valid %>%
-    filter(!is.na(log_cost), is.finite(log_cost), !is.na(AV_METAL)) %>%
-    mutate(AV = AV_METAL)
+    filter(!is.na(log_cost), is.finite(log_cost), !is.na(AV_METAL))
+  claims_valid <- claims_valid %>%
+    mutate(log_risk_score = predict(rs_reg, newdata = claims_valid))
 
-  claims_reg <- lm(log_cost ~ log_risk_score + AV + HMO + trend +
+  claims_reg <- lm(log_cost ~ log_risk_score + HMO + trend +
                       Anthem + Blue_Shield + Health_Net + Kaiser +
                       Molina + LA_Care + SHARP + Chinese_Community +
                       Oscar + Western + Valley,

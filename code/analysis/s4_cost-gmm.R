@@ -94,8 +94,8 @@ X_rs <- as.matrix(rsdata %>% select(Silver, Gold, Platinum,
 y_rs <- rsdata$log_risk_score
 
 # M2 regressors: claims equation exogenous part (observed log_rs enters via Z_cl
-# below). AV (generosity / moral hazard) enters directly — see estimate_ra_regressions.
-X_cl_exog <- as.matrix(rsdata %>% transmute(AV = AV_METAL, HMO, trend,
+# below). AV is OMITTED (Saltzman Eq. 18) — the risk score carries generosity.
+X_cl_exog <- as.matrix(rsdata %>% transmute(HMO, trend,
                                             across(all_of(INS_COST))))
 y_cl <- rsdata$log_cost
 
@@ -103,10 +103,9 @@ y_cl <- rsdata$log_cost
 Z_rs <- cbind(1, X_rs)  # 6 columns (intercept + Silver/Gold/Platinum/age shares)
 
 # M2 instruments: intercept + OBSERVED log_rs + exogenous regressors. The claims
-# equation regresses on the observed risk score (treated as exogenous), not the
-# metal+age-fitted one: the fitted score is ~collinear with AV (R^2~0.98) and cannot
-# identify the generosity coef, while observed log_rs has within-metal variation.
-Z_cl <- cbind(1, y_rs, X_cl_exog)  # intercept + log_rs + AV/HMO/trend + INS_COST
+# equation regresses on the PREDICTED risk score (see compute_g_bar); the observed
+# score here instruments it, undoing the attenuation from measurement noise.
+Z_cl <- cbind(1, y_rs, X_cl_exog)  # intercept + log_rs(instr) + HMO/trend + INS_COST
 
 # --- M3: Precompute FOC cell data ---
 # For each cell, we need plan characteristics to predict MC(alpha, gamma).
@@ -132,7 +131,6 @@ for (k in seq_along(foc_cells)) {
   for (ins in INS_COST) {
     foc_cells[[k]][[ins]] <- as.integer(str_detect(pn, paste0("^", COST_PREFIX[[ins]])))
   }
-  foc_cells[[k]]$AV <- unname(fc$plan_avs[pn])  # generosity term for the claims eq.
 
   # Predicted demographic shares for this cell (from the demand model, saved by
   # 2_pricing in the foc_inputs RDS) — consistent with M1 and with the application
@@ -173,11 +171,11 @@ cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
 # =========================================================================
 
 N_ALPHA <- 6L  # intercept, Silver, Gold, Platinum, share_18to34, share_35to54
-N_GAMMA <- 5L + N_INS_COST  # intercept, log_risk_score, AV, HMO, trend + INS_COST
+N_GAMMA <- 4L + N_INS_COST  # intercept, log_risk_score, HMO, trend + INS_COST
 
 alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum",
                  "share_18to34", "share_35to54")
-gamma_names <- c("(Intercept)", "log_risk_score", "AV", "HMO", "trend", INS_COST)
+gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend", INS_COST)
 
 # Starting values from OLS
 rs_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs.csv"), show_col_types = FALSE)
@@ -225,9 +223,11 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   g_rs <- colMeans(M1_mat)
 
   # --- M2: Claims residuals ---
-  # Regress on OBSERVED risk score (gamma[2]); the M3 FOC block below still predicts
-  # claims with the fitted risk score, so endogenous selection is preserved downstream.
-  pred_log_cl_rf <- gamma[1] + gamma[2] * y_rs + X_cl_exog %*% gamma[3:N_GAMMA]
+  # Regress claims on the PREDICTED risk score (pred_log_rs_rf, the M1 fitted
+  # score), matching the FOC and counterfactual, which also predict claims from
+  # the fitted score. The observed score (y_rs) is the instrument in Z_cl, so the
+  # moment is a clean IV of the noisy observed score onto the model score.
+  pred_log_cl_rf <- gamma[1] + gamma[2] * pred_log_rs_rf + X_cl_exog %*% gamma[3:N_GAMMA]
   eps_cl <- as.vector(y_cl - pred_log_cl_rf) * w_rf
   M2_mat <- Z_cl * eps_cl           # n_rf x ncol(Z_cl)
   g_cl <- colMeans(M2_mat)
@@ -246,12 +246,12 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
       alpha[2] * fc$Silver + alpha[3] * fc$Gold + alpha[4] * fc$Platinum +
       alpha[5] * fc$share_18to34 + alpha[6] * fc$share_35to54
 
-    # Predict log claims (AV = gamma[3], generosity term). Insurer dummies are
-    # gamma[6:(5+N_INS_COST)], in INS_COST order.
-    pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs + gamma[3] * fc$AV +
-      gamma[4] * fc$HMO + gamma[5] * fc$trend
+    # Predict log claims from the risk score (AV omitted; carried by the score).
+    # Insurer dummies are gamma[5:(4+N_INS_COST)], in INS_COST order.
+    pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs +
+      gamma[3] * fc$HMO + gamma[4] * fc$trend
     for (j in seq_len(N_INS_COST)) {
-      pred_log_cl <- pred_log_cl + gamma[5 + j] * fc[[INS_COST[j]]]
+      pred_log_cl <- pred_log_cl + gamma[4 + j] * fc[[INS_COST[j]]]
     }
 
     pred_claims <- exp(pred_log_cl)
@@ -445,17 +445,16 @@ comp <- data.frame(
 )
 print(comp, row.names = FALSE)
 
-# Negative-MC check at the GMM solution, by metal. The OLS-coef MC in 2_pricing
-# was already non-negative; the negatives appeared once the FOC bent the cost
-# coefs in GMM. With AV in the claims equation, platinum should clear (down to
-# roughly the data's own tail) and the risk-score age coef should relax.
+# Negative-MC check at the GMM solution, by metal. With AV out of the claims
+# equation, the risk-score pass-through should rise toward one and predicted
+# claims for high-metal cells should climb, so the negatives should shrink.
 cat("\n  Negative MC at GMM solution (by metal):\n")
 mc_rows <- lapply(foc_cells, function(fc) {
   plr <- alpha_gmm[1] + alpha_gmm[2]*fc$Silver + alpha_gmm[3]*fc$Gold + alpha_gmm[4]*fc$Platinum +
          alpha_gmm[5]*fc$share_18to34 + alpha_gmm[6]*fc$share_35to54
-  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$AV + gamma_gmm[4]*fc$HMO +
-         gamma_gmm[5]*fc$trend
-  for (j in seq_len(N_INS_COST)) pcl <- pcl + gamma_gmm[5 + j] * fc[[INS_COST[j]]]
+  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$HMO +
+         gamma_gmm[4]*fc$trend
+  for (j in seq_len(N_INS_COST)) pcl <- pcl + gamma_gmm[4 + j] * fc[[INS_COST[j]]]
   prs <- exp(plr); pclm <- exp(pcl); sh <- fc$shares; av <- fc$plan_avs
   avg_p <- weighted.mean(fc$posted_premium, sh, na.rm = TRUE)
   mh <- MH_LOOKUP[as.character(round(av, 1))]; mh[is.na(mh)] <- 1
@@ -469,7 +468,7 @@ mc_check <- bind_rows(mc_rows) %>%
   group_by(metal) %>%
   summarise(n = n(), negative = sum(mc < 0), pct_neg = round(100*mean(mc < 0), 1), .groups = "drop")
 print(mc_check)
-cat("  AV (claims generosity) coef:", round(gamma_gmm[3], 4),
+cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
     " | risk-score age coefs:", round(alpha_gmm[5], 3), round(alpha_gmm[6], 3), "\n")
 
 # =========================================================================
