@@ -127,11 +127,16 @@ cat("  plan_choice:", nrow(plan_choice), "rows -> plan_choice.csv\n")
 plan_demographics <- hh_full %>%
   filter(!is.na(plan_id), plan_id != "Uninsured") %>%
   mutate(plan_id = gsub("SIL(94|73|87)", "SIL", plan_id),
-         wt = household_size) %>%
+         wt = household_size,
+         fpl_250to400 = as.integer(FPL > 2.50 & FPL <= 4.00),
+         fpl_400plus  = as.integer(FPL > 4.00)) %>%
   group_by(plan_id, year) %>%
-  summarize(share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
-            share_35to54   = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
-            share_hispanic = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
+  summarize(share_18to34      = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
+            share_35to54      = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
+            share_male        = weighted.mean(perc_male,     wt, na.rm = TRUE),
+            share_fpl250to400 = weighted.mean(fpl_250to400,  wt, na.rm = TRUE),
+            share_fpl400plus  = weighted.mean(fpl_400plus,   wt, na.rm = TRUE),
+            share_hispanic    = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
             .groups = "drop")
 fwrite(plan_demographics, file.path(TEMP_DIR, "plan_demographics.csv"))
 cat("  plan_demographics:", nrow(plan_demographics), "rows\n")

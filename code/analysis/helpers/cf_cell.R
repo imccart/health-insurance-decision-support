@@ -221,9 +221,16 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     reins_local <- reins_vec[plan_ids_cell]
     reins_local[is.na(reins_local)] <- 0
 
-    # Demographics used in risk score regression
-    demo_names <- intersect(c("share_18to34", "share_35to54", "share_hispanic"),
-                             names(rs_coefs))
+    # Demographics used in risk score regression (Saltzman Eq. 16: age, gender,
+    # income). Map each predicted share to its raw per-HH column for the Eq. 17
+    # dr/dp Jacobian below (the FPL shares don't follow the share_->perc_ rule).
+    demo_names <- intersect(c("share_18to34", "share_35to54", "share_male",
+                              "share_fpl250to400", "share_fpl400plus"),
+                            names(rs_coefs))
+    DEMO_RAWCOL <- c(share_18to34 = "perc_18to34", share_35to54 = "perc_35to54",
+                     share_male = "perc_male",
+                     share_fpl250to400 = "FPL_250to400",
+                     share_fpl400plus = "FPL_400plus")
 
     # Shared cache between fn and jac
     cache <- new.env(parent = emptyenv())
@@ -416,7 +423,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
         for (d in demo_names) {
           gamma_d <- rs_coefs[[d]]
-          raw_col <- sub("share_", "perc_", d)
+          raw_col <- DEMO_RAWCOL[[d]]
           if (!(raw_col %in% names(merged))) next
 
           dD_dk <- merged[, .(dD = sum(w * dq_dp * get(raw_col))), by = plan_id]

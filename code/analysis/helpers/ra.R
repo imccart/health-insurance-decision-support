@@ -22,25 +22,34 @@ estimate_ra_regressions <- function(rsdata) {
   rs_valid <- rsdata %>%
     filter(!is.na(log_risk_score), is.finite(log_risk_score), EXP_MM > 0)
 
-  # Risk score regression (Saltzman spec)
-  # Metal tier captures adverse selection; demographics capture within-tier
-  # composition effects. Demographics come from observed enrollment (merged
-  # from plan_demographics.csv before calling this function).
-  has_demo <- all(c("share_18to34", "share_35to54") %in% names(rs_valid))
+  # Risk score regression: ln r = gamma_av * AV + sum_d gamma_d * s_d + insurer FEs,
+  # where s_d are predicted demographic shares (age, gender, income). Saltzman
+  # Eq. 16 is AV + demographic shares; we ADD insurer fixed effects, which is a
+  # deviation. It is motivated by the data: the low-cost carriers (Molina, Chinese
+  # Community, LA Care) sit systematically below the AV+demographics prediction of
+  # their observed risk score, and without an insurer term the model over-states
+  # their risk, hands them RA transfers exceeding their claims, and produces
+  # negative marginal cost. The insurer FE proxies for the insurer-level risk
+  # selection Saltzman flags as an omission when his risk score drops medical
+  # conditions. Same INS_COST set as the claims equation (Kaiser folds into the
+  # baseline here — no HMO term on the risk side). AV enters here and is EXCLUDED
+  # from the claims equation (Eq. 18); AV_METAL is renamed AV to match
+  # predict_risk_scores.
+  rs_valid <- rs_valid %>% mutate(AV = AV_METAL)
+  demo_terms <- c("share_18to34", "share_35to54", "share_male",
+                  "share_fpl250to400", "share_fpl400plus")
+  has_demo <- all(demo_terms %in% names(rs_valid))
   if (has_demo) {
-    # Drop rows missing demographics (unmatched plan-years). Age shares only —
-    # hispanic and male are excluded: with ~116 plan-years of cost data and
-    # predicted shares that barely vary across plans, those coefficients are
-    # unidentified and blow up the exponential risk score. Mirrors Saltzman's
-    # AV-dominant Eq. 16 (we keep the metal/age terms the data can support).
     rs_valid <- rs_valid %>%
-      filter(!is.na(share_18to34), !is.na(share_35to54))
-    rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum +
-                   share_18to34 + share_35to54,
+      filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_male),
+             !is.na(share_fpl250to400), !is.na(share_fpl400plus))
+    rs_reg <- lm(log_risk_score ~ AV + share_18to34 + share_35to54 +
+                   share_male + share_fpl250to400 + share_fpl400plus +
+                   Anthem + Blue_Shield + Health_Net + Molina + LA_Care +
+                   SHARP + Chinese_Community + Oscar + Western + Valley,
                  data = rs_valid, weights = rs_valid$EXP_MM)
   } else {
-    rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum,
-                 data = rs_valid, weights = rs_valid$EXP_MM)
+    rs_reg <- lm(log_risk_score ~ AV, data = rs_valid, weights = rs_valid$EXP_MM)
   }
 
   cat("  Risk score regression: N =", nrow(rs_valid),
@@ -86,7 +95,8 @@ estimate_ra_regressions <- function(rsdata) {
 #' @param cell_data   Long-format HH × plan data with demographics and utility
 #' @param V           Utility vector (same length as cell_data rows)
 #' @param lambda      Nesting parameter
-#' @return Tibble: plan_id, share_18to34, share_35to54, share_hispanic, demand
+#' @return Tibble: plan_id, share_18to34, share_35to54, share_male,
+#'   share_fpl250to400, share_fpl400plus, share_hispanic, demand
 
 compute_demographic_shares <- function(cell_data, V, lambda) {
 
@@ -135,11 +145,16 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
     ins_dt[, perc_18to34 := perc_18to25 + perc_26to34]
   }
 
+  # Saltzman Eq. 16 demographic set: age, gender, income (predicted shares from
+  # the choice model). Hispanic is retained but unused by the risk-score spec.
   demo_shares <- ins_dt[, .(
-    share_18to34  = sum(wp * perc_18to34, na.rm = TRUE) / sum(wp),
-    share_35to54  = sum(wp * perc_35to54, na.rm = TRUE) / sum(wp),
-    share_hispanic = sum(wp * perc_hispanic, na.rm = TRUE) / sum(wp),
-    demand        = sum(wp)
+    share_18to34      = sum(wp * perc_18to34, na.rm = TRUE) / sum(wp),
+    share_35to54      = sum(wp * perc_35to54, na.rm = TRUE) / sum(wp),
+    share_male        = sum(wp * perc_male, na.rm = TRUE) / sum(wp),
+    share_fpl250to400 = sum(wp * FPL_250to400, na.rm = TRUE) / sum(wp),
+    share_fpl400plus  = sum(wp * FPL_400plus, na.rm = TRUE) / sum(wp),
+    share_hispanic    = sum(wp * perc_hispanic, na.rm = TRUE) / sum(wp),
+    demand            = sum(wp)
   ), by = plan_id]
 
   as_tibble(demo_shares)
@@ -160,25 +175,34 @@ predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
 
   pred_data <- plan_chars
 
-  # If we have demographic shares, merge and use full model
+  # Merge predicted demographic shares (age, gender, income) if supplied.
   if (!is.null(demo_shares)) {
     pred_data <- pred_data %>%
-      left_join(demo_shares %>% select(plan_id, share_18to34, share_35to54),
+      left_join(demo_shares %>% select(plan_id, share_18to34, share_35to54,
+                                       share_male, share_fpl250to400,
+                                       share_fpl400plus),
                 by = "plan_id")
   }
 
-  # Predict log risk score
-  log_rs <- rs_coefs[["(Intercept)"]] +
-    rs_coefs[["Silver"]] * pred_data$Silver +
-    rs_coefs[["Gold"]] * pred_data$Gold +
-    rs_coefs[["Platinum"]] * pred_data$Platinum
+  # Risk score: ln r = intercept + gamma_av * AV + demographic shares + insurer FEs.
+  log_rs <- rs_coefs[["(Intercept)"]] + rs_coefs[["AV"]] * pred_data$AV
 
-  # Add demographic terms if available and in the model (age only; hispanic and
-  # male dropped — unidentified in ~116 plan-years, see estimate_ra_regressions)
   if (!is.null(demo_shares) && "share_18to34" %in% names(rs_coefs)) {
     log_rs <- log_rs +
-      rs_coefs[["share_18to34"]] * pred_data$share_18to34 +
-      rs_coefs[["share_35to54"]] * pred_data$share_35to54
+      rs_coefs[["share_18to34"]]      * pred_data$share_18to34 +
+      rs_coefs[["share_35to54"]]      * pred_data$share_35to54 +
+      rs_coefs[["share_male"]]        * pred_data$share_male +
+      rs_coefs[["share_fpl250to400"]] * pred_data$share_fpl250to400 +
+      rs_coefs[["share_fpl400plus"]]  * pred_data$share_fpl400plus
+  }
+
+  # Insurer fixed effects (insurer-level risk selection; NA coef = baseline).
+  for (ins in c("Anthem", "Blue_Shield", "Health_Net", "Molina", "LA_Care",
+                "SHARP", "Chinese_Community", "Oscar", "Western", "Valley")) {
+    if (ins %in% names(rs_coefs) && ins %in% names(pred_data)) {
+      coef_ins <- rs_coefs[[ins]]
+      if (!is.na(coef_ins)) log_rs <- log_rs + coef_ins * pred_data[[ins]]
+    }
   }
 
   tibble(
@@ -316,8 +340,9 @@ predict_mc_structural <- function(predicted_claims, ra_transfers, reins_factors)
 #' @param claims_coefs  Named vector of claims regression coefficients
 #' @param plan_chars    Tibble with plan_id, Silver, Gold, Platinum, HMO,
 #'                      trend, Anthem, Blue_Shield, Health_Net, Kaiser
-#' @param demo_shares   Tibble with plan_id, share_18to34, share_35to54,
-#'                      share_hispanic (or NULL for metal-only model)
+#' @param demo_shares   Tibble with plan_id and predicted demographic shares
+#'                      (share_18to34, share_35to54, share_male,
+#'                      share_fpl250to400, share_fpl400plus); NULL for AV-only
 #' @param shares        Named vector of market shares (among insured)
 #' @param avg_premium   Scalar average premium in market
 #' @param plan_avs      Named vector of actuarial values
