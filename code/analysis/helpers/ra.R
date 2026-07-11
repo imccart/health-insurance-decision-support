@@ -22,29 +22,28 @@ estimate_ra_regressions <- function(rsdata) {
   rs_valid <- rsdata %>%
     filter(!is.na(log_risk_score), is.finite(log_risk_score), EXP_MM > 0)
 
-  # Risk score regression: ln r = gamma_av * AV + sum_d gamma_d * s_d + insurer FEs,
-  # where s_d are predicted demographic shares (age, gender, income). Saltzman
-  # Eq. 16 is AV + demographic shares; we ADD insurer fixed effects, which is a
-  # deviation. It is motivated by the data: the low-cost carriers (Molina, Chinese
-  # Community, LA Care) sit systematically below the AV+demographics prediction of
-  # their observed risk score, and without an insurer term the model over-states
-  # their risk, hands them RA transfers exceeding their claims, and produces
-  # negative marginal cost. The insurer FE proxies for the insurer-level risk
-  # selection Saltzman flags as an omission when his risk score drops medical
-  # conditions. Same INS_COST set as the claims equation (Kaiser folds into the
-  # baseline here — no HMO term on the risk side). AV enters here and is EXCLUDED
-  # from the claims equation (Eq. 18); AV_METAL is renamed AV to match
-  # predict_risk_scores.
+  # Risk score regression: Saltzman Eq. 16 (AV + age/gender demographic shares) PLUS
+  # insurer fixed effects, which is our one deviation from his equation. It is
+  # data-motivated and earned by a test. Under his exact Eq. 16 the low-cost carriers
+  # (Molina foremost) are over-scored — the equation has no carrier term, so it
+  # cannot see that Molina runs a lower-risk book than its AV/demographics imply. It
+  # over-predicts Molina's risk, hands it a transfer exceeding its (low) claims, and
+  # drives its MC negative, even though the raw filings show Molina is a net RA payer,
+  # so that negative is a mislabel. The insurer FE lets the equation learn the
+  # carrier-level risk and pulls Molina's score (and transfer) back down. Same
+  # INS_COST set as the claims equation, but Kaiser folds into the baseline here (no
+  # HMO term on the risk side). Income/FPL shares stay OUT — they, not the insurer
+  # FEs, drove the earlier coefficient degeneracy. AV enters here and is EXCLUDED
+  # from claims; AV_METAL is renamed AV to match predict_risk_scores. To run his
+  # exact spec instead, drop the insurer terms from the formula below —
+  # predict_risk_scores applies whatever terms rs_coefs holds.
   rs_valid <- rs_valid %>% mutate(AV = AV_METAL)
-  demo_terms <- c("share_18to34", "share_35to54", "share_male",
-                  "share_fpl250to400", "share_fpl400plus")
+  demo_terms <- c("share_18to34", "share_35to54", "share_male")
   has_demo <- all(demo_terms %in% names(rs_valid))
   if (has_demo) {
     rs_valid <- rs_valid %>%
-      filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_male),
-             !is.na(share_fpl250to400), !is.na(share_fpl400plus))
-    rs_reg <- lm(log_risk_score ~ AV + share_18to34 + share_35to54 +
-                   share_male + share_fpl250to400 + share_fpl400plus +
+      filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_male))
+    rs_reg <- lm(log_risk_score ~ AV + share_18to34 + share_35to54 + share_male +
                    Anthem + Blue_Shield + Health_Net + Molina + LA_Care +
                    SHARP + Chinese_Community + Oscar + Western + Valley,
                  data = rs_valid, weights = rs_valid$EXP_MM)
@@ -62,16 +61,19 @@ estimate_ra_regressions <- function(rsdata) {
   # it to; on observed data the score is noisy and the pass-through attenuates
   # below one. AV is OMITTED — it is collinear with the risk score and, if
   # included, collapses the pass-through; AV still enters the RA transfer's
-  # utilization factor, so generosity is not lost.
+  # utilization factor, so generosity is not lost. Insurer FEs are OMITTED here
+  # too: they live in the risk-score equation instead (see above). The insurer
+  # dummies are collinear across the two equations through the pass-through, so
+  # carrying them in both left the cost-side GMM rank-deficient (NA standard
+  # errors). We keep them only in the risk score, where they also move the RA
+  # transfer and correct the Molina mislabel — in claims they would move predicted
+  # claims but not the transfer, so they cannot do that work.
   claims_valid <- rs_valid %>%
     filter(!is.na(log_cost), is.finite(log_cost), !is.na(AV_METAL))
   claims_valid <- claims_valid %>%
     mutate(log_risk_score = predict(rs_reg, newdata = claims_valid))
 
-  claims_reg <- lm(log_cost ~ log_risk_score + HMO + trend +
-                      Anthem + Blue_Shield + Health_Net + Kaiser +
-                      Molina + LA_Care + SHARP + Chinese_Community +
-                      Oscar + Western + Valley,
+  claims_reg <- lm(log_cost ~ log_risk_score + HMO + trend,
                     data = claims_valid, weights = claims_valid$EXP_MM)
 
   cat("  Claims regression: N =", nrow(claims_valid), "\n")
@@ -145,8 +147,9 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
     ins_dt[, perc_18to34 := perc_18to25 + perc_26to34]
   }
 
-  # Saltzman Eq. 16 demographic set: age, gender, income (predicted shares from
-  # the choice model). Hispanic is retained but unused by the risk-score spec.
+  # Predicted shares from the choice model. The risk-score spec (Saltzman Eq. 16)
+  # uses age and gender (share_18to34/35to54/male); income (FPL) and hispanic are
+  # still emitted for other consumers but do not enter the risk-score equation.
   demo_shares <- ins_dt[, .(
     share_18to34      = sum(wp * perc_18to34, na.rm = TRUE) / sum(wp),
     share_35to54      = sum(wp * perc_35to54, na.rm = TRUE) / sum(wp),
@@ -175,33 +178,25 @@ predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
 
   pred_data <- plan_chars
 
-  # Merge predicted demographic shares (age, gender, income) if supplied.
+  # Merge whatever demographic shares the risk-score spec actually uses, matched by
+  # name against rs_coefs, so the applied terms track estimate_ra_regressions.
   if (!is.null(demo_shares)) {
-    pred_data <- pred_data %>%
-      left_join(demo_shares %>% select(plan_id, share_18to34, share_35to54,
-                                       share_male, share_fpl250to400,
-                                       share_fpl400plus),
-                by = "plan_id")
+    share_cols <- intersect(names(rs_coefs), names(demo_shares))
+    if (length(share_cols) > 0) {
+      pred_data <- pred_data %>%
+        left_join(demo_shares %>% select(plan_id, all_of(share_cols)),
+                  by = "plan_id")
+    }
   }
 
-  # Risk score: ln r = intercept + gamma_av * AV + demographic shares + insurer FEs.
+  # ln r = intercept + gamma_av * AV + every other term in rs_coefs present as a
+  # column (age/gender shares under Eq. 16, plus insurer FEs if the spec adds them).
+  # An aliased (NA) coefficient contributes nothing.
   log_rs <- rs_coefs[["(Intercept)"]] + rs_coefs[["AV"]] * pred_data$AV
-
-  if (!is.null(demo_shares) && "share_18to34" %in% names(rs_coefs)) {
-    log_rs <- log_rs +
-      rs_coefs[["share_18to34"]]      * pred_data$share_18to34 +
-      rs_coefs[["share_35to54"]]      * pred_data$share_35to54 +
-      rs_coefs[["share_male"]]        * pred_data$share_male +
-      rs_coefs[["share_fpl250to400"]] * pred_data$share_fpl250to400 +
-      rs_coefs[["share_fpl400plus"]]  * pred_data$share_fpl400plus
-  }
-
-  # Insurer fixed effects (insurer-level risk selection; NA coef = baseline).
-  for (ins in c("Anthem", "Blue_Shield", "Health_Net", "Molina", "LA_Care",
-                "SHARP", "Chinese_Community", "Oscar", "Western", "Valley")) {
-    if (ins %in% names(rs_coefs) && ins %in% names(pred_data)) {
-      coef_ins <- rs_coefs[[ins]]
-      if (!is.na(coef_ins)) log_rs <- log_rs + coef_ins * pred_data[[ins]]
+  for (term in setdiff(names(rs_coefs), c("(Intercept)", "AV"))) {
+    coef_t <- rs_coefs[[term]]
+    if (!is.na(coef_t) && term %in% names(pred_data)) {
+      log_rs <- log_rs + coef_t * pred_data[[term]]
     }
   }
 

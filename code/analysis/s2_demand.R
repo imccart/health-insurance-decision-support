@@ -30,7 +30,11 @@ STRUCTURAL_SPEC <- c(
   # sorting). Premium-independent; see covariates.R / build_structural.
   "perc_0to17_silver", "perc_0to17_bronze",
   "perc_18to34_silver", "perc_18to34_bronze",
-  "perc_35to54_silver", "perc_35to54_bronze"
+  "perc_35to54_silver", "perc_35to54_bronze",
+  # Gender x metal, mirroring age x metal: gives the predicted male share independent
+  # cross-plan variation (the model otherwise touches gender only through premium),
+  # so the risk-score male coefficient can identify instead of collapsing.
+  "perc_male_silver", "perc_male_bronze"
 )
 
 STRUCTURAL_ASST <- c(

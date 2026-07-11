@@ -128,6 +128,8 @@ get_covariate_menu <- function() {
     perc_18to34_bronze = list(type = "demo_metal"),
     perc_35to54_silver = list(type = "demo_metal"),
     perc_35to54_bronze = list(type = "demo_metal"),
+    perc_male_silver   = list(type = "demo_metal"),
+    perc_male_bronze   = list(type = "demo_metal"),
 
     # --- Demographic x insured interactions ---
     # Convention: {raw_demo}_insured = raw_demo * I(insured)

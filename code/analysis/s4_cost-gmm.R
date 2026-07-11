@@ -44,11 +44,9 @@ demo_all <- rbindlist(lapply(foc_cells, function(fc) {
   d <- as.data.table(fc$demo_shares); d[, year := fc$year]; d
 }), fill = TRUE)
 pred_py <- demo_all[, .(
-  share_18to34      = sum(share_18to34 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
-  share_35to54      = sum(share_35to54 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
-  share_male        = sum(share_male * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
-  share_fpl250to400 = sum(share_fpl250to400 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
-  share_fpl400plus  = sum(share_fpl400plus * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)
+  share_18to34 = sum(share_18to34 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
+  share_35to54 = sum(share_35to54 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
+  share_male   = sum(share_male * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)
 ), by = .(plan_id, year)]
 rsdata <- rsdata %>%
   left_join(as.data.frame(pred_py), by = c("plan_id", "year")) %>%
@@ -58,7 +56,6 @@ rsdata <- rsdata %>%
   # moment needs HMO). Small plans still enter the model on the application side,
   # where structural HMO is keyed off the Kaiser prefix, not PLAN_TYPE.
   filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_male),
-         !is.na(share_fpl250to400), !is.na(share_fpl400plus),
          !is.na(HMO), !is.na(AV_METAL))
 cat("  Rate filing observations:", nrow(rsdata), "\n")
 
@@ -94,28 +91,29 @@ N_INS_COST <- length(INS_COST)
 # --- M1-M2 data matrices (rate filings) ---
 w_rf <- sqrt(rsdata$EXP_MM)  # WLS weights
 
-# M1 regressors: risk score equation. AV plus predicted demographic shares for
-# age, gender, income (Saltzman Eq. 16), plus insurer FEs (our data-motivated
-# addition; same INS_COST set as the claims equation) so insurer-level risk
-# selection lowers the transfer for low-risk carriers to meet their claims.
-X_rs <- as.matrix(rsdata %>% select(AV, share_18to34, share_35to54,
-                                     share_male, share_fpl250to400,
-                                     share_fpl400plus, all_of(INS_COST)))
+# M1 regressors: Saltzman Eq. 16 (AV + age/gender demographic shares) plus insurer
+# FEs, our one data-motivated deviation (the risk score has no carrier term
+# otherwise, so it over-scores low-risk carriers like Molina and drives their MC
+# negative; see ra.R). Income/FPL shares stay out. To run his exact spec, drop
+# all_of(INS_COST) here and from alpha_names.
+X_rs <- as.matrix(rsdata %>% select(AV, share_18to34, share_35to54, share_male,
+                                     all_of(INS_COST)))
 y_rs <- rsdata$log_risk_score
 
 # M2 regressors: claims equation exogenous part (observed log_rs enters via Z_cl
 # below). AV is OMITTED (Saltzman Eq. 18) — the risk score carries generosity.
-X_cl_exog <- as.matrix(rsdata %>% transmute(HMO, trend,
-                                            across(all_of(INS_COST))))
+X_cl_exog <- as.matrix(rsdata %>% transmute(HMO, trend))
 y_cl <- rsdata$log_cost
 
 # M1 instruments: intercept + regressors
-Z_rs <- cbind(1, X_rs)  # intercept + AV + 5 demographic shares + INS_COST insurer FEs
+Z_rs <- cbind(1, X_rs)  # intercept + AV + 3 demographic shares + INS_COST insurer FEs
 
 # M2 instruments: intercept + OBSERVED log_rs + exogenous regressors. The claims
 # equation regresses on the PREDICTED risk score (see compute_g_bar); the observed
-# score here instruments it, undoing the attenuation from measurement noise.
-Z_cl <- cbind(1, y_rs, X_cl_exog)  # intercept + log_rs(instr) + HMO/trend + INS_COST
+# score here instruments it, undoing the attenuation from measurement noise. Insurer
+# FEs are NOT in claims (they live in the risk score); carrying them in both made the
+# sandwich rank-deficient through the pass-through collinearity.
+Z_cl <- cbind(1, y_rs, X_cl_exog)  # intercept + log_rs(instr) + HMO/trend
 
 # --- M3: Precompute FOC cell data ---
 # For each cell, we need plan characteristics to predict MC(alpha, gamma).
@@ -147,8 +145,7 @@ for (k in seq_along(foc_cells)) {
   # application in s3_pricing/cf. The cell-mean fallback guards any plan_id absent
   # from demo_shares. AV comes from plan_avs (Saltzman Eq. 16 dominant regressor).
   demo <- as.data.frame(fc$demo_shares)
-  for (col in c("share_18to34", "share_35to54", "share_male",
-                "share_fpl250to400", "share_fpl400plus")) {
+  for (col in c("share_18to34", "share_35to54", "share_male")) {
     foc_cells[[k]][[col]] <- sapply(pn, function(p) {
       v <- demo[[col]][demo$plan_id == p]
       if (length(v) == 0) return(mean(demo[[col]], na.rm = TRUE))
@@ -179,12 +176,12 @@ cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
 # PARAMETER LAYOUT
 # =========================================================================
 
-N_ALPHA <- 7L + N_INS_COST  # intercept, AV, 5 demo shares, + INS_COST insurer FEs
-N_GAMMA <- 4L + N_INS_COST  # intercept, log_risk_score, HMO, trend + INS_COST
+N_ALPHA <- 5L + N_INS_COST  # intercept, AV, 3 demo shares + INS_COST insurer FEs
+N_GAMMA <- 4L               # intercept, log_risk_score, HMO, trend (no insurer FEs)
 
-alpha_names <- c("(Intercept)", "AV", "share_18to34", "share_35to54",
-                 "share_male", "share_fpl250to400", "share_fpl400plus", INS_COST)
-gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend", INS_COST)
+alpha_names <- c("(Intercept)", "AV", "share_18to34", "share_35to54", "share_male",
+                 INS_COST)
+gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend")
 
 # Starting values from OLS
 rs_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs.csv"), show_col_types = FALSE)
@@ -252,23 +249,19 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   for (fc in foc_cells) {
     J <- length(fc$plan_ids)
 
-    # Predict log risk scores for this cell's plans (AV + demographic shares +
-    # insurer FEs, alpha[8:(7+N_INS_COST)] in INS_COST order).
+    # Predict log risk scores for this cell's plans (Eq. 16 demographics + insurer
+    # FEs, alpha[6:(5+N_INS_COST)] in INS_COST order).
     pred_log_rs <- alpha[1] + alpha[2] * fc$AV +
       alpha[3] * fc$share_18to34 + alpha[4] * fc$share_35to54 +
-      alpha[5] * fc$share_male +
-      alpha[6] * fc$share_fpl250to400 + alpha[7] * fc$share_fpl400plus
+      alpha[5] * fc$share_male
     for (j in seq_len(N_INS_COST)) {
-      pred_log_rs <- pred_log_rs + alpha[7 + j] * fc[[INS_COST[j]]]
+      pred_log_rs <- pred_log_rs + alpha[5 + j] * fc[[INS_COST[j]]]
     }
 
     # Predict log claims from the risk score (AV omitted; carried by the score).
-    # Insurer dummies are gamma[5:(4+N_INS_COST)], in INS_COST order.
+    # Insurer effects are in the risk score, not here, so claims has no insurer FE.
     pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs +
       gamma[3] * fc$HMO + gamma[4] * fc$trend
-    for (j in seq_len(N_INS_COST)) {
-      pred_log_cl <- pred_log_cl + gamma[4 + j] * fc[[INS_COST[j]]]
-    }
 
     pred_claims <- exp(pred_log_cl)
     pred_rs <- exp(pred_log_rs)
@@ -390,25 +383,39 @@ cat("    M3 (FOC):", round(g1[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 6), "\n")
 # STEP 2: OPTIMAL WEIGHTING
 # =========================================================================
 
-cat("\n--- GMM Step 2 (inverse-variance block-diagonal weighting) ---\n")
+cat("\n--- GMM Step 2 (optimal weighting: inverse moment covariance) ---\n")
 
-g1_rs  <- g1[1:ncol(Z_rs)]
-g1_cl  <- g1[(ncol(Z_rs) + 1):(ncol(Z_rs) + ncol(Z_cl))]
-g1_foc <- g1[(ncol(Z_rs) + ncol(Z_cl) + 1):N_MOMENTS]
+# Efficient two-step feasible GMM, matching Saltzman Eq. 20: the step-2 weight is the
+# inverse of the moment variance-covariance matrix S, estimated at the step-1
+# parameters. S is block-diagonal across the two independent data sources — the risk
+# and claims moments come from the rate filings (M12_mat, one row per plan-year), the
+# FOC moments from the equilibrium cells (M3_cell, one row per region-year) — so the
+# cross-block covariance is zero. This is the same S the sandwich uses for its meat, so
+# feeding S^{-1} back as the weight makes the estimator efficient and the sandwich
+# collapse to the correct (G' S^{-1} G)^{-1} variance. The earlier block-diagonal
+# SCALAR weight (diag / sum(moment^2)) was a crude stand-in; it over-credited the FOC
+# block's sensitivity to the weakly-identified risk-score coefficients as precision,
+# distorting those coefficients and understating their SEs by 1-2 orders of magnitude.
+contr1 <- compute_g_bar(result1$par, return_contributions = TRUE)
+n12 <- ncol(Z_rs) + ncol(Z_cl)
+S <- matrix(0, N_MOMENTS, N_MOMENTS)
+S[1:n12, 1:n12] <- crossprod(contr1$M12_mat) / contr1$n_rf^2
+S[(n12 + 1):N_MOMENTS, (n12 + 1):N_MOMENTS] <- crossprod(contr1$M3_cell) / contr1$n_foc^2
 
-v_rs  <- max(sum(g1_rs^2), 1e-20)
-v_cl  <- max(sum(g1_cl^2), 1e-20)
-v_foc <- max(sum(g1_foc^2), 1e-20)
-
-cat("  Block moment norms: M1 =", format(sqrt(v_rs), digits = 4),
-    " M2 =", format(sqrt(v_cl), digits = 4),
-    " M3 =", format(sqrt(v_foc), digits = 4), "\n")
-
-W2 <- as.matrix(Matrix::bdiag(
-  diag(ncol(Z_rs)) / v_rs,
-  diag(ncol(Z_cl)) / v_cl,
-  diag(N_Z_FOC) / v_foc
-))
+# Invert S to get the optimal weight. If S is ill-conditioned (near-redundant moments,
+# most likely in the FOC block) a plain solve() is unstable, so ridge the diagonal and
+# warn. A tiny rcond here is the signal that the analytical route is fragile and we
+# should fall back to bootstrapping the SEs.
+S_rcond <- rcond(S)
+cat("  Moment-covariance rcond:", format(S_rcond, digits = 3),
+    " (small => ill-conditioned; consider bootstrap)\n")
+if (is.na(S_rcond) || S_rcond < 1e-12) {
+  ridge <- 1e-6 * mean(diag(S))
+  cat("  S ill-conditioned; ridge-regularizing diagonal by", format(ridge, digits = 3), "\n")
+  W2 <- solve(S + diag(ridge, N_MOMENTS))
+} else {
+  W2 <- solve(S)
+}
 
 result2 <- optim(
   par = result1$par,
@@ -468,12 +475,10 @@ cat("\n  Negative MC at GMM solution (by metal):\n")
 mc_rows <- lapply(foc_cells, function(fc) {
   plr <- alpha_gmm[1] + alpha_gmm[2]*fc$AV +
          alpha_gmm[3]*fc$share_18to34 + alpha_gmm[4]*fc$share_35to54 +
-         alpha_gmm[5]*fc$share_male +
-         alpha_gmm[6]*fc$share_fpl250to400 + alpha_gmm[7]*fc$share_fpl400plus
-  for (j in seq_len(N_INS_COST)) plr <- plr + alpha_gmm[7 + j]*fc[[INS_COST[j]]]
+         alpha_gmm[5]*fc$share_male
+  for (j in seq_len(N_INS_COST)) plr <- plr + alpha_gmm[5 + j]*fc[[INS_COST[j]]]
   pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$HMO +
          gamma_gmm[4]*fc$trend
-  for (j in seq_len(N_INS_COST)) pcl <- pcl + gamma_gmm[4 + j] * fc[[INS_COST[j]]]
   prs <- exp(plr); pclm <- exp(pcl); sh <- fc$shares; av <- fc$plan_avs
   avg_p <- weighted.mean(fc$posted_premium, sh, na.rm = TRUE)
   mh <- MH_LOOKUP[as.character(round(av, 1))]; mh[is.na(mh)] <- 1

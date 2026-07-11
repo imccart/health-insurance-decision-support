@@ -56,22 +56,46 @@ cat("\nPhase 2: Running counterfactual simulations...\n")
 
 # Build one task per cell, each carrying its own household slice, so parallel
 # workers never hold the full household panel (memory stays flat per worker).
-tasks <- lapply(seq_len(nrow(cells)), function(i) {
+n_cells_total <- nrow(cells)
+tasks <- lapply(seq_len(n_cells_total), function(i) {
   hhs <- hh_split_cf[[paste0(cells$region[i], ".", cells$year[i])]]
   list(r = cells$region[i], y = cells$year[i], seed = cell_seeds[i],
+       idx = i, n_total = n_cells_total,
        hhs = if (is.null(hhs) || nrow(hhs) == 0) NULL else as.data.frame(hhs))
 })
 rm(hh_split_cf); gc(verbose = FALSE)
 
-# Solve one cell. Returns NULL (not an error) for empty or failed cells.
+# Per-cell results are written here as each cell finishes, so a run is observable
+# (watch the directory fill) and survives a kill (completed cells stay on disk).
+# Cleaned each run so nothing stale is combined.
+CF_CELL_DIR <- file.path(TEMP_DIR, "cf_cells")
+if (dir.exists(CF_CELL_DIR)) unlink(CF_CELL_DIR, recursive = TRUE)
+dir.create(CF_CELL_DIR, recursive = TRUE)
+
+# Solve one cell, write its result, and print a one-line progress summary (cell
+# index, rows, share of scenarios converged, wall seconds). With the cluster's
+# outfile="" these stream to the console live, so the run is not a blank cursor and
+# a slow or non-converging cell is visible as it happens. Returns NULL for empty or
+# failed cells.
 run_one_cf <- function(task) {
   if (is.null(task$hhs)) return(NULL)
-  tryCatch(
+  t0 <- Sys.time()
+  res <- tryCatch(
     run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
                 plan_choice, supply_results, coefs, commission_lookup,
                 rs_coefs, claims_coefs, reins_df, STRUCTURAL_SPEC),
-    error = function(e) { cat("  ERROR cell", task$r, task$y, ":", conditionMessage(e), "\n"); NULL }
+    error = function(e) { cat(sprintf("  [cell %d/%d] r%s y%s ERROR: %s\n",
+      task$idx, task$n_total, task$r, task$y, conditionMessage(e))); NULL }
   )
+  el <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  if (!is.null(res)) {
+    data.table::fwrite(res, file.path(CF_CELL_DIR, sprintf("cell_%s_%s.csv", task$r, task$y)))
+    conv <- if ("nleqslv_termcd" %in% names(res))
+      round(100 * mean(res$nleqslv_termcd <= 2, na.rm = TRUE)) else NA_real_
+    cat(sprintf("  [cell %d/%d] r%s y%s: %d rows, %s%% conv, %.0fs\n",
+      task$idx, task$n_total, task$r, task$y, nrow(res), conv, el))
+  }
+  res
 }
 
 t_start <- Sys.time()
@@ -80,10 +104,13 @@ t_start <- Sys.time()
 # cluster can't be created. Each worker sources the helpers and receives
 # run_cf_cell plus the small reference objects; household data rides with the task.
 n_workers <- max(1L, parallel::detectCores() - 2L)
-cl <- tryCatch(parallel::makeCluster(n_workers, type = "PSOCK"), error = function(e) NULL)
+# outfile = "" streams each worker's per-cell progress line to the console so the
+# run reports live instead of sitting on a blank cursor.
+cl <- tryCatch(parallel::makeCluster(n_workers, type = "PSOCK", outfile = ""),
+               error = function(e) NULL)
 
 if (!is.null(cl)) {
-  cat("  Parallel:", n_workers, "workers\n")
+  cat("  Parallel:", n_workers, "workers (per-cell progress streams below)\n")
   parallel::clusterEvalQ(cl, {
     suppressMessages({ library(tidyverse); library(data.table); library(nleqslv) })
     source("code/data-build/_helpers.R")
@@ -99,7 +126,7 @@ if (!is.null(cl)) {
   })
   parallel::clusterExport(cl, c("run_cf_cell", "SAMPLE_FRAC", "plan_choice",
     "supply_results", "coefs", "commission_lookup", "rs_coefs", "claims_coefs",
-    "reins_df", "STRUCTURAL_SPEC", "CS_TABLE"))
+    "reins_df", "STRUCTURAL_SPEC", "CS_TABLE", "CF_CELL_DIR"))
   results_list <- parallel::parLapplyLB(cl, tasks, run_one_cf)
   parallel::stopCluster(cl)
 } else {

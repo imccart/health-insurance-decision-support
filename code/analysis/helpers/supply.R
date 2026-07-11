@@ -290,14 +290,17 @@ build_structural <- function(plans, hhs, sample_frac,
     FPL_400plus_prem   = FPL_400plus * net_premium
   )]
 
-  # Age x metal interactions: let metal preference vary by household age mix, so the
-  # young tilt into bronze beyond the common price effect. Fixes the inverted
-  # age-by-metal sorting (predicted young share was lowest in bronze, now highest).
-  # Premium-independent — plain covariates, no alpha_i / recompute handling.
+  # Age/gender x metal interactions: let metal preference vary by household age and
+  # gender mix. Age x metal fixes the inverted age-by-metal sorting (young now tilt
+  # into bronze). Gender x metal mirrors it so plans sort on gender the way they sort
+  # on age; without it the demand model touches gender only through premium, the
+  # predicted male share comes out near-constant, and the risk-score male coefficient
+  # cannot identify. Premium-independent — plain covariates, no alpha_i / recompute.
   dt[, `:=`(
     perc_0to17_silver  = perc_0to17  * silver, perc_0to17_bronze  = perc_0to17  * bronze,
     perc_18to34_silver = perc_18to34 * silver, perc_18to34_bronze = perc_18to34 * bronze,
-    perc_35to54_silver = perc_35to54 * silver, perc_35to54_bronze = perc_35to54 * bronze
+    perc_35to54_silver = perc_35to54 * silver, perc_35to54_bronze = perc_35to54 * bronze,
+    perc_male_silver   = perc_male   * silver, perc_male_bronze   = perc_male   * bronze
   )]
 
   # Demographic x insured interactions (cross-nest margin shifters)
