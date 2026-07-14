@@ -17,7 +17,7 @@
 run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                         plan_choice, supply_results, coefs,
                         commission_lookup, rs_coefs, claims_coefs,
-                        reins_df, STRUCTURAL_SPEC) {
+                        reins_df, STRUCTURAL_SPEC, hh_sink = NULL) {
 
   TAU_GRID <- c(0, 0.25, 0.5, 0.75, 1.0)
   # Commission-level sweep: brokers stay brokers, commissions scaled down.
@@ -839,6 +839,23 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
   results_list <- list()
 
+  # Optional per-household welfare sink (off unless hh_sink is a directory). When
+  # set, each scenario's per-household nav/obj/components are collected and written
+  # to hh_sink at the end, so the bootstrap (cf3) can pool them across cells per draw
+  # and put SEs on the DISTRIBUTION of effects. Off for cf1 (hh_sink = NULL), which
+  # therefore behaves exactly as before; cf2 gets the distribution from its own
+  # scorer. Collecting per-household here re-scores per scenario (a second
+  # scenario_welfare pass), a small cost paid only in the bootstrap.
+  hh_list <- list()
+  collect_hh <- function(dt, label) {
+    if (is.null(hh_sink)) return(invisible())
+    whh <- tryCatch(scenario_welfare(dt, coefs, lambda, y, CS_TABLE, per_hh = TRUE),
+                    error = function(e) NULL)
+    if (!is.null(whh))
+      hh_list[[length(hh_list) + 1L]] <<- data.table(region = r, year = y,
+                                                     scenario = label, whh)
+  }
+
   # Scenario 1: Observed
   comm_obs_sc <- comm_obs[plan_ids_cell]
   cd_obs <- build_scenario_data(cell_data_base, comm_obs_sc)
@@ -870,6 +887,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                           error = function(e) NA_real_)
     wf_obs <- tryCatch(scenario_welfare(obs_dt, coefs, lambda, y, CS_TABLE),
                        error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
+    collect_hh(obs_dt, "observed")
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "observed", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -918,6 +936,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                           error = function(e) NA_real_)
       wf_tau <- tryCatch(scenario_welfare(dt_cs, coefs, lambda, y, CS_TABLE),
                          error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
+      collect_hh(dt_cs, sc_label)
 
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = tau,
@@ -959,6 +978,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                          error = function(e) NA_real_)
     wf_unif <- tryCatch(scenario_welfare(eq_unif$dt_final %||% cd_unif, coefs, lambda, y, CS_TABLE),
                         error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
+    collect_hh(eq_unif$dt_final %||% cd_unif, "uniform")
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "uniform", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -999,6 +1019,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                            error = function(e) NA_real_)
       wf_sc <- tryCatch(scenario_welfare(sc_dt, coefs, lambda, y, CS_TABLE),
                         error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
+      collect_hh(sc_dt, sc_label)
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = NA_real_,
         plan_id = plan_ids_cell,
@@ -1057,6 +1078,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                          error = function(e) NA_real_)
     wf_al <- tryCatch(scenario_welfare(al_dt, coefs, lambda, y, CS_TABLE),
                       error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
+    collect_hh(al_dt, "aligned")
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "aligned", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -1084,6 +1106,11 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   }
 
   rm(cd_al, cd_base_nc); gc(verbose = FALSE)
+
+  # Flush the per-household welfare for this cell (bootstrap only; hh_sink set).
+  if (!is.null(hh_sink) && length(hh_list) > 0)
+    data.table::fwrite(data.table::rbindlist(hh_list),
+                       file.path(hh_sink, sprintf("cell_%s_%s.csv", r, y)))
 
   # Return results
   if (length(results_list) > 0) {

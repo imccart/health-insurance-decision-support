@@ -44,6 +44,7 @@ if (!exists("N_BOOT_CF"))   N_BOOT_CF   <- 30L
 BOOT_SEED  <- 987654321L
 DRAWS_PATH <- "results/cf_bootstrap_draws.csv"
 SE_PATH    <- "results/cf_bootstrap_se.csv"
+HH_SINK    <- file.path(TEMP_DIR, "cf_boot_hh")   # per-draw per-household welfare (transient)
 
 cat("=== CF parametric bootstrap ===\n  draws:", N_BOOT_CF, "\n")
 
@@ -113,6 +114,32 @@ summarize_cf_headline <- function(cf) {
     aligned_obj_risk = mdelta("aligned", "obj_risk"))
 }
 
+# Distributional headline stats for one draw: pool the per-household welfare that
+# run_cf_cell(hh_sink=...) wrote this draw, form each household's effect vs its own
+# observed choice, and return the share worse off (money + navigator rulers) for the
+# key scenarios. Always returns the same fixed-length named vector (NA where a
+# scenario is missing) so the per-draw rows stack cleanly.
+DIST_SCEN <- c("zero_tau0.00", "zero_tau1.00", "aligned")
+dist_headline <- function(hh_dir) {
+  nm  <- c(paste0("shareworse_obj_", DIST_SCEN), paste0("shareworse_nav_", DIST_SCEN))
+  out <- setNames(rep(NA_real_, length(nm)), nm)
+  files <- list.files(hh_dir, full.names = TRUE)
+  if (length(files) == 0) return(out)
+  d <- tryCatch(data.table::rbindlist(lapply(files, function(f) {
+    h   <- data.table::fread(f)
+    obs <- h[scenario == "observed", .(region, year, household_number, o_obj = obj, o_nav = nav)]
+    m   <- merge(h[scenario != "observed"], obs, by = c("region", "year", "household_number"))
+    m[, .(scenario, w, e_obj = obj - o_obj, e_nav = nav - o_nav)]
+  })), error = function(e) NULL)
+  if (is.null(d) || nrow(d) == 0) return(out)
+  for (s in DIST_SCEN) {
+    ds <- d[scenario == s]; if (nrow(ds) == 0) next
+    out[paste0("shareworse_obj_", s)] <- sum(ds$w * (ds$e_obj < 0)) / sum(ds$w)
+    out[paste0("shareworse_nav_", s)] <- sum(ds$w * (ds$e_nav < 0)) / sum(ds$w)
+  }
+  out
+}
+
 # Point estimates from the saved (full) CF, for reference
 pt <- tryCatch(summarize_cf_headline(read_csv("results/counterfactual_results.csv",
                                               show_col_types = FALSE, lazy = FALSE)),
@@ -133,7 +160,8 @@ run_one_boot <- function(task) {
   tryCatch(
     run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
                 plan_choice, supply_results, coefs_b, commission_lookup,
-                rs_coefs_b, claims_coefs_b, reins_df, STRUCTURAL_SPEC),
+                rs_coefs_b, claims_coefs_b, reins_df, STRUCTURAL_SPEC,
+                hh_sink = HH_SINK),
     error = function(e) NULL)
 }
 
@@ -155,7 +183,7 @@ parallel::clusterEvalQ(cl, {
 })
 parallel::clusterExport(cl, c("run_cf_cell", "run_one_boot", "SAMPLE_FRAC",
   "plan_choice", "supply_results", "commission_lookup", "reins_df",
-  "STRUCTURAL_SPEC", "CS_TABLE"))
+  "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK"))
 message("  Parallel: ", n_workers, " workers; ", length(tasks), " cells/draw")
 
 # Draw loop ---------------------------------------------------------------
@@ -183,9 +211,11 @@ for (b in seq_len(N_BOOT_CF)) {
 
   parallel::clusterExport(cl, c("coefs_b", "rs_coefs_b", "claims_coefs_b"),
                           envir = environment())
+  # Fresh per-household sink for this draw (workers write per cell; pooled below).
+  unlink(HH_SINK, recursive = TRUE); dir.create(HH_SINK, recursive = TRUE, showWarnings = FALSE)
   res  <- parallel::parLapplyLB(cl, tasks, run_one_boot)
   cf_b <- bind_rows(res[!vapply(res, is.null, logical(1))])
-  stats <- if (nrow(cf_b) > 0) summarize_cf_headline(cf_b) else NULL
+  stats <- if (nrow(cf_b) > 0) c(summarize_cf_headline(cf_b), dist_headline(HH_SINK)) else NULL
 
   if (!is.null(stats)) {
     draws[[b]] <- stats
