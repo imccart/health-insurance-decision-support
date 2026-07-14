@@ -236,10 +236,15 @@ chk <- merge(cf_welfare,
              unique(cfres[, .(region, year, scenario,
                               cf1_cs = cs_weighted, cf1_nav = cs_welfare_nav, cf1_obj = cs_welfare_obj)]),
              by = c("region", "year", "scenario"))
-cat("\n  --- cf2-vs-cf1 reproduction check (max |diff| should be ~0) ---\n")
-cat("    cs_weighted:", round(max(abs(chk$cs_weighted - chk$cf1_cs), na.rm = TRUE), 6), "\n")
-cat("    cs_welfare_nav:", round(max(abs(chk$cs_welfare_nav - chk$cf1_nav), na.rm = TRUE), 6), "\n")
-cat("    cs_welfare_obj:", round(max(abs(chk$cs_welfare_obj - chk$cf1_obj), na.rm = TRUE), 6), "\n")
+# cs_weighted and cs_welfare_nav do not use spending, so they must reproduce cf1
+# exactly (~0). cs_welfare_obj reproduces cf1 only when spending is flat; with the
+# MEPS household schedule on, obj legitimately differs from cf1's flat-$6,000 value.
+sched_on <- !is.null(SPENDING_SCHEDULE)
+cat("\n  --- cf2-vs-cf1 check (spending schedule ", if (sched_on) "ON" else "OFF", ") ---\n", sep = "")
+cat("    cs_weighted (must be ~0):", round(max(abs(chk$cs_weighted - chk$cf1_cs), na.rm = TRUE), 6), "\n")
+cat("    cs_welfare_nav (must be ~0):", round(max(abs(chk$cs_welfare_nav - chk$cf1_nav), na.rm = TRUE), 6), "\n")
+cat("    cs_welfare_obj (", if (sched_on) "differs from cf1 by design (MEPS spending)" else "must be ~0 under flat spending", "): ",
+    round(max(abs(chk$cs_welfare_obj - chk$cf1_obj), na.rm = TRUE), 6), "\n", sep = "")
 cat("    obj = prem+eoop+risk (max |resid|):",
     round(max(abs(cf_welfare$cs_welfare_obj - (cf_welfare$obj_prem + cf_welfare$obj_eoop + cf_welfare$obj_risk)), na.rm = TRUE), 6), "\n")
 
