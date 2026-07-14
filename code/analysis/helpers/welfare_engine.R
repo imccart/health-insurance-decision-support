@@ -80,11 +80,25 @@ vN_navigator_coefs <- function(coefs) {
   data.frame(term = names(cm), estimate = as.numeric(cm), stringsAsFactors = FALSE)
 }
 
-# --- Objective money-metric normative value per row ($), -(premium + OOP CE) ---
-# Effective tier per row from the metal dummies, hsa, and (for silver) the
-# household CSR variant by FPL; uninsured pays full spending (no cap).
+# --- Objective money-metric normative value per row ($) ------------------------
+# Returns a data.table with the money metric DECOMPOSED into its three components
+# (all in annual dollars, all <= 0, and v_total = their sum):
+#   v_prem  = -(annual premium the household pays)
+#   v_eoop  = -(expected out-of-pocket)          [no assumptions beyond cost-sharing]
+#   v_risk  = -(rho/2) * Var(out-of-pocket)      [the calibrated risk-aversion piece]
+# Splitting these lets us report how much of a counterfactual's welfare change is
+# assumption-driven (v_risk) versus data-pinned (v_prem, v_eoop).
+#
+# `mean_spending` may be a SCALAR (flat annual individual spending, the default) or
+# a per-ROW vector of household-specific spending (e.g. from an age/gender/income
+# schedule). Rows are grouped by (spending bucket, metal, hsa) so the quadrature
+# runs once per distinct combination. Effective tier per row from the metal dummies,
+# hsa, and (for silver) the household CSR variant by FPL; uninsured pays full
+# spending (no cap).
 vN_objective <- function(cell_data, year, cs_table, cv, rho, mean_spending) {
   d <- as.data.table(cell_data)
+  n <- nrow(d)
+  espend <- if (length(mean_spending) == 1L) rep(mean_spending, n) else mean_spending
 
   # household CSR variant for silver (mirrors build_structural csr_* by FPL)
   fpl <- if ("FPL" %in% names(d)) d$FPL else rep(NA_real_, nrow(d))
@@ -112,48 +126,78 @@ vN_objective <- function(cell_data, year, cs_table, cv, rho, mean_spending) {
                    m)
     base
   }
-  # precompute OOP certainty equivalent per distinct (metal-label, hsa)
-  labs <- unique(data.frame(metal = metal, hsa = hsa, stringsAsFactors = FALSE))
-  labs$ce <- NA_real_
+  # precompute OOP mean + risk per distinct (spending bucket, metal, hsa). A scalar
+  # espend collapses to one bucket, so this reproduces the flat-spending case exactly.
+  ekey <- round(espend / 500) * 500
+  labs <- unique(data.frame(ek = ekey, metal = metal, hsa = hsa, stringsAsFactors = FALSE))
+  labs$ce_mean <- NA_real_; labs$ce_risk <- NA_real_
   for (i in seq_len(nrow(labs))) {
+    es <- labs$ek[i]
     if (labs$metal[i] == "Uninsured") {
-      m <- oop_moments(mean_spending, cv, deductible = Inf, coinsurance = 1, moop = Inf)
+      m <- oop_moments(es, cv, deductible = Inf, coinsurance = 1, moop = Inf)
     } else {
       row <- cs_y[cs_y$metal == key(labs$metal[i]) & cs_y$hsa == labs$hsa[i], ]
       if (nrow(row) == 0) row <- cs_y[cs_y$metal == key(labs$metal[i]), ][1, ]
-      m <- oop_moments(mean_spending, cv, row$deductible[1], row$coinsurance[1], row$moop[1])
+      m <- oop_moments(es, cv, row$deductible[1], row$coinsurance[1], row$moop[1])
     }
-    labs$ce[i] <- m["mean"] + (rho / 2) * m["var"]
+    labs$ce_mean[i] <- m["mean"]; labs$ce_risk[i] <- (rho / 2) * m["var"]
   }
-  ce <- labs$ce[match(paste(metal, hsa), paste(labs$metal, labs$hsa))]
+  idx       <- match(paste(ekey, metal, hsa), paste(labs$ek, labs$metal, labs$hsa))
+  eoop_mean <- labs$ce_mean[idx]
+  eoop_risk <- labs$ce_risk[idx]
 
   # annual individual premium: `premium` is net premium in $100/member/month
   annual_indiv_premium <- fifelse(d$plan_id == "Uninsured", 0, d$premium * 100 * 12)
-  -(annual_indiv_premium + ce)
+  data.table(v_prem  = -annual_indiv_premium,
+             v_eoop  = -eoop_mean,
+             v_risk  = -eoop_risk,
+             v_total = -(annual_indiv_premium + eoop_mean + eoop_risk))
 }
 
 # --- Welfare at actual choices: sum_j P_ij V^N_ij, weighted --------------------
 # vN_vec in dollars already (objective) -> alpha_vec = NULL. vN_vec in utils
-# (navigator) -> pass alpha_vec (per row) to divide by |alpha|.
-welfare_at_choices <- function(cell_data, probs, vN_vec, hh_weight, alpha_vec = NULL) {
+# (navigator) -> pass alpha_vec (per row) to divide by |alpha|. return_per_hh = TRUE
+# returns the per-household surplus data.table (hh, cs, w) instead of the weighted
+# mean, so the caller can build the distribution of effects across households.
+welfare_at_choices <- function(cell_data, probs, vN_vec, hh_weight, alpha_vec = NULL,
+                               return_per_hh = FALSE) {
   contrib <- probs * vN_vec
   if (!is.null(alpha_vec)) contrib <- contrib / abs(alpha_vec)
   d <- data.table(hh = cell_data$household_number, w = hh_weight, c = contrib)
   per_hh <- d[, .(cs = sum(c), w = first(w)), by = hh]
+  if (return_per_hh) return(per_hh)
   sum(per_hh$cs * per_hh$w) / sum(per_hh$w)
 }
 
 # --- Both welfare metrics at actual choices for one scenario's equilibrium -----
-# Returns c(nav = ..., obj = ...). nav is in dollars (utils / informed |alpha|);
-# obj is the money-metric. Wrap in tryCatch at the call site.
+# per_hh = FALSE (default): returns the named vector the sequential pipeline expects,
+#   c(nav, obj, obj_prem, obj_eoop, obj_risk) -- nav is dollars (utils / informed
+#   |alpha|); obj is the money metric; obj_prem/eoop/risk decompose obj and sum to it.
+# per_hh = TRUE: returns a per-household data.table (household_number, w, nav, obj,
+#   obj_prem, obj_eoop, obj_risk) for the distribution of effects across households.
+# Wrap in tryCatch at the call site.
 scenario_welfare <- function(dt_final, coefs, lambda, year, cs_table,
                              cv = SPENDING_CV, rho = RHO_RISK_AVERSION,
-                             mean_spending = MEAN_SPENDING) {
+                             mean_spending = MEAN_SPENDING, per_hh = FALSE) {
   p   <- choice_probs(dt_final, coefs, lambda)
   nc  <- vN_navigator_coefs(coefs)
   vnv <- compute_utility(dt_final, nc)$V
   anv <- compute_alpha_i(dt_final, nc, spec = nc$term)
   vob <- vN_objective(dt_final, year, cs_table, cv, rho, mean_spending)
-  c(nav = welfare_at_choices(dt_final, p, vnv, dt_final$hh_weight, alpha_vec = anv),
-    obj = welfare_at_choices(dt_final, p, vob, dt_final$hh_weight))
+  w   <- dt_final$hh_weight
+  if (per_hh) {
+    nav_h  <- welfare_at_choices(dt_final, p, vnv,        w, alpha_vec = anv, return_per_hh = TRUE)
+    obj_h  <- welfare_at_choices(dt_final, p, vob$v_total, w, return_per_hh = TRUE)
+    prem_h <- welfare_at_choices(dt_final, p, vob$v_prem,  w, return_per_hh = TRUE)
+    eoop_h <- welfare_at_choices(dt_final, p, vob$v_eoop,  w, return_per_hh = TRUE)
+    risk_h <- welfare_at_choices(dt_final, p, vob$v_risk,  w, return_per_hh = TRUE)
+    return(data.table(household_number = nav_h$hh, w = nav_h$w,
+                      nav = nav_h$cs, obj = obj_h$cs,
+                      obj_prem = prem_h$cs, obj_eoop = eoop_h$cs, obj_risk = risk_h$cs))
+  }
+  c(nav      = welfare_at_choices(dt_final, p, vnv,        w, alpha_vec = anv),
+    obj      = welfare_at_choices(dt_final, p, vob$v_total, w),
+    obj_prem = welfare_at_choices(dt_final, p, vob$v_prem,  w),
+    obj_eoop = welfare_at_choices(dt_final, p, vob$v_eoop,  w),
+    obj_risk = welfare_at_choices(dt_final, p, vob$v_risk,  w))
 }

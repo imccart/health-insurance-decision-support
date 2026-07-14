@@ -2,7 +2,7 @@
 
 ## Description:   Head of the structural block: builds the cell index and
 ##                per-cell seeds. Sourced by the driver before s2_demand, and
-##                standalone by cf2_se. Reads the build3_data-prep outputs from
+##                standalone by cf3_se. Reads the build3_data-prep outputs from
 ##                disk. Generating cell_seeds here (once, from MASTER_SEED over
 ##                the same cells) guarantees demand, pricing, and the CF draw
 ##                identical SAMPLE_FRAC subsamples per cell.

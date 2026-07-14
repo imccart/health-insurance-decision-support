@@ -6,7 +6,7 @@
 ##                sampling distribution and re-solves the CF, so the spread across
 ##                draws is the SE of the welfare outcomes. Run SEPARATELY from the
 ##                main pipeline -- it re-runs the CF per draw and is slow.
-##                  source("code/analysis/cf2_se.R")
+##                  source("code/analysis/cf3_se.R")
 ##
 ## Design:
 ##   * Demand params ~ N(theta_d, V_d) and cost params ~ N(theta_c, V_c) are drawn
@@ -95,14 +95,22 @@ summarize_cf_headline <- function(cf) {
   taus <- c(0, 0.25, 0.5, 0.75, 1.0)
   grad <- vapply(taus, function(t) mdelta(sprintf("zero_tau%.2f", t), "cs_weighted"), numeric(1))
   names(grad) <- paste0("grad_cs_tau", sprintf("%.2f", taus))
-  c(va_cs          = unname(grad["grad_cs_tau1.00"] - grad["grad_cs_tau0.00"]),
+  # obj decomposed into premium / expected-OOP / risk (the same columns cf2 reports;
+  # here they get bootstrap SEs, so the assumption-driven risk piece is inferable too).
+  c(va_cs            = unname(grad["grad_cs_tau1.00"] - grad["grad_cs_tau0.00"]),
     grad,
-    va_nav         = mdelta("zero_tau1.00", "cs_welfare_nav") - mdelta("zero_tau0.00", "cs_welfare_nav"),
-    va_obj         = mdelta("zero_tau1.00", "cs_welfare_obj") - mdelta("zero_tau0.00", "cs_welfare_obj"),
-    aligned_dcs    = mdelta("aligned", "cs_weighted"),
-    aligned_dcs_nc = mdelta("aligned", "cs_nocomm"),
-    aligned_nav    = mdelta("aligned", "cs_welfare_nav"),
-    aligned_obj    = mdelta("aligned", "cs_welfare_obj"))
+    va_nav           = mdelta("zero_tau1.00", "cs_welfare_nav") - mdelta("zero_tau0.00", "cs_welfare_nav"),
+    va_obj           = mdelta("zero_tau1.00", "cs_welfare_obj") - mdelta("zero_tau0.00", "cs_welfare_obj"),
+    va_obj_prem      = mdelta("zero_tau1.00", "obj_prem") - mdelta("zero_tau0.00", "obj_prem"),
+    va_obj_eoop      = mdelta("zero_tau1.00", "obj_eoop") - mdelta("zero_tau0.00", "obj_eoop"),
+    va_obj_risk      = mdelta("zero_tau1.00", "obj_risk") - mdelta("zero_tau0.00", "obj_risk"),
+    aligned_dcs      = mdelta("aligned", "cs_weighted"),
+    aligned_dcs_nc   = mdelta("aligned", "cs_nocomm"),
+    aligned_nav      = mdelta("aligned", "cs_welfare_nav"),
+    aligned_obj      = mdelta("aligned", "cs_welfare_obj"),
+    aligned_obj_prem = mdelta("aligned", "obj_prem"),
+    aligned_obj_eoop = mdelta("aligned", "obj_eoop"),
+    aligned_obj_risk = mdelta("aligned", "obj_risk"))
 }
 
 # Point estimates from the saved (full) CF, for reference

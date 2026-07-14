@@ -7,7 +7,7 @@
 ##                the session by s4_cost-gmm (result2 / W2 / compute_g_bar); if this
 ##                step is run on its own it sources s4_cost-gmm first. Writes the SE
 ##                tables and the full vcov matrices (the latter feed the CF
-##                bootstrap, cf2_se). Sandwich math in helpers/se.R.
+##                bootstrap, cf3_se). Sandwich math in helpers/se.R.
 ##
 ## Dependencies: preamble loaded by _analysis.R; s2_demand (choice_cells + demand
 ##               coefficients) and s4_cost-gmm run first.

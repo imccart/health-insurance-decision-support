@@ -78,3 +78,48 @@ implied_av <- function(espend, cv, deductible, coinsurance, moop) {
   m <- oop_moments(espend, cv, deductible, coinsurance, moop)
   unname(1 - m["mean"] / espend)
 }
+
+# --- Age/income spending schedule (optional) ---------------------------------
+# Replaces the flat MEAN_SPENDING with household-specific expected annual individual
+# spending drawn from an EXTERNAL schedule (e.g. MEPS by age x income). This is a
+# MEASURED input, not a calibration -- it swaps a guessed constant for numbers a
+# large survey pins down, and it introduces no moral hazard because spending depends
+# on the household's characteristics, never on the plan.
+#
+# load_spending_schedule returns NULL if the file is missing or any mean_spend cell
+# is unfilled, so the caller falls back to the flat scalar and the pipeline still
+# runs. Fill data/input/meps_spending_by_demographics.csv from MEPS to turn it on;
+# nothing here is populated with invented numbers.
+load_spending_schedule <- function(path = "data/input/meps_spending_by_demographics.csv") {
+  if (!file.exists(path)) return(NULL)
+  s <- read.csv(path, stringsAsFactors = FALSE)
+  if (!all(c("age_group", "income", "mean_spend") %in% names(s))) return(NULL)
+  if (anyNA(s$mean_spend)) {
+    warning("meps_spending_by_demographics.csv has unfilled mean_spend -- ",
+            "using flat MEAN_SPENDING until it is filled from MEPS.")
+    return(NULL)
+  }
+  s
+}
+
+# Per-ROW expected annual individual spending from the household's age mix and income
+# bracket. Household spending follows the person (age composition + income), not the
+# plan, so it is constant across a household's plan rows and carries no moral hazard.
+# schedule = NULL -> flat `default` (reproduces the pre-schedule behavior exactly).
+household_spending <- function(cell_data, schedule = NULL, default = MEAN_SPENDING) {
+  n <- nrow(cell_data)
+  if (is.null(schedule)) return(rep(default, n))
+  d   <- as.data.table(cell_data)
+  p0  <- if ("perc_0to17"  %in% names(d)) d$perc_0to17  else rep(0, n)
+  p18 <- if ("perc_18to34" %in% names(d)) d$perc_18to34 else rep(0, n)
+  p35 <- if ("perc_35to54" %in% names(d)) d$perc_35to54 else rep(0, n)
+  p55 <- pmax(0, 1 - p0 - p18 - p35)
+  inc <- fifelse(("FPL_400plus"  %in% names(d)) & d$FPL_400plus  == 1, "400plus",
+          fifelse(("FPL_250to400" %in% names(d)) & d$FPL_250to400 == 1, "250to400", "lt250"))
+  look <- function(age, income) {
+    m <- schedule$mean_spend[match(paste(age, income), paste(schedule$age_group, schedule$income))]
+    fifelse(is.na(m), default, m)
+  }
+  p0 * look("0to17", inc) + p18 * look("18to34", inc) +
+    p35 * look("35to54", inc) + p55 * look("55plus", inc)
+}

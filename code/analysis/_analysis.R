@@ -22,7 +22,7 @@ TEMP_DIR     <- "D:/temp-research-data/health-insurance-decision-support"
 SAMPLE_FRAC  <- 0.05
 MASTER_SEED  <- 20260224
 N_BOOT       <- 50L   # reduced-form bootstrap reps (rf1-rf3); 0 to skip
-N_BOOT_CF    <- 30L   # CF welfare-SE bootstrap draws (cf2_se)
+N_BOOT_CF    <- 30L   # CF welfare-SE bootstrap draws (cf3_se)
 
 # Packages ----------------------------------------------------------------
 pacman::p_load(tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit)
@@ -62,8 +62,9 @@ source("code/analysis/s4_cost-gmm.R")
 source("code/analysis/s5_se.R")
 
 # cf: counterfactuals -----------------------------------------------------
-source("code/analysis/cf1_estimate.R")
-source("code/analysis/cf2_se.R")             # slow (re-runs the CF per draw); comment out to skip
+source("code/analysis/cf1_estimate.R")       # solve equilibria (writes premium_cf)
+source("code/analysis/cf2_score.R")          # score welfare from the solved equilibria
+source("code/analysis/cf3_se.R")             # slow (re-runs the CF per draw); comment out to skip
 
 # sum: summary tables + figures -------------------------------------------
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk

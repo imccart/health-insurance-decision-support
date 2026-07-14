@@ -869,7 +869,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     cs_obs_nc <- tryCatch(compute_consumer_surplus(obs_dt, coefs, welfare_drop = COMM_TERMS),
                           error = function(e) NA_real_)
     wf_obs <- tryCatch(scenario_welfare(obs_dt, coefs, lambda, y, CS_TABLE),
-                       error = function(e) c(nav = NA_real_, obj = NA_real_))
+                       error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "observed", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -885,6 +885,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       cs_nocomm = cs_obs_nc,
       cs_welfare_nav = wf_obs[["nav"]],
       cs_welfare_obj = wf_obs[["obj"]],
+      obj_prem = wf_obs[["obj_prem"]],
+      obj_eoop = wf_obs[["obj_eoop"]],
+      obj_risk = wf_obs[["obj_risk"]],
       nleqslv_termcd = eq_obs$sol$termcd,
       nleqslv_iter = eq_obs$sol$iter
     )
@@ -914,7 +917,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       cs_tau <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
                           error = function(e) NA_real_)
       wf_tau <- tryCatch(scenario_welfare(dt_cs, coefs, lambda, y, CS_TABLE),
-                         error = function(e) c(nav = NA_real_, obj = NA_real_))
+                         error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
 
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = tau,
@@ -930,6 +933,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         cs_weighted = cs_tau,
         cs_welfare_nav = wf_tau[["nav"]],
         cs_welfare_obj = wf_tau[["obj"]],
+        obj_prem = wf_tau[["obj_prem"]],
+        obj_eoop = wf_tau[["obj_eoop"]],
+        obj_risk = wf_tau[["obj_risk"]],
         nleqslv_termcd = eq_tau$sol$termcd,
         nleqslv_iter = eq_tau$sol$iter
       )
@@ -952,7 +958,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     cs_unif <- tryCatch(compute_consumer_surplus(eq_unif$dt_final %||% cd_unif, coefs),
                          error = function(e) NA_real_)
     wf_unif <- tryCatch(scenario_welfare(eq_unif$dt_final %||% cd_unif, coefs, lambda, y, CS_TABLE),
-                        error = function(e) c(nav = NA_real_, obj = NA_real_))
+                        error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "uniform", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -967,6 +973,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       cs_weighted = cs_unif,
       cs_welfare_nav = wf_unif[["nav"]],
       cs_welfare_obj = wf_unif[["obj"]],
+      obj_prem = wf_unif[["obj_prem"]],
+      obj_eoop = wf_unif[["obj_eoop"]],
+      obj_risk = wf_unif[["obj_risk"]],
       nleqslv_termcd = eq_unif$sol$termcd,
       nleqslv_iter = eq_unif$sol$iter
     )
@@ -989,7 +998,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       cs_sc_nc <- tryCatch(compute_consumer_surplus(sc_dt, coefs, welfare_drop = COMM_TERMS),
                            error = function(e) NA_real_)
       wf_sc <- tryCatch(scenario_welfare(sc_dt, coefs, lambda, y, CS_TABLE),
-                        error = function(e) c(nav = NA_real_, obj = NA_real_))
+                        error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = NA_real_,
         plan_id = plan_ids_cell,
@@ -1005,6 +1014,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         cs_nocomm = cs_sc_nc,
         cs_welfare_nav = wf_sc[["nav"]],
         cs_welfare_obj = wf_sc[["obj"]],
+        obj_prem = wf_sc[["obj_prem"]],
+        obj_eoop = wf_sc[["obj_eoop"]],
+        obj_risk = wf_sc[["obj_risk"]],
         nleqslv_termcd = eq_sc$sol$termcd,
         nleqslv_iter = eq_sc$sol$iter
       )
@@ -1044,7 +1056,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     cs_al_nc <- tryCatch(compute_consumer_surplus(al_dt, coefs, welfare_drop = COMM_TERMS),
                          error = function(e) NA_real_)
     wf_al <- tryCatch(scenario_welfare(al_dt, coefs, lambda, y, CS_TABLE),
-                      error = function(e) c(nav = NA_real_, obj = NA_real_))
+                      error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "aligned", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -1060,6 +1072,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       cs_nocomm = cs_al_nc,
       cs_welfare_nav = wf_al[["nav"]],
       cs_welfare_obj = wf_al[["obj"]],
+      obj_prem = wf_al[["obj_prem"]],
+      obj_eoop = wf_al[["obj_eoop"]],
+      obj_risk = wf_al[["obj_risk"]],
       nleqslv_termcd = eq_al$sol$termcd,
       nleqslv_iter = eq_al$sol$iter
     )
