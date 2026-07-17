@@ -56,11 +56,20 @@ n_before <- nrow(hh_full)
 hh_full <- hh_full %>% filter(!str_detect(plan_id, "_CAT$") | is.na(plan_id))
 cat("  Dropped catastrophic HH:", n_before - nrow(hh_full), "\n")
 
-# v_hat: first-stage LPM on insured rows (assisted is undefined for uninsured)
+# FPL brackets (created in choice.R for the structural side; added here so the
+# v_hat first stage and everything carried in hh_full_prepped share the canonical
+# structural demographic set with build2's IPW propensity.
+hh_full <- hh_full %>%
+  mutate(FPL_250to400 = as.integer(FPL > 2.50 & FPL <= 4.00),
+         FPL_400plus  = as.integer(FPL > 4.00))
+
+# v_hat: first-stage LPM on insured rows (assisted is undefined for uninsured).
+# Same demographic set as build2's propensity (age 0-17/18-34/35-54, race, male,
+# FPL brackets, household size), plus the broker-density instrument and year FE.
 ins_idx <- which(hh_full$insured == 1L)
-fs_model <- lm(assisted ~ n_agents + FPL + perc_0to17 + perc_18to25 +
-                 perc_65plus + perc_black + perc_hispanic + perc_asian +
-                 perc_male + household_size + factor(year),
+fs_model <- lm(assisted ~ n_agents + perc_0to17 + perc_18to34 + perc_35to54 +
+                 perc_male + perc_black + perc_hispanic + perc_asian + perc_other +
+                 FPL_250to400 + FPL_400plus + household_size + factor(year),
                data = hh_full[ins_idx, ])
 hh_full$v_hat <- NA_real_
 hh_full$v_hat[ins_idx] <- residuals(fs_model)
@@ -151,7 +160,7 @@ hh_choice <- hh_full %>%
   select(region, year, household_id, FPL, subsidized_members, rating_factor,
          plan_id, oldest_member, cheapest_premium, subsidy, penalty,
          poverty_threshold, SLC_contribution, premiumSLC,
-         household_size, weight, ipweight, v_hat,
+         household_size, weight, ipweight, v_hat, new_enrollee,
          perc_0to17, perc_18to34, perc_35to54,
          perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
          channel, channel_detail, any_agent, p_nav)

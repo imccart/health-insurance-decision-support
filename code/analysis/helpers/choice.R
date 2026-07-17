@@ -239,6 +239,8 @@ build_rf <- function(plans, hhs, sample_frac,
   if ("channel_detail" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "channel_detail")
   if ("any_agent" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "any_agent")
   if ("v_hat" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "v_hat")
+  if ("ipweight" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "ipweight")
+  if ("new_enrollee" %in% names(hhs_dt)) demo_cols <- c(demo_cols, "new_enrollee")
   hh_demo <- hhs_dt[, ..demo_cols]
   setnames(hh_demo, "household_size", "hh_size")
   dt <- merge(dt, hh_demo, by = "household_id", all.x = TRUE)
@@ -382,8 +384,10 @@ build_rf <- function(plans, hhs, sample_frac,
   }
   if ("comm_pmpm" %in% names(dt)) model_vars <- c(model_vars, "comm_pmpm")
   if ("v_hat" %in% names(dt)) model_vars <- c(model_vars, "v_hat")
+  if ("ipweight" %in% names(dt)) model_vars <- c(model_vars, "ipweight")
   if ("channel_detail" %in% names(dt)) model_vars <- c(model_vars, "channel_detail")
   if ("any_agent" %in% names(dt)) model_vars <- c(model_vars, "any_agent")
+  if ("new_enrollee" %in% names(dt)) model_vars <- c(model_vars, "new_enrollee")
   model_vars <- unique(intersect(model_vars, names(dt)))
 
   untreated <- dt[channel == "Unassisted", ..model_vars]

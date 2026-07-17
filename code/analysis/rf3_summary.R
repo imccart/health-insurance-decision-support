@@ -184,4 +184,64 @@ choice_insurer <- ins_final %>%
   theme_paper
 ggsave("results/figures/choice_insurer.png", choice_insurer, width = 6, height = 4, bg = "white")
 
+
+# MTE summary (LATE over the propensity support) ---------------------------
+# The instrument-based companion to the baseline ATT: plan-choice MTE by metal
+# and insurer (rf2 Phase 5) and dominated MTE (rf1), each a LATE for the marginal
+# households averaged over the support, plus the MTE curves.
+
+if (file.exists("results/choice_mte.csv")) {
+  choice_mte <- read_csv("results/choice_mte.csv", show_col_types = FALSE)
+  mte_late <- choice_mte %>%
+    group_by(group_type, level) %>%
+    summarize(LATE = mean(mte), .groups = "drop") %>%
+    arrange(group_type, desc(LATE))
+  cat("\nPlan-choice MTE (LATE = mean over support):\n")
+  print(mte_late, n = Inf)
+
+  mte_metal_fig <- choice_mte %>%
+    filter(group_type == "metal") %>%
+    ggplot(aes(x = propensity, y = mte, color = level)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_line(linewidth = 0.8) +
+    geom_point(size = 1) +
+    labs(y = "MTE (share change per unit propensity)",
+         x = "Propensity of assistance", color = "Metal") +
+    theme_paper
+  ggsave("results/figures/choice_mte_metal.png", mte_metal_fig, width = 6, height = 4, bg = "white")
+}
+
+if (file.exists("results/dominated_mte.csv")) {
+  dom_mte <- read_csv("results/dominated_mte.csv", show_col_types = FALSE)
+  dom_mte_fig <- ggplot(dom_mte, aes(x = propensity, y = mte)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_line(linewidth = 0.8) +
+    geom_point(size = 1.5) +
+    labs(y = "MTE (dominated-choice change per unit propensity)",
+         x = "Propensity of assistance") +
+    theme_paper
+  ggsave("results/figures/dominated_mte.png", dom_mte_fig, width = 6, height = 4, bg = "white")
+}
+
+
+# Appendix: plan-choice baseline ATT, new vs all enrollees (sample check) -------
+# The body result (metal_summary / ins_summary above) is all enrollees, matching
+# the structural model. rf2 Phase 3b writes the new-enrollee baseline; here we put
+# the two side by side to show the ATT is not driven by the sample.
+
+new_file <- "results/choice_point_estimates_new.csv"
+if (file.exists(new_file)) {
+  all_new <- read_csv(new_file, show_col_types = FALSE) %>% ungroup() %>% parse_plan_ids()
+  metal_new <- compute_att(all_new, metal)        %>% select(metal, att_new = att)
+  ins_new   <- compute_att(all_new, insurer_abbr) %>% select(insurer_abbr, att_new = att)
+  metal_cmp <- metal_summary %>% select(metal, att_all = att) %>%
+    left_join(metal_new, by = "metal")
+  ins_cmp   <- ins_summary %>% select(insurer_abbr, att_all = att) %>%
+    left_join(ins_new, by = "insurer_abbr")
+  write_csv(metal_cmp, "results/choice_new_vs_all_metal.csv")
+  write_csv(ins_cmp,   "results/choice_new_vs_all_insurer.csv")
+  cat("\nPlan-choice baseline ATT, all vs new enrollees (metal):\n");   print(metal_cmp, n = Inf)
+  cat("\nPlan-choice baseline ATT, all vs new enrollees (insurer):\n"); print(ins_cmp, n = Inf)
+}
+
 cat("Choice summary complete. Figures saved to results/figures/.\n")
