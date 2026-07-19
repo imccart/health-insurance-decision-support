@@ -84,7 +84,8 @@ summarize_cf_headline <- function(cf) {
   cf  <- as.data.frame(cf)
   obs <- unique(cf[cf$scenario == "observed",
                    c("region", "year", "cs_weighted", "cs_nocomm",
-                     "cs_welfare_nav", "cs_welfare_obj")])
+                     "cs_welfare_nav", "cs_welfare_obj",
+                     "obj_prem", "obj_eoop", "obj_risk")])
   mdelta <- function(scen, col) {                  # mean over cells of (col[scen] - col[observed])
     s <- unique(cf[cf$scenario == scen, c("region", "year", col)])
     s <- s[!duplicated(s[c("region", "year")]), ]
@@ -146,28 +147,49 @@ pt <- tryCatch(summarize_cf_headline(read_csv("results/counterfactual_results.cs
                error = function(e) NULL)
 
 # Tasks (one per cell, household slice attached) ---------------------------
+n_cells_total <- nrow(cells)
 tasks <- lapply(seq_len(nrow(cells)), function(i) {
   key <- paste0(cells$region[i], ".", cells$year[i])
   hhs <- hh_split[[key]]
   list(r = cells$region[i], y = cells$year[i], seed = cell_seeds[i],
+       idx = i, n_total = n_cells_total,
        hhs = if (is.null(hhs) || nrow(hhs) == 0) NULL else as.data.frame(hhs))
 })
 rm(hh_split); gc(verbose = FALSE)
 
-# Worker that runs one cell at the CURRENT draw's parameters ---------------
+# Worker that runs one cell at the CURRENT draw's parameters. run_cf_cell's own
+# per-cell chatter is captured (swallowed) so only one concise progress line streams
+# per cell; with the cluster's outfile="" these show live through the multi-hour
+# draw, so the run reports where it is (draw, cell index, rows, convergence, seconds)
+# instead of sitting on a blank cursor.
 run_one_boot <- function(task) {
   if (is.null(task$hhs)) return(NULL)
+  t0  <- Sys.time()
+  out <- NULL
   tryCatch(
-    run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
-                plan_choice, supply_results, coefs_b, commission_lookup,
-                rs_coefs_b, claims_coefs_b, reins_df, STRUCTURAL_SPEC,
-                hh_sink = HH_SINK),
+    capture.output(
+      out <- run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
+                         plan_choice, supply_results, coefs_b, commission_lookup,
+                         rs_coefs_b, claims_coefs_b, reins_df, STRUCTURAL_SPEC,
+                         hh_sink = HH_SINK)),
     error = function(e) NULL)
+  el <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  db <- if (exists("draw_b")) draw_b else NA
+  info <- if (is.null(out)) "FAILED" else {
+    conv <- if ("nleqslv_termcd" %in% names(out))
+      round(100 * mean(out$nleqslv_termcd <= 2, na.rm = TRUE)) else NA
+    sprintf("%d rows, %s%% conv", nrow(out), conv)
+  }
+  cat(sprintf("  [draw %s | cell %d/%d] r%s y%s: %s, %.0fs\n",
+      as.character(db), task$idx, task$n_total, task$r, task$y, info, el))
+  out
 }
 
 # Cluster (set up once; static objects exported once, params per draw) -----
 n_workers <- max(1L, parallel::detectCores() - 2L)
-cl <- parallel::makeCluster(n_workers, type = "PSOCK")
+# outfile = "" lets each worker's per-cell progress line stream to the console live
+# (a draw solves all 114 cells over hours; without this the console sits blank).
+cl <- parallel::makeCluster(n_workers, type = "PSOCK", outfile = "")
 parallel::clusterEvalQ(cl, {
   suppressMessages({ library(tidyverse); library(data.table); library(nleqslv) })
   source("code/data-build/_helpers.R")
@@ -209,10 +231,12 @@ for (b in seq_len(N_BOOT_CF)) {
   rs_coefs_b     <- c_b[alpha_names]
   claims_coefs_b <- c_b[gamma_names]
 
-  parallel::clusterExport(cl, c("coefs_b", "rs_coefs_b", "claims_coefs_b"),
+  draw_b <- b
+  parallel::clusterExport(cl, c("coefs_b", "rs_coefs_b", "claims_coefs_b", "draw_b"),
                           envir = environment())
   # Fresh per-household sink for this draw (workers write per cell; pooled below).
   unlink(HH_SINK, recursive = TRUE); dir.create(HH_SINK, recursive = TRUE, showWarnings = FALSE)
+  message(sprintf("  --- draw %d/%d: solving %d cells ---", b, N_BOOT_CF, length(tasks)))
   res  <- parallel::parLapplyLB(cl, tasks, run_one_boot)
   cf_b <- bind_rows(res[!vapply(res, is.null, logical(1))])
   stats <- if (nrow(cf_b) > 0) c(summarize_cf_headline(cf_b), dist_headline(HH_SINK)) else NULL
