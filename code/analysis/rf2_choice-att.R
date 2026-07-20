@@ -90,7 +90,8 @@ cat("  Built:", n_built, "  Skipped:", n_skip, "\n")
 cat("\nPhase 2: Pooling cells and fitting MNL...\n")
 
 needed <- unique(c("household_number", "plan_id", "choice", "hh_weight", "ipweight",
-                   "assisted", "region", "year", REDUCED_FORM_FULL))
+                   "assisted", "new_enrollee", "region", "year",
+                   REDUCED_FORM_FULL))
 
 read_cell <- function(path) {
   header <- names(fread(path, nrows = 0L))
@@ -285,150 +286,60 @@ if (n_boot > 0L) {
   rm(boot_results, boot_long, chid_cells)
 }
 
-# Phase 5: MTE (separate approach) -- plan-choice LATE over the support --------
-# Two plan-choice MNLs, one on the unassisted and one on the assisted, each with
-# the propensity P interacted with the plan attributes (metal, insurer) and
-# household-size weighted (the broker-density instrument carries the selection
-# correction here, not IPW). Plan-level MTE_j(p) = MTR1_j(p) - MTR0_j(p) with
-#   MTR1_j(p) =  d/dp[ p * E(share_j | P=p, assisted) ]
-#   MTR0_j(p) = -d/dp[ (1-p) * E(share_j | P=p, unassisted) ],
-# summed to metal and insurer over the common support of P -- a LATE for the
-# marginal households, no extrapolation to a full ATT. P = assisted - v_hat (the
-# build3 first stage); sample size is governed by SAMPLE_FRAC (the cells) since
-# both groups now enter the fit.
+# Phase 5: Appendix -- pooled assisted-as-covariate MNL, progressive specs ------
+# The selection story as coefficients, the appendix companion to the body's
+# prediction-based ATT. Pooled over both groups, IPW-weighted, with "assisted x
+# metal" as the assisted effect on metal choice. Reported as a progressive
+# sequence mirroring the dominated table: plan attributes only, then the full
+# control set, then the full set plus the broker-density control function
+# (cf_ = v_hat x plan attribute).
+#
+# There is no region-FE column and there cannot be one. A household-level region
+# dummy is differenced out of a conditional logit, and the term that would
+# actually control region here is region interacted with metal and insurer --
+# more than a hundred additional parameters, with the insurer block structurally
+# empty wherever an insurer does not operate. So region is uncontrolled in this
+# model rather than absorbed, and the text says so.
+#
+# Both groups enter, so households are subsampled to SAMPLE_FRAC. The
+# unassisted-only baseline in Phase 2 stays at full.
 
-cat("\nPhase 5: Plan-choice MTE (LATE over the propensity support)...\n")
+cat("\nPhase 5: Appendix pooled assisted-as-covariate MNL (progressive specs)...\n")
 
-pooled[, P := assisted - v_hat]
-pooled[, `:=`(P_silver = P * silver, P_bronze = P * bronze,
-              P_anthem = P * Anthem, P_bs = P * Blue_Shield,
-              P_kaiser = P * Kaiser, P_hn = P * Health_Net)]
-pooled[, metal := fifelse(grepl("_SIL", plan_id), "Silver",
-                  fifelse(grepl("_BR", plan_id), "Bronze",
-                  fifelse(grepl("_G", plan_id), "Gold",
-                  fifelse(grepl("_P", plan_id), "Platinum", "Cat"))))]
-pooled[, insurer := sub("_.*", "", plan_id)]
-
-P_TERMS <- c("P_silver", "P_bronze", "P_anthem", "P_bs", "P_kaiser", "P_hn")
-P_DUM   <- c(P_silver = "silver", P_bronze = "bronze", P_anthem = "Anthem",
-             P_bs = "Blue_Shield", P_kaiser = "Kaiser", P_hn = "Health_Net")
-MTE_SPEC <- c(REDUCED_FORM_SPEC, P_TERMS)
-fmla_mte <- as.formula(paste("choice ~", paste(MTE_SPEC, collapse = " + "), "| 0 | 0"))
-
-# Both groups now enter, so subsample households to SAMPLE_FRAC (the top-level
-# knob). The unassisted-only baseline in Phase 2 stays at full; every both-group
-# mlogit here and in Phase 6 is drawn on the SAME SAMPLE_FRAC households.
 set.seed(MASTER_SEED)
-mte_chids  <- pooled[choice == 1L, unique(chid)]
-mte_chids  <- sample(mte_chids, floor(SAMPLE_FRAC * length(mte_chids)))
-pooled_mte <- pooled[chid %in% mte_chids]
+ap_chids <- pooled[choice == 1L, unique(chid)]
+ap_chids <- sample(ap_chids, floor(SAMPLE_FRAC * length(ap_chids)))
+pool_ap  <- pooled[chid %in% ap_chids]
+pool_ap  <- pool_ap[chid %in% pool_ap[choice == 1L, unique(chid)]]
+cat(sprintf("  SAMPLE_FRAC=%.2f: %s rows, %s households\n", SAMPLE_FRAC,
+            format(nrow(pool_ap), big.mark = ","),
+            format(uniqueN(pool_ap$chid), big.mark = ",")))
 
-un_mte <- pooled_mte[assisted == 0L]; un_mte <- un_mte[chid %in% un_mte[choice == 1L, unique(chid)]]
-as_mte <- pooled_mte[assisted == 1L]; as_mte <- as_mte[chid %in% as_mte[choice == 1L, unique(chid)]]
-cat(sprintf("  SAMPLE_FRAC=%.2f: unassisted %s rows, assisted %s rows\n", SAMPLE_FRAC,
-            format(nrow(un_mte), big.mark = ","), format(nrow(as_mte), big.mark = ",")))
-
-fit_un_mte <- mlogit(fmla_mte, data = un_mte, chid.var = "chid", alt.var = "plan_id", weights = hh_weight)
-fit_as_mte <- mlogit(fmla_mte, data = as_mte, chid.var = "chid", alt.var = "plan_id", weights = hh_weight)
-beta_un <- coef(fit_un_mte); beta_as <- coef(fit_as_mte)
-
-# Split each row's utility into the P-independent part (baseV) and the P-dummy
-# loading (pdum), so a prediction at P=p is just baseV + p*pdum.
-prep_mte <- function(dt, beta) {
-  baseV <- numeric(nrow(dt))
-  for (v in REDUCED_FORM_SPEC) if (v %in% names(beta) && v %in% names(dt)) {
-    c0 <- dt[[v]]; c0[is.na(c0)] <- 0; baseV <- baseV + beta[[v]] * c0
-  }
-  pdum <- numeric(nrow(dt))
-  for (pt in P_TERMS) if (pt %in% names(beta)) {
-    c0 <- dt[[P_DUM[[pt]]]]; c0[is.na(c0)] <- 0; pdum <- pdum + beta[[pt]] * c0
-  }
-  dt[, baseV := baseV]; dt[, pdum := pdum]; dt
-}
-un_mte <- prep_mte(un_mte, beta_un)
-as_mte <- prep_mte(as_mte, beta_as)
-W_un <- sum(unique(un_mte[, .(chid, hh_weight)])$hh_weight)
-W_as <- sum(unique(as_mte[, .(chid, hh_weight)])$hh_weight)
-
-# E(share by group | P=p) marginalized over households, one fitted group.
-share_at <- function(dt, W, p, grp) {
-  dt[, V := baseV + p * pdum]
-  dt[, pr := exp(V - max(V)), by = chid][, pr := pr / sum(pr), by = chid]
-  a <- dt[, .(s = sum(pr * hh_weight) / W), by = grp]
-  setNames(a$s, a[[grp]])
-}
-
-# Common support of P (1st-99th pct overlap of the two groups' HH-level P).
-p_lo <- max(quantile(un_mte[choice == 1L, P], 0.01), quantile(as_mte[choice == 1L, P], 0.01))
-p_hi <- min(quantile(un_mte[choice == 1L, P], 0.99), quantile(as_mte[choice == 1L, P], 0.99))
-eps <- 0.01
-mte_grid <- seq(p_lo, p_hi, length.out = 9)
-
-# MTE(p) = MTR1 - MTR0 for each level of a grouping (metal / insurer), over the grid.
-mte_by <- function(grp) {
-  levs <- union(names(share_at(un_mte, W_un, mean(mte_grid), grp)),
-                names(share_at(as_mte, W_as, mean(mte_grid), grp)))
-  g <- function(v, L) { x <- v[L]; if (is.na(x)) 0 else x }
-  out <- rbindlist(lapply(mte_grid, function(p) {
-    eu_hi <- share_at(un_mte, W_un, p + eps, grp); eu_lo <- share_at(un_mte, W_un, p - eps, grp)
-    ea_hi <- share_at(as_mte, W_as, p + eps, grp); ea_lo <- share_at(as_mte, W_as, p - eps, grp)
-    data.table(propensity = p, level = levs, mte = vapply(levs, function(L) {
-      mtr1 <-  ((p + eps) * g(ea_hi, L) - (p - eps) * g(ea_lo, L)) / (2 * eps)
-      mtr0 <- -(((1 - p - eps) * g(eu_hi, L) - (1 - p + eps) * g(eu_lo, L)) / (2 * eps))
-      mtr1 - mtr0
-    }, numeric(1)))
-  }))
-  out[, group_type := grp][]
-}
-
-mte_metal   <- mte_by("metal")
-mte_insurer <- mte_by("insurer")
-choice_mte  <- rbind(mte_metal, mte_insurer)
-fwrite(choice_mte, "results/choice_mte.csv")
-
-late_metal   <- mte_metal[,   .(LATE = mean(mte)), by = level][order(-LATE)]
-late_insurer <- mte_insurer[, .(LATE = mean(mte)), by = level][order(-LATE)]
-cat(sprintf("  Plan-choice MTE over support [%.2f, %.2f] (LATE = mean over support):\n", p_lo, p_hi))
-cat("  --- by metal ---\n");   print(late_metal)
-cat("  --- by insurer ---\n"); print(late_insurer)
-
-rm(un_mte, as_mte, fit_un_mte, fit_as_mte); gc(verbose = FALSE)
-
-
-# Phase 6: Appendix -- pooled assisted-as-covariate MNL, without and with CF ----
-# The selection story as coefficients (the appendix companion to the body's
-# prediction-based ATT and MTE). Pooled over both groups on the SAME SAMPLE_FRAC
-# households as the MTE, IPW-weighted. "Assisted x metal" is the assisted effect
-# on metal choice; the +CF version adds the broker-density control function
-# (cf_ = v_hat x plan attribute). Region FE is not applicable to this conditional
-# logit -- a household-level fixed effect is mechanically absorbed.
-
-cat("\nPhase 6: Appendix pooled assisted-as-covariate MNL (no CF / +CF)...\n")
-
+PLAN_ATTRS   <- c("premium", "silver", "bronze", "hmo", "hsa",
+                  "Anthem", "Blue_Shield", "Kaiser", "Health_Net")
 ASSIST_METAL <- c("assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat")
 CF_TERMS     <- c("cf_silver", "cf_bronze", "cf_anthem", "cf_blue_shield",
                   "cf_kaiser", "cf_health_net")
 
-pool_ap <- pooled_mte[chid %in% pooled_mte[choice == 1L, unique(chid)]]
-fmla_ap_nocf <- as.formula(paste("choice ~",
-  paste(c(REDUCED_FORM_SPEC, ASSIST_METAL), collapse = " + "), "| 0 | 0"))
-fmla_ap_cf   <- as.formula(paste("choice ~",
-  paste(c(REDUCED_FORM_SPEC, ASSIST_METAL, CF_TERMS), collapse = " + "), "| 0 | 0"))
-
-fit_ap_nocf <- mlogit(fmla_ap_nocf, data = pool_ap, chid.var = "chid",
-                      alt.var = "plan_id", weights = ipweight)
-fit_ap_cf   <- mlogit(fmla_ap_cf,   data = pool_ap, chid.var = "chid",
-                      alt.var = "plan_id", weights = ipweight)
-
-ap_tab <- rbind(
-  data.table(term = names(coef(fit_ap_nocf)), estimate = coef(fit_ap_nocf), spec = "no_CF"),
-  data.table(term = names(coef(fit_ap_cf)),   estimate = coef(fit_ap_cf),   spec = "with_CF")
+ap_specs <- list(
+  attrs   = c(PLAN_ATTRS, ASSIST_METAL),
+  full    = c(REDUCED_FORM_SPEC, ASSIST_METAL),
+  full_cf = c(REDUCED_FORM_SPEC, ASSIST_METAL, CF_TERMS)
 )
+
+ap_tab <- rbindlist(lapply(names(ap_specs), function(nm) {
+  fmla <- as.formula(paste("choice ~", paste(ap_specs[[nm]], collapse = " + "), "| 0 | 0"))
+  fit  <- mlogit(fmla, data = pool_ap, chid.var = "chid",
+                 alt.var = "plan_id", weights = ipweight)
+  cat("  spec", nm, "- logLik", round(as.numeric(logLik(fit)), 1), "\n")
+  data.table(term = names(coef(fit)), estimate = coef(fit), spec = nm)
+}))
+
 fwrite(ap_tab, "results/choice_appendix_pooled.csv")
 cat("  Assisted x metal (and CF) coefficients:\n")
-print(ap_tab[grepl("^assisted_|^cf_", term)])
+print(dcast(ap_tab[grepl("^assisted_|^cf_", term)], term ~ spec, value.var = "estimate"))
 
-rm(pool_ap, pooled_mte, fit_ap_nocf, fit_ap_cf); gc(verbose = FALSE)
+rm(pool_ap, ap_chids); gc(verbose = FALSE)
 
 
 rm(pooled); gc(verbose = FALSE)

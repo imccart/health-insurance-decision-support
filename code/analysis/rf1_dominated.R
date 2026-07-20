@@ -3,8 +3,11 @@
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-21
 ## Date Edited:   2026-04-23
-## Description:   Dominated choice regressions and potential outcomes ATT.
-##                Includes control function (v_hat) for selection correction.
+## Description:   Dominated choice ATT. Body = prediction-based ATT (fit on the
+##                unassisted, predict onto the assisted), IPW-weighted, no
+##                control function. Appendix = pooled progressive specs ending
+##                in control-function-without-region-FE and region-FE-without-
+##                control-function, plus the body ATT re-run on new enrollees.
 ##                Reads the prepped HH panel (hh_full_prepped.csv) written by
 ##                build3_data-prep, so it runs without any prior step in memory.
 ##                Manages hh_full → hh_clean → hh_po lifecycle internally
@@ -19,53 +22,67 @@ cat("Dominated choice regressions...\n")
 # Prepped HH panel (augmented with v_hat) from build3_data-prep.
 hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
 
-# Canonical structural demographic set, shared with build2/build3 and rf2:
-# age 0-17/18-34/35-54 (55+ base), race (white base), male, FPL brackets
-# (<250 base), household size. No insurer FE (it is the post-choice selected
-# insurer), no region FE in the body (region FE collapses the broker-density
-# instrument the MTE needs; region FE is the appendix robustness). Year FE only.
+# Appendix pooled specifications, all on ALL enrollees, reported as a progressive
+# sequence so the reader sees the assisted coefficient settle rather than being
+# asked to compare two numbers. Canonical structural demographic set, shared with
+# build2/build3 and rf2: age 0-17/18-34/35-54 (55+ base), race (white base), male,
+# FPL brackets (<250 base), household size. No insurer FE (it is the post-choice
+# selected insurer).
+#
+# The sequence ends in two terminal specifications that never appear together.
+# Column 4 adds the broker-density control function without region FE; column 5
+# adds region FE without the control function. Both is incoherent, not merely
+# underpowered: n_agents varies at the region-year level, so region FE leaves the
+# instrument nothing to work with, and region FE only becomes a legitimate
+# first-stage covariate once the second stage carries it too.
+#
+# New enrollees are no longer a column here. That comparison is the body's
+# prediction-based ATT re-run on new enrollees (dominated_new_vs_all.csv below).
 
-# Model 1: all enrollees, no CF (hh_full)
+# (1) unconditional
 mod1 <- feols(
+  dominated_choice ~ assisted,
+  cluster = "region", data = hh_full, weights = ~ipweight
+)
+
+# (2) + demographics
+mod2 <- feols(
+  dominated_choice ~ assisted +
+    perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
+    perc_black + perc_hispanic + perc_asian + perc_other +
+    FPL_250to400 + FPL_400plus + household_size,
+  cluster = "region", data = hh_full, weights = ~ipweight
+)
+
+# (3) + new enrollee indicator + year FE -- the full control set
+mod3 <- feols(
   dominated_choice ~ assisted +
     perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
     perc_black + perc_hispanic + perc_asian + perc_other +
     FPL_250to400 + FPL_400plus + household_size + new_enrollee | year,
-  cluster = "region",
-  data = hh_full,
-  weights = ~ipweight
+  cluster = "region", data = hh_full, weights = ~ipweight
 )
 
-# Model 1 + region FE (appendix robustness). The body specs drop region FE
-# because it collapses the broker-density instrument the CF/MTE rely on; this
-# adds it to the no-CF pooled model to show the assisted coefficient survives
-# cross-region controls. The +CF model gets no region-FE variant -- region FE
-# would absorb the instrument that identifies v_hat.
-mod1_rfe <- feols(
-  dominated_choice ~ assisted +
-    perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
-    perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size + new_enrollee | year + region,
-  cluster = "region",
-  data = hh_full,
-  weights = ~ipweight
-)
-
-# Model 3: all enrollees with CF (v_hat = broker-density first-stage residual).
-# The CF-corrected pooled estimate on the main (all-enrollee) sample, matching
-# the body's prediction-based ATT and MTE. Fit on hh_full before it is freed.
-mod3 <- feols(
+# (4) full controls + control function, no region FE
+mod4 <- feols(
   dominated_choice ~ assisted + v_hat +
     perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
     perc_black + perc_hispanic + perc_asian + perc_other +
     FPL_250to400 + FPL_400plus + household_size + new_enrollee | year,
-  cluster = "region",
-  data = hh_full,
-  weights = ~ipweight
+  cluster = "region", data = hh_full, weights = ~ipweight
 )
 
-# All-enrollee CSR-eligible sample for the appendix new-vs-all baseline ATT,
-# captured before hh_full is freed. hh_po (new enrollees) is derived below.
+# (5) full controls + region FE, no control function
+mod5 <- feols(
+  dominated_choice ~ assisted +
+    perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
+    perc_black + perc_hispanic + perc_asian + perc_other +
+    FPL_250to400 + FPL_400plus + household_size + new_enrollee | year + region,
+  cluster = "region", data = hh_full, weights = ~ipweight
+)
+
+# All-enrollee CSR-eligible sample for the body ATT, captured before hh_full is
+# freed. hh_po (new enrollees) is derived below for the appendix sample check.
 hh_po_all <- hh_full %>% filter(!is.na(dominated_choice))
 
 # Done with hh_full. Derive hh_clean (new enrollees) and free hh_full so
@@ -73,34 +90,6 @@ hh_po_all <- hh_full %>% filter(!is.na(dominated_choice))
 hh_clean <- hh_full %>% filter(new_enrollee == 1L)
 rm(hh_full)
 gc(verbose = FALSE)
-
-# Model 2: new enrollees, no CF
-mod2 <- feols(
-  dominated_choice ~ assisted +
-    perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
-    perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size | year,
-  cluster = "region",
-  data = hh_clean,
-  weights = ~ipweight
-)
-
-# Model 2 + region FE (appendix robustness, new enrollees, no CF).
-mod2_rfe <- feols(
-  dominated_choice ~ assisted +
-    perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
-    perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size | year + region,
-  cluster = "region",
-  data = hh_clean,
-  weights = ~ipweight
-)
-
-dom_models <- list(
-  "All Enrollees" = mod1,
-  "New Enrollees" = mod2,
-  "All + CF"      = mod3
-)
 
 # Hand-built regression table (modelsummary backends unreliable for this layout)
 coef_labels <- c(
@@ -143,60 +132,46 @@ extract_col <- function(mod, terms) {
 terms <- names(coef_labels)
 row_labels <- as.vector(rbind(unname(coef_labels), ""))
 
-tab <- data.frame(
-  Variable           = row_labels,
-  `All Enrollees`    = extract_col(mod1, terms),
-  `New Enrollees`    = extract_col(mod2, terms),
-  `All + CF`         = extract_col(mod3, terms),
-  check.names        = FALSE,
-  stringsAsFactors   = FALSE
+mods <- list(mod1, mod2, mod3, mod4, mod5)
+col_names <- c("(1)", "(2)", "(3)", "(4)", "(5)")
+
+tab <- data.frame(Variable = row_labels, stringsAsFactors = FALSE)
+for (j in seq_along(mods)) tab[[col_names[j]]] <- extract_col(mods[[j]], terms)
+
+spec_rows <- data.frame(
+  Variable = c("Demographics", "Year FE", "Region FE", "Control Function"),
+  `(1)` = c("", "", "", ""),
+  `(2)` = c("X", "", "", ""),
+  `(3)` = c("X", "X", "", ""),
+  `(4)` = c("X", "X", "", "X"),
+  `(5)` = c("X", "X", "X", ""),
+  check.names = FALSE, stringsAsFactors = FALSE
 )
 
 gof_rows <- data.frame(
-  Variable        = c("Observations", "R$^2$"),
-  `All Enrollees` = c(format(nobs(mod1), big.mark = ","), sprintf("%.3f", r2(mod1, "r2"))),
-  `New Enrollees` = c(format(nobs(mod2), big.mark = ","), sprintf("%.3f", r2(mod2, "r2"))),
-  `All + CF`      = c(format(nobs(mod3), big.mark = ","), sprintf("%.3f", r2(mod3, "r2"))),
-  check.names     = FALSE,
+  Variable = c("Observations", "R$^2$"),
   stringsAsFactors = FALSE
 )
-tab <- rbind(tab, gof_rows)
+for (j in seq_along(mods)) {
+  gof_rows[[col_names[j]]] <- c(format(nobs(mods[[j]]), big.mark = ","),
+                                sprintf("%.3f", r2(mods[[j]], "r2")))
+}
+
+tab <- rbind(tab, spec_rows, gof_rows)
 
 dom_tab <- kable(tab, format = "latex", booktabs = TRUE,
-                 align = c("l", "c", "c", "c"),
+                 align = c("l", rep("c", length(mods))),
                  linesep = "", escape = FALSE) %>%
   kable_styling(latex_options = c("scale_down"))
 writeLines(as.character(dom_tab), "results/tables/dominated_choice_regression.tex")
-
-# Region-FE robustness table (appendix): no-CF pooled models with region FE added.
-tab_rfe <- data.frame(
-  Variable                = row_labels,
-  `All Enr. + Region FE`  = extract_col(mod1_rfe, terms),
-  `New Enr. + Region FE`  = extract_col(mod2_rfe, terms),
-  check.names             = FALSE,
-  stringsAsFactors        = FALSE
-)
-gof_rfe <- data.frame(
-  Variable               = c("Observations", "R$^2$"),
-  `All Enr. + Region FE` = c(format(nobs(mod1_rfe), big.mark = ","), sprintf("%.3f", r2(mod1_rfe, "r2"))),
-  `New Enr. + Region FE` = c(format(nobs(mod2_rfe), big.mark = ","), sprintf("%.3f", r2(mod2_rfe, "r2"))),
-  check.names            = FALSE,
-  stringsAsFactors       = FALSE
-)
-tab_rfe <- rbind(tab_rfe, gof_rfe)
-dom_tab_rfe <- kable(tab_rfe, format = "latex", booktabs = TRUE,
-                     align = c("l", "c", "c"), linesep = "", escape = FALSE) %>%
-  kable_styling(latex_options = c("scale_down"))
-writeLines(as.character(dom_tab_rfe), "results/tables/dominated_choice_regionfe.tex")
 
 # =========================================================================
 # Baseline prediction-based ATT (IPW, selection on observables)
 # =========================================================================
 # Fit the dominated-choice model on the unassisted, predict the counterfactual
-# for the assisted, ATT = observed - predicted. No control function here (this is
-# the observational baseline); the selection-corrected versions are the pooled CF
-# model (mod3) and the MTE. Same demographic set and year-FE-only structure as
-# the pooled models above.
+# for the assisted, ATT = observed - predicted. This is the body estimate: no
+# control function anywhere in it. The appendix companion is the pooled sequence
+# above. Same demographic set and year-FE-only structure as those models.
 
 cat("Baseline prediction-based ATT...\n")
 
@@ -307,71 +282,10 @@ plot_att <- ggplot(att_summary, aes(x = Channel, y = ATT)) +
 ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4, bg = "white")
 
 
-# =========================================================================
-# MTE (separate approach): a LATE over the propensity support
-# =========================================================================
-# Untreated and treated regressions of dominated choice on demographics and a
-# flexible propensity, estimated SEPARATELY on the unassisted and the assisted,
-# each household-size weighted (the broker-density instrument carries the
-# selection correction here, not IPW). Propensity P = assisted - v_hat, the
-# build3 first stage. MTE(p) = MTR1(p) - MTR0(p) with
-#   MTR1(p) =  d/dp[ p * E(Y | X, P=p, assisted) ]
-#   MTR0(p) = -d/dp[ (1-p) * E(Y | X, P=p, unassisted) ].
-# Reported only over the common support of P -- a LATE for the marginal
-# households the instrument moves, no extrapolation to a full ATT. Uses
-# SAMPLE_FRAC so the assisted + unassisted fits stay tractable.
-
-cat("Dominated MTE (LATE over the propensity support)...\n")
-
-# Main sample = all enrollees (hh_po_all), matching the structural model.
-set.seed(MASTER_SEED)
-mte_po <- hh_po_all %>%
-  mutate(P = assisted - v_hat, P2 = (assisted - v_hat)^2) %>%
-  filter(!is.na(P), !is.na(dominated_choice)) %>%
-  slice_sample(prop = SAMPLE_FRAC)
-
-dom_mte_un <- feols(
-  dominated_choice ~ perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
-    perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size + P + P2,
-  data = filter(mte_po, assisted == 0), weights = ~weight)
-dom_mte_as <- feols(
-  dominated_choice ~ perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
-    perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size + P + P2,
-  data = filter(mte_po, assisted == 1), weights = ~weight)
-
-# Common support of P (1st-99th pct overlap of the two groups).
-p_lo <- max(quantile(mte_po$P[mte_po$assisted == 0], 0.01),
-            quantile(mte_po$P[mte_po$assisted == 1], 0.01))
-p_hi <- min(quantile(mte_po$P[mte_po$assisted == 0], 0.99),
-            quantile(mte_po$P[mte_po$assisted == 1], 0.99))
-
-# E(Y | X, P=p) marginalized over the sample's X, for one group's fit.
-ebar <- function(fit, p) {
-  nd <- mte_po; nd$P <- p; nd$P2 <- p^2
-  weighted.mean(predict(fit, newdata = nd), mte_po$weight)
-}
-eps <- 0.01
-dom_mte_grid <- seq(p_lo, p_hi, length.out = 9)
-dom_mte <- vapply(dom_mte_grid, function(p) {
-  mtr1 <-  ((p + eps) * ebar(dom_mte_as, p + eps) -
-            (p - eps) * ebar(dom_mte_as, p - eps)) / (2 * eps)
-  mtr0 <- -(((1 - p - eps) * ebar(dom_mte_un, p + eps) -
-             (1 - p + eps) * ebar(dom_mte_un, p - eps)) / (2 * eps))
-  mtr1 - mtr0
-}, numeric(1))
-
-dom_mte_tab <- tibble(propensity = dom_mte_grid, mte = dom_mte)
-dom_late <- mean(dom_mte)
-fwrite(dom_mte_tab, "results/dominated_mte.csv")
-cat(sprintf("  Dominated LATE over support [%.2f, %.2f]: %+.4f\n", p_lo, p_hi, dom_late))
-print(dom_mte_tab)
-
-
 cat("Dominated choice analysis complete.\n")
 print(att_summary)
 
-# Free hh_po and bootstrap residues; _reduced-form.R is done with HH-level data.
-rm(hh_po, hh_po_all, boot_any, boot_agent, boot_nav, dom_models, mod1, mod2, mod3, mod1_rfe, mod2_rfe)
+# Free hh_po and bootstrap residues; the structural block is done with HH data.
+rm(hh_po, hh_po_all, boot_any, boot_agent, boot_nav,
+   mod1, mod2, mod3, mod4, mod5)
 gc(verbose = FALSE)
