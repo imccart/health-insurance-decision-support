@@ -26,8 +26,14 @@ hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
 # sequence so the reader sees the assisted coefficient settle rather than being
 # asked to compare two numbers. Canonical structural demographic set, shared with
 # build2/build3 and rf2: age 0-17/18-34/35-54 (55+ base), race (white base), male,
-# FPL brackets (<250 base), household size. No insurer FE (it is the post-choice
-# selected insurer).
+# household size. No insurer FE (it is the post-choice selected insurer).
+#
+# The FPL bracket dummies used everywhere else (FPL_250to400, FPL_400plus) are
+# NOT here. dominated_choice is defined only for CSR-eligible households with
+# FPL <= 2.00 (build1), so both dummies are identically zero on this sample and
+# feols was silently dropping them for collinearity. Income variation that does
+# survive is the 1.50 FPL line, which is where the definition of dominance
+# itself changes, so it is not a control -- it is part of the outcome.
 #
 # The sequence ends in two terminal specifications that never appear together.
 # Column 4 adds the broker-density control function without region FE; column 5
@@ -50,7 +56,7 @@ mod2 <- feols(
   dominated_choice ~ assisted +
     perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
     perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size,
+    household_size,
   cluster = "region", data = hh_full, weights = ~ipweight
 )
 
@@ -59,7 +65,7 @@ mod3 <- feols(
   dominated_choice ~ assisted +
     perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
     perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size + new_enrollee | year,
+    household_size + new_enrollee | year,
   cluster = "region", data = hh_full, weights = ~ipweight
 )
 
@@ -68,7 +74,7 @@ mod4 <- feols(
   dominated_choice ~ assisted + v_hat +
     perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
     perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size + new_enrollee | year,
+    household_size + new_enrollee | year,
   cluster = "region", data = hh_full, weights = ~ipweight
 )
 
@@ -77,7 +83,7 @@ mod5 <- feols(
   dominated_choice ~ assisted +
     perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
     perc_black + perc_hispanic + perc_asian + perc_other +
-    FPL_250to400 + FPL_400plus + household_size + new_enrollee | year + region,
+    household_size + new_enrollee | year + region,
   cluster = "region", data = hh_full, weights = ~ipweight
 )
 
@@ -159,10 +165,11 @@ for (j in seq_along(mods)) {
 
 tab <- rbind(tab, spec_rows, gof_rows)
 
+# Bare tabular: the appendix supplies the table environment, caption, and
+# \resizebox. A kable_styling() table wrapper here would nest inside it.
 dom_tab <- kable(tab, format = "latex", booktabs = TRUE,
                  align = c("l", rep("c", length(mods))),
-                 linesep = "", escape = FALSE) %>%
-  kable_styling(latex_options = c("scale_down"))
+                 linesep = "", escape = FALSE)
 writeLines(as.character(dom_tab), "results/tables/dominated_choice_regression.tex")
 
 # =========================================================================
@@ -178,7 +185,7 @@ cat("Baseline prediction-based ATT...\n")
 po_formula <- dominated_choice ~
   perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
   perc_black + perc_hispanic + perc_asian + perc_other +
-  FPL_250to400 + FPL_400plus + household_size | year
+  household_size | year
 
 compute_att <- function(df, channel_filter) {
   if (channel_filter == "any_assist") {
@@ -224,6 +231,14 @@ dom_sample_tab <- tibble(
 )
 fwrite(dom_sample_tab, "results/dominated_new_vs_all.csv")
 cat("  Dominated baseline ATT, all vs new enrollees:\n"); print(dom_sample_tab)
+
+# Bare tabular for the appendix (the appendix supplies table env and caption).
+dom_sample_tex <- dom_sample_tab %>%
+  mutate(across(c(ATT_all_enrollees, ATT_new_enrollees), ~ sprintf("%.4f", .x))) %>%
+  rename(`All Enrollees` = ATT_all_enrollees, `New Enrollees` = ATT_new_enrollees) %>%
+  kable(format = "latex", booktabs = TRUE, align = c("l", "c", "c"),
+        linesep = "", escape = FALSE)
+writeLines(as.character(dom_sample_tex), "results/tables/dominated_new_vs_all.tex")
 
 
 # =========================================================================

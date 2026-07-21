@@ -3,14 +3,16 @@
 ## Author:        Ian McCarthy
 ## Date Created:  2026-02-21
 ## Description:   Summary statistics, covariate balance, and figures.
-##                IPW weights computed in build2_ipw.R (must run first).
+##                Reads the prepped panel from build3_data-prep, not build1's
+##                hh_full.csv. The prepped file has catastrophic households
+##                dropped and the IPW weights already joined, so the summary
+##                statistics describe the sample the models are estimated on.
 
-hh_full   <- fread("data/output/hh_full.csv") %>% as_tibble()
-ipweights <- fread("data/output/ipweights.csv") %>% as_tibble()
+hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
 
-hh_ins   <- hh_full %>% filter(insured == 1L)     %>% left_join(ipweights, by = "household_year")
-hh_clean <- hh_full %>% filter(new_enrollee == 1L) %>% left_join(ipweights, by = "household_year")
-rm(hh_full, ipweights)
+hh_ins   <- hh_full %>% filter(insured == 1L)
+hh_clean <- hh_full %>% filter(new_enrollee == 1L)
+rm(hh_full)
 gc(verbose = FALSE)
 
 # Grayscale theme for all figures ------------------------------------------
@@ -215,8 +217,11 @@ summary_by_group <- function(df, group_var) {
     )
 }
 
-group_stats <- summary_by_group(hh_clean, channel)
-overall <- hh_clean %>%
+# Summary statistics are on all enrollees, matching the reduced-form and
+# structural samples. hh_clean (new enrollees) remains the comparison sample
+# for the "_new" figures above.
+group_stats <- summary_by_group(hh_ins, channel)
+overall <- hh_ins %>%
   summarize(
     N = n(),
     FPL = mean(FPL, na.rm = TRUE),

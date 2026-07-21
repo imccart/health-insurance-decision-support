@@ -217,12 +217,22 @@ if (nrow(coefs_structural) > 0) {
     "perc_0to17_silver"  = "Age 0--17 $\\times$ Silver",
     "perc_18to34_silver" = "Age 18--34 $\\times$ Silver",
     "perc_35to54_silver" = "Age 35--54 $\\times$ Silver",
+    "perc_male_silver"   = "Male $\\times$ Silver",
+    "perc_male_bronze"   = "Male $\\times$ Bronze",
     "hh_size_prem"       = "HH size $\\times$ premium",
     "any_0to17_prem"     = "Children $\\times$ premium",
+    "perc_0to17_prem"    = "Age 0--17 $\\times$ premium",
+    "perc_18to34_prem"   = "Age 18--34 $\\times$ premium",
+    "perc_35to54_prem"   = "Age 35--54 $\\times$ premium",
+    "perc_male_prem"     = "Male $\\times$ premium",
     "FPL_250to400_prem"  = "FPL 250--400\\% $\\times$ premium",
     "FPL_400plus_prem"   = "FPL 400+\\% $\\times$ premium",
     "any_black_prem"     = "Black $\\times$ premium",
     "any_hispanic_prem"  = "Hispanic $\\times$ premium",
+    "perc_black_prem"    = "Black $\\times$ premium",
+    "perc_hispanic_prem" = "Hispanic $\\times$ premium",
+    "perc_asian_prem"    = "Asian $\\times$ premium",
+    "perc_other_prem"    = "Other race $\\times$ premium",
     "hmo"                = "HMO",
     "hsa"                = "HSA",
     "Anthem"             = "Anthem",
@@ -251,7 +261,10 @@ if (nrow(coefs_structural) > 0) {
 
   coefs_display <- coefs_structural %>%
     mutate(
-      label = ifelse(term %in% names(label_map), label_map[term], term),
+      # Unmapped terms fall back to the raw name, so escape underscores rather
+      # than emitting math-mode subscripts that break the LaTeX compile.
+      label = ifelse(term %in% names(label_map), label_map[term],
+                     gsub("_", "\\\\_", term)),
       est_str = formatC(estimate, format = "f", digits = 4),
       se_str  = if ("std_error" %in% names(.))
                   paste0("(", formatC(std_error, format = "f", digits = 4), ")")

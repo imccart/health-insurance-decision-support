@@ -41,6 +41,68 @@ To impute consumer exchange market eligibility, we use data from the SIPP. The S
 
 \newpage
 
+\section{Additional Reduced-Form Results}
+\label{app:reduced_form}
+
+The reduced-form estimates in the body of the paper come from a prediction-based estimator. We fit the outcome model on unassisted households, weighted by inverse propensity weights, predict the counterfactual outcome for assisted households, and form the ATT as the difference between what assisted households chose and what the model predicts they would have chosen. Assistance never appears as a regressor, so there is no assistance coefficient to report and no control function anywhere in the estimation. This appendix reports the complementary pooled specifications, in which assistance does enter as a covariate and its coefficient can be traced across a progressive sequence of control sets.
+
+\subsection{Dominated Choices}
+
+Table~\ref{tab:app-dominated} reports linear probability models of the dominated-choice indicator on the sample of households with at least one dominated plan in the choice set. Column (1) is unconditional. Column (2) adds the household demographics that enter the propensity score, namely age composition, gender, race and ethnicity, and household size. Income does not appear, because the sample is defined by cost-sharing-reduction eligibility and therefore contains only households below 200\% of the federal poverty level, leaving the income brackets used elsewhere in the paper with no variation to exploit. Column (3) adds a new-enrollee indicator and year fixed effects. Columns (4) and (5) are the two terminal specifications. Column (4) adds the broker-density control function without region fixed effects, and column (5) adds region fixed effects without the control function. Standard errors are clustered by rating region throughout, and all specifications are inverse-propensity weighted.
+
+The assistance coefficient is stable across columns (1) through (3) and (5), moving only from $-0.0152$ to $-0.0168$ as controls accumulate and settling at $-0.0161$ once region fixed effects absorb differences in market composition. Column (4) is the exception. With the control function included, the assistance coefficient falls to $-0.2564$ and the control function residual enters at $+0.2402$, so that the two nearly offset and their sum, $-0.0162$, reproduces the estimate in column (3). This is what a first stage too weak to separate selection from the treatment effect produces, and it is a reparameterization rather than independent evidence.
+
+The two terminal columns never appear together, and the reason is not that the combination would merely be underpowered. Broker density varies only across rating region and year, so region fixed effects leave the instrument with no variation to exploit. Within a region the number of licensed agents is close to a deterministic function of the year, which means a region-specific control function is identically zero rather than weak. Clustering standard errors at the level at which the instrument actually varies, the partial $F$ statistic on broker density is 3.6 and the incremental $R^2$ is 0.001, against a partial $F$ of roughly 7,600 when the clustering is ignored. The apparent strength of the instrument in the unclustered specification reflects the number of households rather than the number of markets.
+
+Table~\ref{tab:app-dominated-sample} reports the body estimator re-run on new enrollees alongside the all-enrollee estimates. The body sample is all enrollees so that the reduced form and the structural model are estimated on the same households. Restricting to new enrollees produces larger effects for every channel, consistent with assistance mattering most for households making a first plan choice, and leaves the ordering across channels unchanged.
+
+\begin{table}[!h]
+\centering
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Dominated Choices, Pooled Specifications}\footnote{Linear probability models of an indicator for selecting a dominated plan, on the sample of households with at least one dominated plan in the choice set. All specifications are weighted by inverse propensity weights, with standard errors clustered by rating region. Demographics include age composition, gender, race and ethnicity, and household size. Columns (4) and (5) are the two terminal specifications described in the text and are never combined. $^{***}p<0.01$, $^{**}p<0.05$, $^{*}p<0.10$.}}
+\label{tab:app-dominated}
+\resizebox{\linewidth}{!}{%
+    \input{results/tables/dominated_choice_regression.tex}
+}
+\end{minipage}
+\end{table}
+
+\begin{table}[!h]
+\centering
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Dominated Choice ATT, All Enrollees Versus New Enrollees}\footnote{Prediction-based ATT of decision assistance on the probability of selecting a dominated plan, weighted by inverse propensity weights. The all-enrollee column is the body estimate. The new-enrollee column re-runs the same estimator on households enrolling for the first time.}}
+\label{tab:app-dominated-sample}
+\centerline{%
+    \input{results/tables/dominated_new_vs_all.tex}
+}
+\end{minipage}
+\end{table}
+
+\clearpage
+
+\subsection{Plan Choice}
+
+Table~\ref{tab:app-choice} reports the companion sequence for plan choice. The model is a conditional logit over the plans in each household's choice set, pooled across assisted and unassisted households and weighted by inverse propensity weights. Assistance enters through its interaction with metal tier, separately by channel, using the same navigator and broker split as the structural model in Section~5. Column (1) includes plan attributes only. Column (2) adds the premium-by-demographic interactions that constitute the full control set in the body specification. Column (3) adds the broker-density control function, again interacted with plan attributes.
+
+Three features of this model differ from the dominated-choice table and are worth stating rather than leaving to inference. First, there is no region fixed effects column. A household-level region indicator is constant across the alternatives in that household's choice set and is differenced out of the conditional logit, so it does not control for anything. The term that would actually absorb region here is region interacted with metal tier and insurer, which adds well over a hundred parameters and leaves the insurer block empty wherever an insurer does not operate in a region. We do not estimate it, and region is therefore uncontrolled in this model rather than absorbed.
+
+Second, assistance interacts only with silver and bronze. Catastrophic plans are excluded from the sample, so the four metal tiers exhaust the alternatives and a full set of four assistance-by-metal interactions sums to a household constant, which is differenced out. Gold and platinum share the omitted category, matching the base specification.
+
+Third, the control function terms enter as interactions with plan attributes for the same reason. The first-stage residual is a household-level quantity and cannot enter a conditional logit on its own.
+
+\begin{table}[!h]
+\centering
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Plan Choice, Pooled Specifications}\footnote{Conditional logit over the plans in each household's choice set, pooled across assisted and unassisted households and weighted by inverse propensity weights. Premiums are net of subsidy and measured in hundreds of dollars. Plan attributes are metal tier, network type, health savings account eligibility, and insurer indicators. CF denotes the broker-density control function interacted with the indicated plan attribute. Standard errors in parentheses.}}
+\label{tab:app-choice}
+\centerline{%
+    \input{results/tables/choice_appendix_pooled.tex}
+}
+\end{minipage}
+\end{table}
+
+\clearpage
+
 \section{Mathematical Formulas in the ACA Exchange Model}
 \label{app::model_formulas}
 

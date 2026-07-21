@@ -13,12 +13,21 @@ if (!exists("hh_full")) {
   hh_full <- fread("data/output/hh_full.csv") %>% as_tibble()
   cat("  Loaded hh_full from disk\n")
 }
-hh_ins <- hh_full %>% filter(insured == 1L)
+hh_ins <- hh_full %>%
+  filter(insured == 1L) %>%
+  # FPL brackets (created in choice.R for the structural side; recreated here so
+  # the propensity uses the same income parameterization as everything else).
+  mutate(FPL_250to400 = as.integer(FPL > 2.50 & FPL <= 4.00),
+         FPL_400plus  = as.integer(FPL > 4.00))
 
 # Propensity score estimation (nest by year) ------------------------------
+# Demographic set is the canonical structural spec (age 0-17/18-34/35-54 with
+# 55+ base, race, male, FPL brackets, household size), so IPW, the v_hat first
+# stage (build3), and the outcome models all share one specification.
 
-ps_formula <- assisted ~ FPL + perc_0to17 + perc_18to25 + perc_65plus +
-  perc_black + perc_hispanic + perc_asian + perc_male + household_size
+ps_formula <- assisted ~ perc_0to17 + perc_18to34 + perc_35to54 +
+  perc_male + perc_black + perc_hispanic + perc_asian + perc_other +
+  FPL_250to400 + FPL_400plus + household_size
 
 estimate_ps <- function(df) {
   df %>%
