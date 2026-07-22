@@ -40,6 +40,14 @@ plan_choice       <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble
 
 coefs_structural <- read_csv("results/choice_coefficients_structural.csv",
                               show_col_types = FALSE)
+# s5 writes the sandwich SEs to a separate file; use it when present so the
+# demand table carries standard errors (section 3 already prints them if the
+# std_error column exists).
+if (file.exists("results/choice_coefficients_structural_se.csv")) {
+  coefs_structural <- read_csv("results/choice_coefficients_structural_se.csv",
+                               show_col_types = FALSE) %>%
+    select(term, estimate, std_error = se)
+}
 supply_results   <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 
 # Counterfactual and bootstrap results (may not exist yet)
@@ -298,6 +306,66 @@ if (nrow(coefs_structural) > 0) {
 
 
 # =========================================================================
+# 3b. Cost Estimates Table (risk score + claims GMM, with s5 sandwich SEs)
+# =========================================================================
+
+cat("\n--- Table: Cost Estimates ---\n")
+
+if (file.exists("results/cost_coefficients_gmm_se.csv")) {
+  cost_coefs <- read_csv("results/cost_coefficients_gmm_se.csv",
+                         show_col_types = FALSE)
+
+  cost_labels <- c(
+    "(Intercept)"       = "Constant",
+    "AV"                = "Actuarial value",
+    "share_18to34"      = "Share age 18--34",
+    "share_35to54"      = "Share age 35--54",
+    "share_male"        = "Share male",
+    "Anthem"            = "Anthem",
+    "Blue_Shield"       = "Blue Shield",
+    "Health_Net"        = "Health Net",
+    "Molina"            = "Molina",
+    "LA_Care"           = "L.A. Care",
+    "SHARP"             = "Sharp",
+    "Chinese_Community" = "Chinese Community",
+    "Oscar"             = "Oscar",
+    "Western"           = "Western",
+    "Valley"            = "Valley",
+    "log_risk_score"    = "Log predicted risk score",
+    "HMO"               = "HMO",
+    "trend"             = "Linear trend"
+  )
+
+  rs <- cost_coefs %>% filter(equation == "risk_score")
+  cl <- cost_coefs %>% filter(equation == "claims")
+
+  tab_lines <- c("\\begin{tabular}{lr}", "\\hline\\hline",
+                 "Variable & Estimate \\\\", "\\hline",
+                 "\\emph{Risk score equation} & \\\\")
+  for (i in seq_len(nrow(rs))) {
+    lab <- ifelse(rs$param[i] %in% names(cost_labels), cost_labels[rs$param[i]],
+                  gsub("_", "\\\\_", rs$param[i]))
+    tab_lines <- c(tab_lines,
+      sprintf("%s & %s \\\\", lab, formatC(rs$estimate[i], format = "f", digits = 4)),
+      sprintf(" & (%s) \\\\", formatC(rs$se[i], format = "f", digits = 4)))
+  }
+  tab_lines <- c(tab_lines, "\\hline", "\\emph{Claims equation} & \\\\")
+  for (i in seq_len(nrow(cl))) {
+    lab <- ifelse(cl$param[i] %in% names(cost_labels), cost_labels[cl$param[i]],
+                  gsub("_", "\\\\_", cl$param[i]))
+    tab_lines <- c(tab_lines,
+      sprintf("%s & %s \\\\", lab, formatC(cl$estimate[i], format = "f", digits = 4)),
+      sprintf(" & (%s) \\\\", formatC(cl$se[i], format = "f", digits = 4)))
+  }
+  tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
+  writeLines(tab_lines, "results/tables/cost_estimates.tex")
+  cat("  Wrote results/tables/cost_estimates.tex\n")
+} else {
+  cat("  Skipped (no cost GMM standard errors)\n")
+}
+
+
+# =========================================================================
 # 4. Supply-Side Results Table
 # =========================================================================
 
@@ -503,11 +571,51 @@ if (has_col(hh_full, "channel")) {
   add_num("pctAssisted", mean(hh_full$channel != "Unassisted", na.rm = TRUE) * 100)
 }
 
-# Demand headline
-beta_p <- coefs_structural$estimate[coefs_structural$term == "premium"]
-beta_c <- coefs_structural$estimate[coefs_structural$term == "commission_broker"]
-if (length(beta_p) == 1 && length(beta_c) == 1 && abs(beta_p) > 1e-10) {
-  add_num("commPremRatio", beta_c / abs(beta_p), 2)
+# Demand headline: commission vs premium for broker-assisted households.
+# The per-dollar equivalence divides the commission coefficient by the mean
+# price coefficient among broker-assisted households (base + demographic +
+# broker premium interactions), and the elasticity ratio scales each by its
+# mean level (commission and net premium of the chosen plan). Components go
+# to results/commission_equivalence.csv so the paper numbers trace to a file.
+b <- setNames(coefs_structural$estimate, coefs_structural$term)
+cell_files <- list.files(file.path(TEMP_DIR, "choice_cells"),
+                         pattern = "_data\\.csv$", full.names = TRUE)
+if (length(cell_files) > 0) {
+  broker_hh <- lapply(cell_files, function(f) {
+    fread(f, select = c("choice", "broker", "comm_pmpm", "premium",
+                        "uninsured_plan", "hh_size", "perc_0to17", "perc_18to34",
+                        "perc_35to54", "perc_male", "perc_black", "perc_hispanic",
+                        "perc_asian", "perc_other", "FPL_250to400", "FPL_400plus")) %>%
+      filter(broker == 1, choice == 1, uninsured_plan == 0)
+  }) %>% bind_rows()
+
+  equiv <- broker_hh %>%
+    mutate(alpha100 = b[["premium"]] + b[["broker_premium"]] +
+             b[["hh_size_prem"]] * hh_size +
+             b[["perc_0to17_prem"]] * perc_0to17 +
+             b[["perc_18to34_prem"]] * perc_18to34 +
+             b[["perc_35to54_prem"]] * perc_35to54 +
+             b[["perc_male_prem"]] * perc_male +
+             b[["perc_black_prem"]] * perc_black +
+             b[["perc_hispanic_prem"]] * perc_hispanic +
+             b[["perc_asian_prem"]] * perc_asian +
+             b[["perc_other_prem"]] * perc_other +
+             b[["FPL_250to400_prem"]] * FPL_250to400 +
+             b[["FPL_400plus_prem"]] * FPL_400plus) %>%
+    summarize(n_broker_hh = n(),
+              alpha_per100 = weighted.mean(alpha100, hh_size),
+              mean_net_premium = weighted.mean(100 * premium, hh_size),
+              mean_commission = weighted.mean(comm_pmpm, hh_size)) %>%
+    mutate(dollar_equiv = b[["commission_broker"]] / (abs(alpha_per100) / 100),
+           elast_ratio = (b[["commission_broker"]] * mean_commission) /
+                         (abs(alpha_per100) / 100 * mean_net_premium))
+
+  write_csv(equiv, "results/commission_equivalence.csv")
+  add_num("commPremRatio", equiv$dollar_equiv, 2)
+  add_num("commPremElast", equiv$elast_ratio, 2)
+  cat("  Commission equivalence: $", formatC(equiv$dollar_equiv, format = "f", digits = 2),
+      " per $1 commission; elasticity ratio ",
+      formatC(equiv$elast_ratio, format = "f", digits = 2), "\n", sep = "")
 }
 
 lambda_hat <- coefs_structural$estimate[coefs_structural$term == "lambda"]

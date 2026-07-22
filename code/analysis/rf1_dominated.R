@@ -202,7 +202,9 @@ compute_att <- function(df, channel_filter) {
   fit <- feglm(po_formula, data = untreated, weights = ~ipweight,
                family = binomial)
   predicted <- predict(fit, newdata = treated, type = "response")
-  mean(treated$dominated_choice, na.rm = TRUE) - mean(predicted, na.rm = TRUE)
+  tibble(obs_rate  = mean(treated$dominated_choice, na.rm = TRUE),
+         pred_rate = mean(predicted, na.rm = TRUE)) %>%
+    mutate(att = obs_rate - pred_rate)
 }
 
 # CSR-eligible samples (dominated_choice non-NA). hh_po_all (all enrollees) is
@@ -226,8 +228,8 @@ att_agent_new <- compute_att(hh_po, "agent")
 att_nav_new   <- compute_att(hh_po, "navigator")
 dom_sample_tab <- tibble(
   Channel           = c("Any Assistance", "Agent/Broker", "Navigator"),
-  ATT_all_enrollees = c(att_any, att_agent, att_nav),
-  ATT_new_enrollees = c(att_any_new, att_agent_new, att_nav_new)
+  ATT_all_enrollees = c(att_any$att, att_agent$att, att_nav$att),
+  ATT_new_enrollees = c(att_any_new$att, att_agent_new$att, att_nav_new$att)
 )
 fwrite(dom_sample_tab, "results/dominated_new_vs_all.csv")
 cat("  Dominated baseline ATT, all vs new enrollees:\n"); print(dom_sample_tab)
@@ -256,7 +258,7 @@ boot_att <- function(df, channel_filter, B) {
       lapply(grp_rows, function(rows) sample(rows, length(rows), replace = TRUE)),
       use.names = FALSE
     )
-    compute_att(df[row_idx, ], channel_filter)
+    compute_att(df[row_idx, ], channel_filter)$att
   })
 }
 
@@ -273,16 +275,24 @@ if (B > 0) {
 # Summarize
 # =========================================================================
 
+# Observed and predicted dominated-choice rates alongside the ATT, with 95%
+# bootstrap percentile intervals (previously 90%; now matching the 95% intervals
+# on the choice-side figures). Saved to CSV so the paper can quote the baseline
+# rates and intervals without re-running this script.
 att_summary <- tibble(
   Channel = c("Any Assistance", "Agent/Broker", "Navigator"),
-  ATT = c(att_any, att_agent, att_nav),
-  CI_lower = c(quantile(boot_any, 0.05, na.rm = TRUE),
-               quantile(boot_agent, 0.05, na.rm = TRUE),
-               quantile(boot_nav, 0.05, na.rm = TRUE)),
-  CI_upper = c(quantile(boot_any, 0.95, na.rm = TRUE),
-               quantile(boot_agent, 0.95, na.rm = TRUE),
-               quantile(boot_nav, 0.95, na.rm = TRUE))
+  Observed_rate  = c(att_any$obs_rate, att_agent$obs_rate, att_nav$obs_rate),
+  Predicted_rate = c(att_any$pred_rate, att_agent$pred_rate, att_nav$pred_rate),
+  ATT = c(att_any$att, att_agent$att, att_nav$att),
+  CI_lower = c(quantile(boot_any, 0.025, na.rm = TRUE),
+               quantile(boot_agent, 0.025, na.rm = TRUE),
+               quantile(boot_nav, 0.025, na.rm = TRUE)),
+  CI_upper = c(quantile(boot_any, 0.975, na.rm = TRUE),
+               quantile(boot_agent, 0.975, na.rm = TRUE),
+               quantile(boot_nav, 0.975, na.rm = TRUE))
 )
+fwrite(att_summary, "results/dominated_att.csv")
+cat("  Dominated ATT with baseline rates and 95% CIs:\n"); print(att_summary)
 
 theme_paper <- theme_bw() +
   theme(text = element_text(size = 12), panel.grid.minor = element_blank(),
