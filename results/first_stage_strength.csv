@@ -1,0 +1,12 @@
+"statistic","value"
+"whole_model_F",30380.0928651141
+"coef",1.27482285995694e-05
+"se_unclustered",1.46363324163108e-07
+"t_unclustered",87.0998842945292
+"partialF_unclustered",7586.38984412038
+"se_region_clustered",6.74465145333515e-06
+"t_region_clustered",1.89012415059884
+"partialF_region_clustered",3.572569304677
+"incremental_R2",0.00128304467180262
+"region_year_cells",114
+"n_agents_sd_across_cells",1293.46864704726

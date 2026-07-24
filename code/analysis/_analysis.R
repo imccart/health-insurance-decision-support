@@ -50,6 +50,7 @@ source("code/analysis/build3_data-prep.R")           # writes hh_full_prepped/pl
 source("code/analysis/rf1_dominated.R")              # reads hh_full_prepped.csv
 source("code/analysis/rf2_choice-att.R")
 source("code/analysis/rf3_summary.R")
+source("code/analysis/rf4_first-stage.R")            # instrument first-stage strength
 
 # s: structural -----------------------------------------------------------
 source("code/analysis/s1_inputs.R")          # cells + seeds (needs build3 outputs)
