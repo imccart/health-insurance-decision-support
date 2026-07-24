@@ -225,6 +225,53 @@ if (nrow(tau_scenarios) > 0) {
       "$/month/HH\n")
 }
 
+# Endogenous-commission scenarios: solved commission scales and welfare vs observed
+endog_scenarios <- cf_results %>%
+  filter(str_detect(scenario, "^endog_tau|^defund_") | scenario == "flat_mandate")
+if (nrow(endog_scenarios) > 0) {
+  cat("\n--- Endogenous-Commission Scenarios (vs observed) ---\n")
+  cat("    comm_scale = share-weighted mean solved k of endogenous insurers (1 = observed schedule)\n")
+
+  cs_obs_e <- cf_results %>%
+    filter(scenario == "observed") %>%
+    distinct(region, year, cs_weighted) %>%
+    rename(cs_obs = cs_weighted)
+
+  endog_summary <- endog_scenarios %>%
+    group_by(scenario) %>%
+    summarize(
+      mean_premium_change = mean(premium_change, na.rm = TRUE),
+      comm_scale = if (all(is.na(comm_scale_cf))) NA_real_ else
+        weighted.mean(comm_scale_cf, share_cf, na.rm = TRUE),
+      mean_comm = weighted.mean(commission_pmpm, share_cf, na.rm = TRUE),
+      converged_pct = mean(nleqslv_termcd <= 2, na.rm = TRUE) * 100,
+      .groups = "drop"
+    ) %>%
+    left_join(
+      endog_scenarios %>%
+        distinct(region, year, scenario, cs_weighted) %>%
+        left_join(cs_obs_e, by = c("region", "year")) %>%
+        group_by(scenario) %>%
+        summarize(mean_delta_cs = mean(cs_weighted - cs_obs, na.rm = TRUE),
+                  n_cells = n(), .groups = "drop"),
+      by = "scenario"
+    )
+
+  cat("\n")
+  print(endog_summary %>% mutate(across(where(is.numeric), ~round(., 3))), n = Inf)
+
+  mu_obs <- cf_results %>%
+    filter(scenario == "observed", !is.na(mu_comm)) %>%
+    distinct(region, year, plan_id, mu_comm, share_cf)
+  if (nrow(mu_obs) > 0) {
+    cat("\n  Commission wedge mu (per-dollar shadow cost, observed calibration):\n")
+    cat("    enrollment-weighted mean =",
+        round(weighted.mean(mu_obs$mu_comm, mu_obs$share_cf, na.rm = TRUE), 2),
+        "; quantiles:\n")
+    print(round(quantile(mu_obs$mu_comm, c(.05, .25, .5, .75, .95), na.rm = TRUE), 2))
+  }
+}
+
 # Commission-design counterfactuals (level sweep + aligned), vs observed
 comm_scenarios <- cf_results %>% filter(scenario == "aligned" | str_detect(scenario, "^scale_"))
 if (nrow(comm_scenarios) > 0) {

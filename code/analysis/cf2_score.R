@@ -2,12 +2,15 @@
 
 ## Author:        Ian McCarthy
 ## Description:   cf2 — WELFARE SCORING step. Reads the solved equilibria cf1
-##                already wrote (premium_cf in results/counterfactual_results.csv)
-##                and RE-SCORES welfare from them, so welfare definitions can be
-##                iterated without re-running the (expensive) equilibrium solve in
-##                cf1. Per cell it reloads the cached structural choice data
-##                (TEMP_DIR/choice_cells/), rebuilds each scenario's choice data
-##                (build_scenario_data), re-levels premiums to the cf1 solution
+##                already wrote (premium_cf AND commission_pmpm — the latter
+##                carries the SOLVED eta on the endogenous-commission scenarios —
+##                in results/counterfactual_results.csv) and RE-SCORES welfare
+##                from them, so welfare definitions can be iterated without
+##                re-running the (expensive) equilibrium solve in cf1. Per cell it
+##                reloads the cached structural choice data (TEMP_DIR/choice_cells/),
+##                rebuilds each scenario's choice data (build_scenario_data, with
+##                the tau / broker_remain / defund flags recovered from the
+##                scenario label), re-levels premiums to the cf1 solution
 ##                (update_premiums), and scores. The two scenario-construction
 ##                closures and the consumer-surplus function are FROZEN COPIES of
 ##                helpers/cf_cell.R (isolate-experimental-builds convention): cf2
@@ -64,12 +67,8 @@ score_cf_cell <- function(r, y) {
   if (length(plan_ids_cell) < 3) return(NULL)
   pa <- pa[match(plan_ids_cell, pa$plan_id), ]
   p_obs    <- setNames(pa$premium_posted, plan_ids_cell)
-  comm_obs <- setNames(pa$comm_pmpm, plan_ids_cell)
-  comm_obs_sc <- comm_obs[plan_ids_cell]
   sil <- pa[pa$silver == 1, ]; sil <- sil[order(sil$premium_posted), ]
   benchmark_plan <- if (nrow(sil) < 2) sil$plan_id[1] else sil$plan_id[2]
-  mean_comm_pmpm <- mean(sr_cell$commission_pmpm[sr_cell$commission_pmpm > 0], na.rm = TRUE)
-  if (is.na(mean_comm_pmpm)) mean_comm_pmpm <- 0
 
   # --- frozen closures (copies of helpers/cf_cell.R) ---
   update_premiums <- function(dt, p_vec) {
@@ -89,8 +88,21 @@ score_cf_cell <- function(r, y) {
     recompute_prem_interactions(dt, STRUCTURAL_SPEC)
   }
 
-  build_scenario_data <- function(cell_data_base, comm_sc, tau = NULL) {
+  build_scenario_data <- function(cell_data_base, comm_sc, tau = NULL,
+                                  broker_remain = FALSE, defund = NULL) {
     cd <- as.data.table(copy(cell_data_base))
+    if (!is.null(defund) && "any_agent" %in% names(cd)) {
+      nav_hh <- cd[plan_id == "Uninsured" & assisted == 1L &
+                     (is.na(any_agent) | any_agent != 1L), .(household_number, p_nav)]
+      if (nrow(nav_hh) == 0)
+        nav_hh <- unique(cd[assisted == 1L & (is.na(any_agent) | any_agent != 1L),
+                            .(household_number, p_nav)], by = "household_number")
+      if (nrow(nav_hh) > 0) {
+        nav_hh <- nav_hh[order(p_nav)]
+        switch_ids <- nav_hh$household_number[seq_len(ceiling(defund * nrow(nav_hh)))]
+        cd[household_number %in% switch_ids, any_agent := 1L]
+      }
+    }
     for (pn in plan_ids_cell) {
       idx <- cd$plan_id == pn
       if (sum(idx) > 0 && "commission_broker" %in% names(cd)) {
@@ -107,7 +119,7 @@ score_cf_cell <- function(r, y) {
         n_switch <- ceiling(tau * nrow(agent_hh))
         switch_ids <- agent_hh$household_number[seq_len(n_switch)]
         cd[household_number %in% switch_ids, `:=`(commission_broker = 0, any_agent = 0L, channel_detail = "Navigator")]
-        if (tau < 1) {
+        if (tau < 1 && !broker_remain) {
           remain_ids <- setdiff(agent_hh$household_number, switch_ids)
           cd[household_number %in% remain_ids, `:=`(assisted = 0L, commission_broker = 0, any_agent = 0L, channel_detail = "Unassisted")]
         }
@@ -145,49 +157,46 @@ score_cf_cell <- function(r, y) {
     sum(hh_cs$hh_weight * hh_cs$cs) / sum(hh_cs$hh_weight)
   }
 
-  # --- aligned commission (mirror run_cf_cell) ---
-  cd_base_nc <- as.data.table(copy(cell_data_base)); for (cn in intersect(COMM_TERMS, names(cd_base_nc))) cd_base_nc[[cn]] <- 0
-  cd_base_nc[, V_nc := compute_utility(cd_base_nc, coefs)$V]
-  plan_val <- cd_base_nc[plan_id != "Uninsured", .(val = mean(V_nc, na.rm = TRUE)), by = plan_id]
-  val_vec <- setNames(plan_val$val, plan_val$plan_id)[plan_ids_cell]; val_vec[!is.finite(val_vec)] <- min(val_vec[is.finite(val_vec)], na.rm = TRUE)
-  obs_share <- setNames(sr_cell$share, sr_cell$plan_id)[plan_ids_cell]; obs_share[!is.finite(obs_share)] <- 0
-  w_val <- val_vec - min(val_vec); budget <- sum(comm_obs_sc * obs_share, na.rm = TRUE); denom <- sum(w_val * obs_share, na.rm = TRUE)
-  comm_aligned <- setNames(as.numeric(if (denom > 0) w_val * (budget / denom) else comm_obs_sc), plan_ids_cell)
+  # Scenarios are enumerated from cf1's output; the commission vector per
+  # scenario is read from the persisted commission_pmpm exactly like premium_cf
+  # (for the endogenous-commission scenarios that column carries the SOLVED eta,
+  # so cf2 needs no scenario-construction knowledge and cannot drift from cf1).
+  # Scenario data flags recovered from the label: endog_tau -> tau + brokers
+  # remain; defund_<f> -> reverse conversion at fraction f; zero_tau -> tau.
+  scen_labels <- unique(cf_cell$scenario)
 
-  zero <- setNames(rep(0, length(plan_ids_cell)), plan_ids_cell)
-  scen <- c(
-    list(list(lab = "observed", comm = comm_obs_sc, tau = NULL)),
-    lapply(c(0, .25, .5, .75, 1), function(tt) list(lab = sprintf("zero_tau%.2f", tt), comm = zero, tau = tt)),
-    list(list(lab = "uniform", comm = setNames(rep(mean_comm_pmpm, length(plan_ids_cell)), plan_ids_cell), tau = NULL)),
-    lapply(c(.25, .5, .75), function(ss) list(lab = sprintf("scale_%.2f", ss), comm = comm_obs_sc * ss, tau = NULL)),
-    list(list(lab = "aligned", comm = comm_aligned, tau = NULL))
-  )
-
-  per <- lapply(scen, function(s) {
-    cd <- build_scenario_data(cell_data_base, s$comm, s$tau)
-    psol <- cf_cell[scenario == s$lab, .(plan_id, premium_cf)]
-    if (nrow(psol) == 0) return(NULL)
-    p_vec <- setNames(psol$premium_cf, psol$plan_id)[plan_ids_cell]
+  per <- lapply(scen_labels, function(lab) {
+    rows <- cf_cell[scenario == lab]
+    if (nrow(rows) == 0) return(NULL)
+    comm <- setNames(rows$commission_pmpm, rows$plan_id)[plan_ids_cell]
+    comm[is.na(comm)] <- 0
+    names(comm) <- plan_ids_cell
+    tt <- rows$tau[1]; if (is.na(tt)) tt <- NULL
+    df <- if (grepl("^defund_", lab)) as.numeric(sub("^defund_", "", lab)) else NULL
+    cd <- build_scenario_data(cell_data_base, comm, tau = tt,
+                              broker_remain = grepl("^endog_tau", lab), defund = df)
+    p_vec <- setNames(rows$premium_cf, rows$plan_id)[plan_ids_cell]
     if (any(is.na(p_vec))) return(NULL)
+    names(p_vec) <- plan_ids_cell
     dt <- update_premiums(as.data.table(copy(cd)), p_vec)
     espend <- household_spending(dt, SPENDING_SCHEDULE)   # per-row; flat until MEPS filled
     cs    <- tryCatch(compute_consumer_surplus(dt, coefs), error = function(e) NA_real_)
-    cs_nc <- if (s$lab == "observed" || grepl("^scale_", s$lab) || s$lab == "aligned")
+    cs_nc <- if (!grepl("^zero_tau", lab) && lab != "uniform")
                tryCatch(compute_consumer_surplus(dt, coefs, welfare_drop = COMM_TERMS), error = function(e) NA_real_) else NA_real_
     # per_hh = TRUE gives per-household nav / obj / components; the cell-level number
     # is the household-weight-weighted mean of those, identical to the old aggregate.
     whh <- tryCatch(scenario_welfare(dt, coefs, lambda, y, CS_TABLE, mean_spending = espend, per_hh = TRUE), error = function(e) NULL)
     if (is.null(whh)) {
-      cell <- data.table(region = r, year = y, scenario = s$lab, cs_weighted = cs, cs_nocomm = cs_nc,
+      cell <- data.table(region = r, year = y, scenario = lab, cs_weighted = cs, cs_nocomm = cs_nc,
                          cs_welfare_nav = NA_real_, cs_welfare_obj = NA_real_,
                          obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_)
       return(list(cell = cell, hh = NULL))
     }
     W <- sum(whh$w); agg <- function(x) sum(x * whh$w) / W
-    cell <- data.table(region = r, year = y, scenario = s$lab, cs_weighted = cs, cs_nocomm = cs_nc,
+    cell <- data.table(region = r, year = y, scenario = lab, cs_weighted = cs, cs_nocomm = cs_nc,
                        cs_welfare_nav = agg(whh$nav), cs_welfare_obj = agg(whh$obj),
                        obj_prem = agg(whh$obj_prem), obj_eoop = agg(whh$obj_eoop), obj_risk = agg(whh$obj_risk))
-    list(cell = cell, hh = data.table(region = r, year = y, scenario = s$lab, whh))
+    list(cell = cell, hh = data.table(region = r, year = y, scenario = lab, whh))
   })
   per <- per[!vapply(per, is.null, logical(1))]
   if (length(per) == 0) return(NULL)

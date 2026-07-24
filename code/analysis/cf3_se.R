@@ -97,6 +97,11 @@ summarize_cf_headline <- function(cf) {
   taus <- c(0, 0.25, 0.5, 0.75, 1.0)
   grad <- vapply(taus, function(t) mdelta(sprintf("zero_tau%.2f", t), "cs_weighted"), numeric(1))
   names(grad) <- paste0("grad_cs_tau", sprintf("%.2f", taus))
+  # Endogenous-commission scenario families (trimmed grids; endog_tau0 = observed,
+  # so its delta is 0 by construction and is not carried).
+  taus_e <- c(0.5, 1.0)
+  grad_e <- vapply(taus_e, function(t) mdelta(sprintf("endog_tau%.2f", t), "cs_weighted"), numeric(1))
+  names(grad_e) <- paste0("grad_cs_endog_tau", sprintf("%.2f", taus_e))
   # obj decomposed into premium / expected-OOP / risk (the same columns cf2 reports;
   # here they get bootstrap SEs, so the assumption-driven risk piece is inferable too).
   c(va_cs            = unname(grad["grad_cs_tau1.00"] - grad["grad_cs_tau0.00"]),
@@ -106,6 +111,14 @@ summarize_cf_headline <- function(cf) {
     va_obj_prem      = mdelta("zero_tau1.00", "obj_prem") - mdelta("zero_tau0.00", "obj_prem"),
     va_obj_eoop      = mdelta("zero_tau1.00", "obj_eoop") - mdelta("zero_tau0.00", "obj_eoop"),
     va_obj_risk      = mdelta("zero_tau1.00", "obj_risk") - mdelta("zero_tau0.00", "obj_risk"),
+    grad_e,
+    va_cs_endog      = unname(grad_e["grad_cs_endog_tau1.00"]),
+    va_nav_endog     = mdelta("endog_tau1.00", "cs_welfare_nav"),
+    va_obj_endog     = mdelta("endog_tau1.00", "cs_welfare_obj"),
+    flatmand_dcs     = mdelta("flat_mandate", "cs_weighted"),
+    flatmand_obj     = mdelta("flat_mandate", "cs_welfare_obj"),
+    defund_dcs       = mdelta("defund_1.00", "cs_weighted"),
+    defund_obj       = mdelta("defund_1.00", "cs_welfare_obj"),
     aligned_dcs      = mdelta("aligned", "cs_weighted"),
     aligned_dcs_nc   = mdelta("aligned", "cs_nocomm"),
     aligned_nav      = mdelta("aligned", "cs_welfare_nav"),
@@ -120,7 +133,7 @@ summarize_cf_headline <- function(cf) {
 # observed choice, and return the share worse off (money + navigator rulers) for the
 # key scenarios. Always returns the same fixed-length named vector (NA where a
 # scenario is missing) so the per-draw rows stack cleanly.
-DIST_SCEN <- c("zero_tau0.00", "zero_tau1.00", "aligned")
+DIST_SCEN <- c("zero_tau0.00", "zero_tau1.00", "aligned", "endog_tau0.50")
 dist_headline <- function(hh_dir) {
   nm  <- c(paste0("shareworse_obj_", DIST_SCEN), paste0("shareworse_nav_", DIST_SCEN))
   out <- setNames(rep(NA_real_, length(nm)), nm)

@@ -665,7 +665,13 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 # compute_broker_shares_and_elasticities -----------------------------------
 #
 # Like compute_shares_and_elasticities() but aggregates only over
-# broker-assisted (assisted == 1) households.
+# broker-channel (broker == 1, i.e. assisted x any_agent) households — the
+# households commissions are paid on. Shares and derivatives are normalized by
+# TOTAL cell weight (all households), matching the all-HH kernel, so the
+# commission-outlay term Omega_broker %*% comm_vec is in the same share units
+# as the rest of the FOC. (Fixed 2026-07-23: previously filtered assisted == 1
+# — navigators included — and normalized by assisted-only weight, inflating the
+# term ~3x. Cells with navigators but no brokers now correctly return zeros.)
 # Returns broker-specific market shares and J x J derivative matrix.
 
 compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
@@ -706,8 +712,12 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
   }
   ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
 
-  # Filter to broker-assisted HH only
-  ins_dt <- ins_dt[assisted == 1L]
+  # Total weight over ALL households — the normalization every other FOC term
+  # uses — computed BEFORE the channel filter
+  total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
+
+  # Filter to broker-channel HH only (commissions are paid on these households)
+  ins_dt <- ins_dt[broker == 1L]
 
   if (nrow(ins_dt) == 0) {
     return(list(
@@ -716,9 +726,6 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
       plan_ids = plan_ids
     ))
   }
-
-  # Weighted broker shares
-  total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
 
   shares_dt <- ins_dt[, .(share = sum(hh_weight * q_j) / total_weight), by = plan_id]
   broker_shares <- setNames(shares_dt$share, shares_dt$plan_id)
@@ -793,4 +800,82 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
   }
 
   list(broker_shares = broker_shares, broker_elast_mat = elast_mat, plan_ids = plan_ids)
+}
+
+
+# compute_commission_derivatives --------------------------------------------
+#
+# D[j,k] = d qB_j / d eta_k over broker-channel households (share units per $
+# of commission PMPM, normalized by TOTAL cell weight); qB = broker enrollment
+# in the same share units. Same nested-logit derivative as the premium kernels
+# but with beta_comm as the utility slope: no alpha_i, no rating factor, and no
+# benchmark 4-case logic (commissions do not touch the subsidy):
+#
+#   D[j,k] = beta_comm * sum_{i in broker} w_i q_ij (1{j=k}/lambda_i
+#            + ((lambda_i-1)/lambda_i) s_ik|g - q_ik) / W_total
+#
+# Wide-matrix crossprod form validated in scratch/check_commission_foc.R
+# (reproduces pipeline shares to machine precision); generalized here to the
+# per-row lambda_i the sibling kernels support (constant within household).
+# Used by the CF commission FOC (helpers/cf_cell.R): [D %*% w_f]_j is
+# d qB_j / d k_f with NO transpose — rows respond, columns move.
+
+compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell) {
+
+  dt <- as.data.table(cell_data)
+  dt[, V := V]
+
+  plan_ids <- sort(unique(dt$plan_id[dt$plan_id != "Uninsured"]))
+  J <- length(plan_ids)
+
+  coef_map <- setNames(coefs_cell$estimate, coefs_cell$term)
+  beta_comm <- if ("commission_broker" %in% names(coef_map)) coef_map[["commission_broker"]] else 0
+
+  # V_0 = β'X_0 for each HH (NOT zero)
+  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
+
+  ins_dt <- dt[plan_id != "Uninsured"]
+  ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
+
+  if (!("lambda_i" %in% names(ins_dt))) ins_dt[, lambda_i := lambda]
+
+  ins_dt[, V_scaled := V / lambda_i]
+  ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
+  ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
+  ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
+  ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
+  ins_dt[, s_jg := exp_V / sum_exp_V]
+  ins_dt[, log_D_lam := lambda_i * log_D]
+  ins_dt[, mx := pmax(log_D_lam, V_0)]
+  ins_dt[, s_g := exp(log_D_lam - mx) / (exp(log_D_lam - mx) + exp(V_0 - mx))]
+  ins_dt[, q_j := s_jg * s_g]
+
+  # Total weight over ALL households, before the channel filter
+  total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
+
+  ins_dt <- ins_dt[broker == 1L]
+
+  if (nrow(ins_dt) == 0) {
+    return(list(qB = setNames(rep(0, J), plan_ids),
+                D = matrix(0, J, J, dimnames = list(plan_ids, plan_ids)),
+                plan_ids = plan_ids, W_total = total_weight))
+  }
+
+  # Wide matrices (household x plan); dcast sorts rows by household_number
+  ins_dt[, wq := hh_weight * q_j]
+  Wq_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
+                          value.var = "wq", fill = 0)[, ..plan_ids])
+  Sm_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
+                          value.var = "s_jg", fill = 0)[, ..plan_ids])
+  Qm_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
+                          value.var = "q_j", fill = 0)[, ..plan_ids])
+  lam <- ins_dt[, .(lam = first(lambda_i)), by = household_number][order(household_number), lam]
+
+  D <- beta_comm * (crossprod(Wq_m, ((lam - 1) / lam) * Sm_m - Qm_m) +
+                      diag(colSums(Wq_m / lam), nrow = J)) / total_weight
+  dimnames(D) <- list(plan_ids, plan_ids)
+
+  qB <- setNames(colSums(Wq_m) / total_weight, plan_ids)
+
+  list(qB = qB, D = D, plan_ids = plan_ids, W_total = total_weight)
 }
