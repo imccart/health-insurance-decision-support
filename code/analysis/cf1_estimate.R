@@ -160,167 +160,46 @@ cat("  Written", nrow(cf_results), "rows to results/counterfactual_results.csv\n
 # PHASE 4: Summary
 # =========================================================================
 
-cat("\n--- Counterfactual Summary ---\n")
+cat("\n--- Counterfactual Summary (equilibria only; welfare is scored in cf2) ---\n")
 
-for (sc_name in c("observed", "uniform")) {
-  sc_data <- cf_results %>% filter(scenario == sc_name)
-  if (nrow(sc_data) == 0) next
-
-  converged_pct <- mean(sc_data$nleqslv_termcd <= 2, na.rm = TRUE) * 100
-
-  cat("\nScenario:", sc_name, "\n")
-  cat("  Plans:", nrow(sc_data), "\n")
-  cat("  Premium change: mean =", round(mean(sc_data$premium_change, na.rm = TRUE), 2),
-      ", median =", round(median(sc_data$premium_change, na.rm = TRUE), 2), "\n")
-  cat("  CS (weighted avg):", round(mean(sc_data$cs_weighted, na.rm = TRUE), 2), "\n")
-  cat("  Converged:", round(converged_pct, 1), "%\n")
-}
-
-# Tau gradient summary
-tau_scenarios <- cf_results %>% filter(str_detect(scenario, "^zero_tau"))
-if (nrow(tau_scenarios) > 0) {
-  cat("\n--- Broker-to-Navigator Substitution Gradient ---\n")
-
-  cs_obs_val <- cf_results %>%
-    filter(scenario == "observed") %>%
-    distinct(region, year, cs_weighted)
-
-  tau_summary <- tau_scenarios %>%
-    distinct(region, year, scenario, tau, cs_weighted) %>%
-    left_join(cs_obs_val %>% rename(cs_obs = cs_weighted), by = c("region", "year")) %>%
-    mutate(delta_cs = cs_weighted - cs_obs) %>%
-    group_by(tau) %>%
-    summarize(
-      mean_delta_cs = mean(delta_cs, na.rm = TRUE),
-      mean_premium_change = mean(
-        tau_scenarios$premium_change[tau_scenarios$tau == first(tau)], na.rm = TRUE
-      ),
-      n_cells = length(unique(paste(region, year))),
-      .groups = "drop"
-    )
-
-  cat("\n")
-  print(tau_summary %>%
-    mutate(across(where(is.numeric), ~round(., 2))),
-    n = Inf
+# Per-scenario premium change and convergence
+scen_summary <- cf_results %>%
+  group_by(scenario) %>%
+  summarize(
+    n_cells = length(unique(paste(region, year))),
+    mean_premium_change = mean(premium_change, na.rm = TRUE),
+    converged_pct = 100 * mean(nleqslv_termcd <= 2, na.rm = TRUE),
+    .groups = "drop"
   )
+cat("\n"); print(scen_summary %>% mutate(across(where(is.numeric), ~round(., 2))), n = Inf)
 
-  if (!dir.exists("results/figures")) dir.create("results/figures", recursive = TRUE)
-
-  p_tau <- tau_summary %>%
-    ggplot(aes(x = tau, y = mean_delta_cs)) +
-    geom_line(linewidth = 1) +
-    geom_point(size = 2) +
-    geom_hline(yintercept = 0, linetype = "dashed") +
-    labs(x = "Broker-to-Navigator Substitution Rate",
-         y = "Mean Welfare Change ($/month/HH)") +
-    scale_x_continuous(breaks = seq(0, 1, 0.25)) +
-    theme_bw()
-  ggsave("results/figures/cf_welfare_gradient.png", p_tau, width = 6, height = 4)
-  cat("  Welfare gradient figure saved.\n")
-
-  cat("\n  Value of assistance (tau=1 vs tau=0):",
-      round(tau_summary$mean_delta_cs[tau_summary$tau == 1] -
-              tau_summary$mean_delta_cs[tau_summary$tau == 0], 2),
-      "$/month/HH\n")
-}
-
-# Endogenous-commission scenarios: solved commission scales and welfare vs observed
+# Endogenous-commission scenarios: solved commission scale k
 endog_scenarios <- cf_results %>%
   filter(str_detect(scenario, "^endog_tau|^defund_") | scenario == "flat_mandate")
 if (nrow(endog_scenarios) > 0) {
-  cat("\n--- Endogenous-Commission Scenarios (vs observed) ---\n")
+  cat("\n--- Endogenous-Commission Scenarios: solved commission scale ---\n")
   cat("    comm_scale = share-weighted mean solved k of endogenous insurers (1 = observed schedule)\n")
-
-  cs_obs_e <- cf_results %>%
-    filter(scenario == "observed") %>%
-    distinct(region, year, cs_weighted) %>%
-    rename(cs_obs = cs_weighted)
-
   endog_summary <- endog_scenarios %>%
     group_by(scenario) %>%
     summarize(
-      mean_premium_change = mean(premium_change, na.rm = TRUE),
       comm_scale = if (all(is.na(comm_scale_cf))) NA_real_ else
         weighted.mean(comm_scale_cf, share_cf, na.rm = TRUE),
       mean_comm = weighted.mean(commission_pmpm, share_cf, na.rm = TRUE),
-      converged_pct = mean(nleqslv_termcd <= 2, na.rm = TRUE) * 100,
+      mean_premium_change = mean(premium_change, na.rm = TRUE),
+      converged_pct = 100 * mean(nleqslv_termcd <= 2, na.rm = TRUE),
       .groups = "drop"
-    ) %>%
-    left_join(
-      endog_scenarios %>%
-        distinct(region, year, scenario, cs_weighted) %>%
-        left_join(cs_obs_e, by = c("region", "year")) %>%
-        group_by(scenario) %>%
-        summarize(mean_delta_cs = mean(cs_weighted - cs_obs, na.rm = TRUE),
-                  n_cells = n(), .groups = "drop"),
-      by = "scenario"
     )
-
-  cat("\n")
-  print(endog_summary %>% mutate(across(where(is.numeric), ~round(., 3))), n = Inf)
-
-  mu_obs <- cf_results %>%
-    filter(scenario == "observed", !is.na(mu_comm)) %>%
-    distinct(region, year, plan_id, mu_comm, share_cf)
-  if (nrow(mu_obs) > 0) {
-    cat("\n  Commission wedge mu (per-dollar shadow cost, observed calibration):\n")
-    cat("    enrollment-weighted mean =",
-        round(weighted.mean(mu_obs$mu_comm, mu_obs$share_cf, na.rm = TRUE), 2),
-        "; quantiles:\n")
-    print(round(quantile(mu_obs$mu_comm, c(.05, .25, .5, .75, .95), na.rm = TRUE), 2))
-  }
+  cat("\n"); print(endog_summary %>% mutate(across(where(is.numeric), ~round(., 3))), n = Inf)
 }
 
-# Commission-design counterfactuals (level sweep + aligned), vs observed
-comm_scenarios <- cf_results %>% filter(scenario == "aligned" | str_detect(scenario, "^scale_"))
-if (nrow(comm_scenarios) > 0) {
-  cat("\n--- Commission-Design Counterfactuals (vs observed) ---\n")
-  cat("    delta_cs = full welfare; delta_cs_nc = welfare excluding commission utility\n")
-
-  obs_cs <- cf_results %>%
-    filter(scenario == "observed") %>%
-    distinct(region, year, cs_weighted, cs_nocomm) %>%
-    rename(cs_obs = cs_weighted, cs_obs_nc = cs_nocomm)
-
-  cs_summary <- comm_scenarios %>%
-    distinct(region, year, scenario, cs_weighted, cs_nocomm) %>%
-    left_join(obs_cs, by = c("region", "year")) %>%
-    mutate(delta_cs = cs_weighted - cs_obs,
-           delta_cs_nc = cs_nocomm - cs_obs_nc) %>%
-    group_by(scenario) %>%
-    summarize(mean_delta_cs = mean(delta_cs, na.rm = TRUE),
-              mean_delta_cs_nc = mean(delta_cs_nc, na.rm = TRUE),
-              n_cells = n(), .groups = "drop")
-
-  prem_summary <- comm_scenarios %>%
-    group_by(scenario) %>%
-    summarize(mean_premium_change = mean(premium_change, na.rm = TRUE), .groups = "drop")
-
-  comm_summary <- cs_summary %>% left_join(prem_summary, by = "scenario")
-  cat("\n")
-  print(comm_summary %>% mutate(across(where(is.numeric), ~round(., 2))), n = Inf)
-}
-
-# Welfare at actual choices (navigator vs objective benchmark), mean change vs observed
-if ("cs_welfare_obj" %in% names(cf_results)) {
-  cat("\n--- Welfare at actual choices (mean change vs observed) ---\n")
-  cat("    nav = navigator-informed V^N ($, utils / informed alpha); obj = objective money metric ($)\n")
-  wbase <- cf_results %>%
-    filter(scenario == "observed") %>%
-    distinct(region, year, cs_welfare_nav, cs_welfare_obj) %>%
-    rename(nav0 = cs_welfare_nav, obj0 = cs_welfare_obj)
-  wsum <- cf_results %>%
-    filter(!is.na(cs_welfare_obj)) %>%
-    distinct(region, year, scenario, tau, cs_welfare_nav, cs_welfare_obj) %>%
-    left_join(wbase, by = c("region", "year")) %>%
-    mutate(d_nav = cs_welfare_nav - nav0, d_obj = cs_welfare_obj - obj0) %>%
-    group_by(scenario, tau) %>%
-    summarize(d_nav = mean(d_nav, na.rm = TRUE), d_obj = mean(d_obj, na.rm = TRUE),
-              n_cells = n(), .groups = "drop") %>%
-    arrange(scenario, tau)
-  cat("\n")
-  print(wsum %>% mutate(across(where(is.numeric), ~round(., 2))), n = Inf)
+# Commission wedge mu (per-dollar shadow cost, observed calibration)
+mu_obs <- cf_results %>%
+  filter(scenario == "observed", !is.na(mu_comm)) %>%
+  distinct(region, year, plan_id, mu_comm, share_cf)
+if (nrow(mu_obs) > 0) {
+  cat("\n  Commission wedge mu (observed calibration): enrollment-weighted mean =",
+      round(weighted.mean(mu_obs$mu_comm, mu_obs$share_cf, na.rm = TRUE), 2), "; quantiles:\n")
+  print(round(quantile(mu_obs$mu_comm, c(.05, .25, .5, .75, .95), na.rm = TRUE), 2))
 }
 
 cat("\nCounterfactual simulation complete.\n")

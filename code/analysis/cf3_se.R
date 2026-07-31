@@ -54,6 +54,14 @@ source("code/analysis/s1_inputs.R")
 # The per-cell CF solver, shared with cf1_estimate.R
 source("code/analysis/helpers/cf_cell.R")
 
+# The shared welfare scorer (same one cf2 uses). Each draw solves, then scores at
+# THAT draw's coefficients with the spending schedule, so the SEs are consistent
+# with cf2's point estimates. Its config:
+source("code/analysis/helpers/score_cf.R")
+CELL_DIR          <- file.path(TEMP_DIR, "choice_cells")
+COMM_TERMS        <- c("commission_broker")
+SPENDING_SCHEDULE <- load_spending_schedule()
+
 # Static CF inputs the skipped driver would have loaded. lazy = FALSE forces
 # eager reads -- exported objects must not carry readr's ALTREP file connection,
 # which is invalid on the cluster workers (serialize error otherwise).
@@ -62,6 +70,27 @@ reins_df       <- read_csv(file.path(TEMP_DIR, "reinsurance_factors.csv"), show_
 demand_spec    <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 STRUCTURAL_SPEC <- demand_spec$all
 CS_TABLE       <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors = FALSE)
+
+# Baseline cf1 equilibrium, per cell, to warm-start each draw's endogenous-scenario
+# solves (helpers/cf_cell.R argument warm_start). A perturbed draw sits next to the
+# baseline, so each cell starts near its answer and lands on the same spot in the
+# soft commission valley -- faster, and it keeps the draws coherent so the SE spread
+# reflects parameter uncertainty rather than where the solver happened to stop.
+cf_base <- as.data.table(read_csv("results/counterfactual_results.csv",
+                                  show_col_types = FALSE, lazy = FALSE))
+build_warm <- function(r, y) {
+  d <- cf_base[region == r & year == y & scenario != "observed"]
+  if (nrow(d) == 0) return(NULL)
+  ws <- list()
+  for (s in unique(d$scenario)) {
+    ds  <- d[scenario == s]
+    kdt <- ds[is.finite(comm_scale_cf),
+              .(k = first(comm_scale_cf)), by = .(pfx = sub("_.*", "", plan_id))]
+    ws[[s]] <- list(p = setNames(ds$premium_cf, ds$plan_id),
+                    k = if (nrow(kdt) > 0) setNames(kdt$k, kdt$pfx) else NULL)
+  }
+  ws
+}
 
 # Point estimates + sandwich covariances ----------------------------------
 read_vcov <- function(path) {
@@ -166,6 +195,7 @@ tasks <- lapply(seq_len(nrow(cells)), function(i) {
   hhs <- hh_split[[key]]
   list(r = cells$region[i], y = cells$year[i], seed = cell_seeds[i],
        idx = i, n_total = n_cells_total,
+       warm = build_warm(cells$region[i], cells$year[i]),
        hhs = if (is.null(hhs) || nrow(hhs) == 0) NULL else as.data.frame(hhs))
 })
 rm(hh_split); gc(verbose = FALSE)
@@ -178,19 +208,24 @@ rm(hh_split); gc(verbose = FALSE)
 run_one_boot <- function(task) {
   if (is.null(task$hhs)) return(NULL)
   t0  <- Sys.time()
-  out <- NULL
+  sol <- NULL
   tryCatch(
     capture.output(
-      out <- run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
+      sol <- run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
                          plan_choice, supply_results, coefs_b, commission_lookup,
                          rs_coefs_b, claims_coefs_b, reins_df, STRUCTURAL_SPEC,
-                         hh_sink = HH_SINK)),
+                         warm_start = task$warm)),
+    error = function(e) NULL)
+  # Solve gave premiums; score them at THIS draw's coefficients with the schedule
+  # (same scorer as cf2), writing per-household welfare to HH_SINK.
+  out <- if (is.null(sol)) NULL else tryCatch(
+    score_cf_cell(task$r, task$y, as.data.table(sol), HH_SINK, coefs_b, lambda_b),
     error = function(e) NULL)
   el <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
   db <- if (exists("draw_b")) draw_b else NA
   info <- if (is.null(out)) "FAILED" else {
-    conv <- if ("nleqslv_termcd" %in% names(out))
-      round(100 * mean(out$nleqslv_termcd <= 2, na.rm = TRUE)) else NA
+    conv <- if (!is.null(sol) && "nleqslv_termcd" %in% names(sol))
+      round(100 * mean(sol$nleqslv_termcd <= 2, na.rm = TRUE)) else NA
     sprintf("%d rows, %s%% conv", nrow(out), conv)
   }
   cat(sprintf("  [draw %s | cell %d/%d] r%s y%s: %s, %.0fs\n",
@@ -214,11 +249,12 @@ parallel::clusterEvalQ(cl, {
   source("code/analysis/helpers/estimate_demand.R")
   source("code/analysis/helpers/welfare_objective.R")
   source("code/analysis/helpers/welfare_engine.R")
+  source("code/analysis/helpers/score_cf.R")
   data.table::setDTthreads(1)
 })
 parallel::clusterExport(cl, c("run_cf_cell", "run_one_boot", "SAMPLE_FRAC",
   "plan_choice", "supply_results", "commission_lookup", "reins_df",
-  "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK"))
+  "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK", "CELL_DIR", "COMM_TERMS", "SPENDING_SCHEDULE"))
 message("  Parallel: ", n_workers, " workers; ", length(tasks), " cells/draw")
 
 # Draw loop ---------------------------------------------------------------
@@ -239,13 +275,14 @@ for (b in seq_len(N_BOOT_CF)) {
   }
   coefs_b <- data.frame(term = names(d_b), estimate = as.numeric(d_b),
                         stringsAsFactors = FALSE)
+  lambda_b <- setNames(coefs_b$estimate, coefs_b$term)[["lambda"]]
   # Cost draw (split into risk-score alpha + claims gamma by name)
   c_b <- MASS::mvrnorm(1, mu_c, Vc, tol = 1e-6)
   rs_coefs_b     <- c_b[alpha_names]
   claims_coefs_b <- c_b[gamma_names]
 
   draw_b <- b
-  parallel::clusterExport(cl, c("coefs_b", "rs_coefs_b", "claims_coefs_b", "draw_b"),
+  parallel::clusterExport(cl, c("coefs_b", "rs_coefs_b", "claims_coefs_b", "draw_b", "lambda_b"),
                           envir = environment())
   # Fresh per-household sink for this draw (workers write per cell; pooled below).
   unlink(HH_SINK, recursive = TRUE); dir.create(HH_SINK, recursive = TRUE, showWarnings = FALSE)

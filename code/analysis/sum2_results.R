@@ -50,11 +50,23 @@ if (file.exists("results/choice_coefficients_structural_se.csv")) {
 }
 supply_results   <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 
-# Counterfactual and bootstrap results (may not exist yet)
+# Counterfactual results. cf1's file carries the solved premiums/commissions; the
+# welfare columns come from cf2 (counterfactual_welfare.csv), the single scorer with
+# the spending schedule. Replace cf1's provisional welfare with cf2's (cell-level,
+# broadcast across the plan rows by region/year/scenario).
 cf_results <- tryCatch(
   read_csv("results/counterfactual_results.csv", show_col_types = FALSE),
   error = function(e) { cat("  counterfactual_results.csv not found\n"); NULL }
 )
+if (!is.null(cf_results)) {
+  cf_welfare <- tryCatch(read_csv("results/counterfactual_welfare.csv", show_col_types = FALSE),
+                         error = function(e) { cat("  counterfactual_welfare.csv not found\n"); NULL })
+  if (!is.null(cf_welfare))
+    cf_results <- cf_results %>%
+      select(-any_of(c("cs_weighted", "cs_nocomm", "cs_welfare_nav", "cs_welfare_obj",
+                       "obj_prem", "obj_eoop", "obj_risk"))) %>%
+      left_join(cf_welfare, by = c("region", "year", "scenario"))
+}
 boot_coefs <- tryCatch(
   read_csv("results/choice_bootstrap_coef.csv", show_col_types = FALSE),
   error = function(e) { cat("  choice_bootstrap_coef.csv not found\n"); NULL }
@@ -475,6 +487,50 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/counterfactual_results.tex")
   cat("  Wrote results/tables/counterfactual_results.tex\n")
+
+  # --- 5a2. Welfare effects with bootstrap SEs (from cf3) ---
+  # cf3 writes point/se/CI keyed by the statistic names in summarize_cf_headline;
+  # curate the headline welfare effects (all $/member/month vs observed) into a table.
+  # Skips cleanly until cf3 has been run.
+  boot_se <- tryCatch(read_csv("results/cf_bootstrap_se.csv", show_col_types = FALSE),
+                      error = function(e) NULL)
+  if (!is.null(boot_se)) {
+    lab_map <- c(
+      va_cs                 = "Value of assistance, CS (ban $\\tau$1$-\\tau$0)",
+      va_obj                = "Value of assistance, objective",
+      va_obj_prem           = "\\quad premium component",
+      va_obj_eoop           = "\\quad expected-OOP component",
+      va_obj_risk           = "\\quad risk component",
+      grad_cs_tau0.00       = "Commission ban, CS ($\\tau$=0)",
+      grad_cs_tau1.00       = "Commission ban, CS ($\\tau$=1)",
+      grad_cs_endog_tau1.00 = "Navigator expansion, CS",
+      va_obj_endog          = "Navigator expansion, objective",
+      defund_dcs            = "Defunding, CS",
+      defund_obj            = "Defunding, objective",
+      flatmand_dcs          = "Flat-fee mandate, CS",
+      flatmand_obj          = "Flat-fee mandate, objective",
+      aligned_dcs           = "Aligned commissions, CS",
+      aligned_obj           = "Aligned commissions, objective"
+    )
+    bs <- boot_se %>%
+      filter(statistic %in% names(lab_map)) %>%
+      arrange(match(statistic, names(lab_map)))
+    if (nrow(bs) > 0) {
+      wl <- c("\\begin{tabular}{lrrr}", "\\hline\\hline",
+              "Welfare effect (\\$/member/month) & Estimate & SE & 95\\% CI \\\\", "\\hline")
+      for (i in seq_len(nrow(bs))) {
+        b <- bs[i, ]
+        wl <- c(wl, sprintf("%s & %s & %s & [%s, %s] \\\\",
+          lab_map[[b$statistic]], fmt(b$point, 1), fmt(b$se, 1),
+          fmt(b$ci_lo, 1), fmt(b$ci_hi, 1)))
+      }
+      wl <- c(wl, "\\hline\\hline", "\\end{tabular}")
+      writeLines(wl, "results/tables/counterfactual_welfare_se.tex")
+      cat("  Wrote results/tables/counterfactual_welfare_se.tex\n")
+    }
+  } else {
+    cat("  cf_bootstrap_se.csv not found -- run cf3 to populate welfare SEs\n")
+  }
 
   # --- 5b. Welfare gradient figure (CS by tau) ---
   tau_results <- cf_results %>%

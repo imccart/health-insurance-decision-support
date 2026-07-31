@@ -26,7 +26,12 @@
 run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                         plan_choice, supply_results, coefs,
                         commission_lookup, rs_coefs, claims_coefs,
-                        reins_df, STRUCTURAL_SPEC, hh_sink = NULL) {
+                        reins_df, STRUCTURAL_SPEC, warm_start = NULL) {
+  # warm_start (bootstrap only): a per-scenario list keyed by scenario label, each
+  # element list(p = premiums by plan_id, k = commission scale by insurer prefix)
+  # from the baseline cf1 solution. Used only as the STARTING point of the endogenous
+  # scenario solves so each draw begins next to its answer and lands on the same
+  # spot in the (soft) commission valley as the baseline. NULL (cf1) = old behavior.
 
   TAU_GRID <- c(0, 0.25, 0.5, 0.75, 1.0)
   # Endogenous-commission scenario grids, trimmed (read 0 -> 0.5 -> 1; tau = 0
@@ -670,61 +675,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     list(fn = fn, jac = jac, cache = cache)
   }
 
-  # Consumer surplus --------------------------------------------------------
-  # welfare_drop: column names zeroed before utility is computed, so their
-  # coefficients do not enter the welfare log-sum. Used to value scenarios on the
-  # NON-commission part of utility (welfare_drop = the commission terms), which
-  # makes the welfare comparison robust to whether commission steering reflects a
-  # genuine preference or a behavioral wedge.
-  compute_consumer_surplus <- function(cell_data, coefs_cell, welfare_drop = character()) {
-    coef_map_cs <- setNames(coefs_cell$estimate, coefs_cell$term)
-    lambda_cs <- coef_map_cs[["lambda"]]
-
-    if (length(welfare_drop) > 0) {
-      cell_data <- as.data.table(copy(cell_data))
-      for (cn in intersect(welfare_drop, names(cell_data))) cell_data[[cn]] <- 0
-    }
-
-    util <- compute_utility(cell_data, coefs_cell)
-    V <- util$V
-
-    dt <- as.data.table(cell_data)
-    dt[, V := V]
-
-    V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V[1]), by = household_number]
-
-    ins_dt <- dt[plan_id != "Uninsured"]
-    ins_dt[, V_scaled := V / lambda_cs]
-    ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
-    ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
-    ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
-    ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
-    ins_dt[, log_D_lam := lambda_cs * log_D]
-
-    alpha_vec <- compute_alpha_i(ins_dt, coefs_cell, STRUCTURAL_SPEC)
-    ins_dt[, alpha_i := alpha_vec]
-
-    ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
-    ins_dt[is.na(V_0), V_0 := 0]
-
-    hh_cs <- ins_dt[, .(
-      log_D_lam = first(log_D_lam),
-      V_0 = first(V_0),
-      alpha_i = first(alpha_i),
-      hh_weight = first(hh_weight)
-    ), by = household_number]
-
-    hh_cs[, mx := pmax(V_0, log_D_lam)]
-    # alpha_i is dV/dp (negative). The McFadden surplus divides the log-sum by the
-    # marginal utility of income, which is the POSITIVE quantity -alpha_i. Use
-    # abs(alpha_i) so CS is a positive dollar value and welfare differences carry
-    # the intuitive sign (assistance / lower premiums raise CS).
-    hh_cs[, cs := (1 / abs(alpha_i)) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500))))]
-
-    total_weight <- sum(hh_cs$hh_weight)
-    weighted_cs <- sum(hh_cs$hh_weight * hh_cs$cs) / total_weight
-    weighted_cs
-  }
 
 
   # Solve pricing equilibrium ------------------------------------------------
@@ -1015,23 +965,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
   results_list <- list()
 
-  # Optional per-household welfare sink (off unless hh_sink is a directory). When
-  # set, each scenario's per-household nav/obj/components are collected and written
-  # to hh_sink at the end, so the bootstrap (cf3) can pool them across cells per draw
-  # and put SEs on the DISTRIBUTION of effects. Off for cf1 (hh_sink = NULL), which
-  # therefore behaves exactly as before; cf2 gets the distribution from its own
-  # scorer. Collecting per-household here re-scores per scenario (a second
-  # scenario_welfare pass), a small cost paid only in the bootstrap.
-  hh_list <- list()
-  collect_hh <- function(dt, label) {
-    if (is.null(hh_sink)) return(invisible())
-    whh <- tryCatch(scenario_welfare(dt, coefs, lambda, y, CS_TABLE, per_hh = TRUE),
-                    error = function(e) NULL)
-    if (!is.null(whh))
-      hh_list[[length(hh_list) + 1L]] <<- data.table(region = r, year = y,
-                                                     scenario = label, whh)
-  }
-
   # Scenario 1: Observed (joint premium + commission fixed point)
   comm_obs_sc <- comm_obs[plan_ids_cell]
   cd_obs <- build_scenario_data(cell_data_base, comm_obs_sc)
@@ -1145,14 +1078,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                                 unname(comm_etabar[endog_prefixes]))
 
   if (!is.null(eq_obs)) {
-    obs_dt <- eq_obs$dt_final %||% cd_obs
-    cs_obs <- tryCatch(compute_consumer_surplus(obs_dt, coefs),
-                        error = function(e) NA_real_)
-    cs_obs_nc <- tryCatch(compute_consumer_surplus(obs_dt, coefs, welfare_drop = COMM_TERMS),
-                          error = function(e) NA_real_)
-    wf_obs <- tryCatch(scenario_welfare(obs_dt, coefs, lambda, y, CS_TABLE),
-                       error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-    collect_hh(obs_dt, "observed")
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "observed", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -1166,13 +1091,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       comm_scale_cf = k_by_plan(eq_obs$k),
       mu_comm = mu_by_plan[plan_ids_cell],
       markup_cf = eq_obs$p[plan_ids_cell] - eq_obs$mc[plan_ids_cell],
-      cs_weighted = cs_obs,
-      cs_nocomm = cs_obs_nc,
-      cs_welfare_nav = wf_obs[["nav"]],
-      cs_welfare_obj = wf_obs[["obj"]],
-      obj_prem = wf_obs[["obj_prem"]],
-      obj_eoop = wf_obs[["obj_eoop"]],
-      obj_risk = wf_obs[["obj_risk"]],
       nleqslv_termcd = eq_obs$sol$termcd,
       nleqslv_iter = eq_obs$sol$iter
     )
@@ -1191,6 +1109,18 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   p_obs_sol <- if (!is.null(eq_obs)) eq_obs$p else p_obs[plan_ids_cell]
   rm(cd_obs)
 
+  # Baseline warm-start: the scenario premiums / commission dollars from cf1, or the
+  # default start when warm_start is NULL (cf1) or lacks this scenario.
+  ws_p <- function(label, default)
+    if (is.null(warm_start[[label]])) default else warm_start[[label]]$p[plan_ids_cell]
+  ws_kappa <- function(label, prefixes, etabar_local, default) {
+    k <- if (is.null(warm_start[[label]])) NULL else warm_start[[label]]$k[prefixes]
+    # A draw's endogenous set can differ from the baseline's (perturbed coefficients
+    # move a borderline insurer across the threshold); cold-start k rather than feed
+    # the solver an NA when the baseline doesn't cover this draw's insurers.
+    if (is.null(k) || anyNA(k)) default else unname(k * etabar_local[prefixes])
+  }
+
 
   # Scenario 2: Zero commission with tau gradient
   comm_zero <- setNames(rep(0, length(plan_ids_cell)), plan_ids_cell)
@@ -1202,16 +1132,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     eq_tau <- solve_equilibrium(cd_tau, comm_zero, p_warm)
 
     if (!is.null(eq_tau)) {
-      dt_cs <- eq_tau$dt_final
-      if (is.null(dt_cs)) {
-        dt_cs <- update_premiums(as.data.table(copy(cd_tau)), eq_tau$p)
-      }
-      cs_tau <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
-                          error = function(e) NA_real_)
-      wf_tau <- tryCatch(scenario_welfare(dt_cs, coefs, lambda, y, CS_TABLE),
-                         error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-      collect_hh(dt_cs, sc_label)
-
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = tau,
         plan_id = plan_ids_cell,
@@ -1223,12 +1143,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         mc = eq_tau$mc[plan_ids_cell],
         commission_pmpm = comm_zero[plan_ids_cell],
         markup_cf = eq_tau$p[plan_ids_cell] - eq_tau$mc[plan_ids_cell],
-        cs_weighted = cs_tau,
-        cs_welfare_nav = wf_tau[["nav"]],
-        cs_welfare_obj = wf_tau[["obj"]],
-        obj_prem = wf_tau[["obj_prem"]],
-        obj_eoop = wf_tau[["obj_eoop"]],
-        obj_risk = wf_tau[["obj_risk"]],
         nleqslv_termcd = eq_tau$sol$termcd,
         nleqslv_iter = eq_tau$sol$iter
       )
@@ -1248,11 +1162,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   eq_unif <- solve_equilibrium(cd_unif, comm_uniform, p_obs)
 
   if (!is.null(eq_unif)) {
-    cs_unif <- tryCatch(compute_consumer_surplus(eq_unif$dt_final %||% cd_unif, coefs),
-                         error = function(e) NA_real_)
-    wf_unif <- tryCatch(scenario_welfare(eq_unif$dt_final %||% cd_unif, coefs, lambda, y, CS_TABLE),
-                        error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-    collect_hh(eq_unif$dt_final %||% cd_unif, "uniform")
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "uniform", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -1264,12 +1173,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       mc = eq_unif$mc[plan_ids_cell],
       commission_pmpm = comm_uniform[plan_ids_cell],
       markup_cf = eq_unif$p[plan_ids_cell] - eq_unif$mc[plan_ids_cell],
-      cs_weighted = cs_unif,
-      cs_welfare_nav = wf_unif[["nav"]],
-      cs_welfare_obj = wf_unif[["obj"]],
-      obj_prem = wf_unif[["obj_prem"]],
-      obj_eoop = wf_unif[["obj_eoop"]],
-      obj_risk = wf_unif[["obj_risk"]],
       nleqslv_termcd = eq_unif$sol$termcd,
       nleqslv_iter = eq_unif$sol$iter
     )
@@ -1286,14 +1189,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     cd_sc <- build_scenario_data(cell_data_base, comm_scaled)
     eq_sc <- solve_equilibrium(cd_sc, comm_scaled, p_obs)
     if (!is.null(eq_sc)) {
-      sc_dt <- eq_sc$dt_final %||% cd_sc
-      cs_sc    <- tryCatch(compute_consumer_surplus(sc_dt, coefs),
-                           error = function(e) NA_real_)
-      cs_sc_nc <- tryCatch(compute_consumer_surplus(sc_dt, coefs, welfare_drop = COMM_TERMS),
-                           error = function(e) NA_real_)
-      wf_sc <- tryCatch(scenario_welfare(sc_dt, coefs, lambda, y, CS_TABLE),
-                        error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-      collect_hh(sc_dt, sc_label)
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = NA_real_,
         plan_id = plan_ids_cell,
@@ -1305,13 +1200,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         mc = eq_sc$mc[plan_ids_cell],
         commission_pmpm = comm_scaled[plan_ids_cell],
         markup_cf = eq_sc$p[plan_ids_cell] - eq_sc$mc[plan_ids_cell],
-        cs_weighted = cs_sc,
-        cs_nocomm = cs_sc_nc,
-        cs_welfare_nav = wf_sc[["nav"]],
-        cs_welfare_obj = wf_sc[["obj"]],
-        obj_prem = wf_sc[["obj_prem"]],
-        obj_eoop = wf_sc[["obj_eoop"]],
-        obj_risk = wf_sc[["obj_risk"]],
         nleqslv_termcd = eq_sc$sol$termcd,
         nleqslv_iter = eq_sc$sol$iter
       )
@@ -1345,14 +1233,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   cd_al <- build_scenario_data(cell_data_base, comm_aligned)
   eq_al <- solve_equilibrium(cd_al, comm_aligned, p_obs)
   if (!is.null(eq_al)) {
-    al_dt <- eq_al$dt_final %||% cd_al
-    cs_al    <- tryCatch(compute_consumer_surplus(al_dt, coefs),
-                         error = function(e) NA_real_)
-    cs_al_nc <- tryCatch(compute_consumer_surplus(al_dt, coefs, welfare_drop = COMM_TERMS),
-                         error = function(e) NA_real_)
-    wf_al <- tryCatch(scenario_welfare(al_dt, coefs, lambda, y, CS_TABLE),
-                      error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-    collect_hh(al_dt, "aligned")
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "aligned", tau = NA_real_,
       plan_id = plan_ids_cell,
@@ -1364,13 +1244,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       mc = eq_al$mc[plan_ids_cell],
       commission_pmpm = comm_aligned[plan_ids_cell],
       markup_cf = eq_al$p[plan_ids_cell] - eq_al$mc[plan_ids_cell],
-      cs_weighted = cs_al,
-      cs_nocomm = cs_al_nc,
-      cs_welfare_nav = wf_al[["nav"]],
-      cs_welfare_obj = wf_al[["obj"]],
-      obj_prem = wf_al[["obj_prem"]],
-      obj_eoop = wf_al[["obj_eoop"]],
-      obj_risk = wf_al[["obj_risk"]],
       nleqslv_termcd = eq_al$sol$termcd,
       nleqslv_iter = eq_al$sol$iter
     )
@@ -1414,22 +1287,14 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     ce_e <- ce_native(endog_f)
     eq_e <- if (is.null(ce_e)) {
-      solve_equilibrium(cd_e, comm_obs_sc, p_e_warm)
+      solve_equilibrium(cd_e, comm_obs_sc, ws_p(sc_label, p_e_warm))
     } else {
-      solve_equilibrium(cd_e, comm_obs_sc, p_e_warm, comm_endog = ce_e,
-                        kappa_init = unname(kappa_warm[endog_f]))
+      solve_equilibrium(cd_e, comm_obs_sc, ws_p(sc_label, p_e_warm), comm_endog = ce_e,
+                        kappa_init = ws_kappa(sc_label, endog_f, comm_etabar,
+                                              unname(kappa_warm[endog_f])))
     }
 
     if (!is.null(eq_e)) {
-      dt_cs <- eq_e$dt_final
-      if (is.null(dt_cs)) dt_cs <- update_premiums(as.data.table(copy(cd_e)), eq_e$p)
-      cs_e    <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
-                          error = function(e) NA_real_)
-      cs_e_nc <- tryCatch(compute_consumer_surplus(dt_cs, coefs, welfare_drop = COMM_TERMS),
-                          error = function(e) NA_real_)
-      wf_e <- tryCatch(scenario_welfare(dt_cs, coefs, lambda, y, CS_TABLE),
-                       error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-      collect_hh(dt_cs, sc_label)
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = tau,
         plan_id = plan_ids_cell,
@@ -1442,13 +1307,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         commission_pmpm = if (!is.null(eq_e$eta)) eq_e$eta[plan_ids_cell] else comm_obs_sc[plan_ids_cell],
         comm_scale_cf = k_by_plan(eq_e$k),
         markup_cf = eq_e$p[plan_ids_cell] - eq_e$mc[plan_ids_cell],
-        cs_weighted = cs_e,
-        cs_nocomm = cs_e_nc,
-        cs_welfare_nav = wf_e[["nav"]],
-        cs_welfare_obj = wf_e[["obj"]],
-        obj_prem = wf_e[["obj_prem"]],
-        obj_eoop = wf_e[["obj_eoop"]],
-        obj_risk = wf_e[["obj_risk"]],
         nleqslv_termcd = eq_e$sol$termcd,
         nleqslv_iter = eq_e$sol$iter
       )
@@ -1481,18 +1339,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       etabar   = setNames(rep(1, length(endog_prefixes)), endog_prefixes),
       MC_obs   = comm_qBsum[endog_prefixes]
     )
-    eq_fm <- solve_equilibrium(cd_fm, comm_obs_sc, p_obs_sol, comm_endog = ce_fm,
-                               kappa_init = unname(comm_etabar[endog_prefixes]))
+    eq_fm <- solve_equilibrium(cd_fm, comm_obs_sc, ws_p("flat_mandate", p_obs_sol),
+                               comm_endog = ce_fm,
+                               kappa_init = ws_kappa("flat_mandate", endog_prefixes,
+                                                     ce_fm$etabar,
+                                                     unname(comm_etabar[endog_prefixes])))
     if (!is.null(eq_fm)) {
-      fm_dt <- eq_fm$dt_final
-      if (is.null(fm_dt)) fm_dt <- update_premiums(as.data.table(copy(cd_fm)), eq_fm$p)
-      cs_fm    <- tryCatch(compute_consumer_surplus(fm_dt, coefs),
-                           error = function(e) NA_real_)
-      cs_fm_nc <- tryCatch(compute_consumer_surplus(fm_dt, coefs, welfare_drop = COMM_TERMS),
-                           error = function(e) NA_real_)
-      wf_fm <- tryCatch(scenario_welfare(fm_dt, coefs, lambda, y, CS_TABLE),
-                        error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-      collect_hh(fm_dt, "flat_mandate")
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = "flat_mandate", tau = NA_real_,
         plan_id = plan_ids_cell,
@@ -1505,13 +1357,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         commission_pmpm = if (!is.null(eq_fm$eta)) eq_fm$eta[plan_ids_cell] else comm_obs_sc[plan_ids_cell],
         comm_scale_cf = k_by_plan(eq_fm$k),
         markup_cf = eq_fm$p[plan_ids_cell] - eq_fm$mc[plan_ids_cell],
-        cs_weighted = cs_fm,
-        cs_nocomm = cs_fm_nc,
-        cs_welfare_nav = wf_fm[["nav"]],
-        cs_welfare_obj = wf_fm[["obj"]],
-        obj_prem = wf_fm[["obj_prem"]],
-        obj_eoop = wf_fm[["obj_eoop"]],
-        obj_risk = wf_fm[["obj_risk"]],
         nleqslv_termcd = eq_fm$sol$termcd,
         nleqslv_iter = eq_fm$sol$iter
       )
@@ -1534,22 +1379,14 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     ce_d <- ce_native(endog_prefixes)
     eq_d <- if (is.null(ce_d)) {
-      solve_equilibrium(cd_d, comm_obs_sc, p_d_warm)
+      solve_equilibrium(cd_d, comm_obs_sc, ws_p(sc_label, p_d_warm))
     } else {
-      solve_equilibrium(cd_d, comm_obs_sc, p_d_warm, comm_endog = ce_d,
-                        kappa_init = unname(kappa_d_warm[endog_prefixes]))
+      solve_equilibrium(cd_d, comm_obs_sc, ws_p(sc_label, p_d_warm), comm_endog = ce_d,
+                        kappa_init = ws_kappa(sc_label, endog_prefixes, comm_etabar,
+                                              unname(kappa_d_warm[endog_prefixes])))
     }
 
     if (!is.null(eq_d)) {
-      dt_cs <- eq_d$dt_final
-      if (is.null(dt_cs)) dt_cs <- update_premiums(as.data.table(copy(cd_d)), eq_d$p)
-      cs_d    <- tryCatch(compute_consumer_surplus(dt_cs, coefs),
-                          error = function(e) NA_real_)
-      cs_d_nc <- tryCatch(compute_consumer_surplus(dt_cs, coefs, welfare_drop = COMM_TERMS),
-                          error = function(e) NA_real_)
-      wf_d <- tryCatch(scenario_welfare(dt_cs, coefs, lambda, y, CS_TABLE),
-                       error = function(e) c(nav = NA_real_, obj = NA_real_, obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_))
-      collect_hh(dt_cs, sc_label)
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = NA_real_,
         plan_id = plan_ids_cell,
@@ -1562,13 +1399,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
         commission_pmpm = if (!is.null(eq_d$eta)) eq_d$eta[plan_ids_cell] else comm_obs_sc[plan_ids_cell],
         comm_scale_cf = k_by_plan(eq_d$k),
         markup_cf = eq_d$p[plan_ids_cell] - eq_d$mc[plan_ids_cell],
-        cs_weighted = cs_d,
-        cs_nocomm = cs_d_nc,
-        cs_welfare_nav = wf_d[["nav"]],
-        cs_welfare_obj = wf_d[["obj"]],
-        obj_prem = wf_d[["obj_prem"]],
-        obj_eoop = wf_d[["obj_eoop"]],
-        obj_risk = wf_d[["obj_risk"]],
         nleqslv_termcd = eq_d$sol$termcd,
         nleqslv_iter = eq_d$sol$iter
       )
@@ -1581,11 +1411,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     }
     rm(cd_d); gc(verbose = FALSE)
   }
-
-  # Flush the per-household welfare for this cell (bootstrap only; hh_sink set).
-  if (!is.null(hh_sink) && length(hh_list) > 0)
-    data.table::fwrite(data.table::rbindlist(hh_list),
-                       file.path(hh_sink, sprintf("cell_%s_%s.csv", r, y)))
 
   # Return results
   if (length(results_list) > 0) {
