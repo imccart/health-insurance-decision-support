@@ -38,6 +38,11 @@ CS_TABLE <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors
 # Optional age/income spending schedule. NULL until MEPS is filled in, in which case
 # household_spending() falls back to the flat MEAN_SPENDING (pre-schedule behavior).
 SPENDING_SCHEDULE <- load_spending_schedule()
+# MEPS uninsured out-of-pocket schedule; NULL falls back to the old full-spending
+# uninsured valuation. When present, the uninsured option is valued at realized OOP
+# plus the literature-based social cost (UNINS_COST_SCENARIO), and score_cf emits the
+# cost-band components so the low/central/high welfare band is rebuilt in reporting.
+UNINS_SCHED <- load_uninsured_oop()
 
 CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
 # Per-household welfare (household_number x scenario) is written here, one file per

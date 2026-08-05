@@ -26,6 +26,13 @@ SPENDING_CV <- 2.5
 # which is per-$100).
 RHO_RISK_AVERSION <- 2.3e-4
 
+# Assumed dollar cost of financial distress per uninsured person who crosses the
+# catastrophic-expenditure line (spending > 40% of income) — debt, damaged credit,
+# collections, forgone care. This is the one deliberately DIALABLE assumption in
+# the uninsured valuation; the objective scoring emits the catastrophic SHARE
+# separately so this multiplier can be varied after the fact without re-solving.
+DISTRESS_COST <- 10000
+
 # --- CA standardized cost-sharing lookup -------------------------------------
 # Returns a data.frame keyed by (year, metal, hsa) with av + deductible,
 # coinsurance, moop. Join to cell_data on (year, metal, hsa).
@@ -122,4 +129,83 @@ household_spending <- function(cell_data, schedule = NULL, default = MEAN_SPENDI
   }
   p0 * look("0to17", inc) + p18 * look("18to34", inc) +
     p35 * look("35to54", inc) + p55 * look("55plus", inc)
+}
+
+# --- Uninsured out-of-pocket schedule (measured) -----------------------------
+# What uninsured people ACTUALLY pay out of pocket, by age x income, from MEPS
+# (build-meps-uninsured-oop.R -> data/input/meps_uninsured_oop.csv). Replaces the
+# old assumption that an uninsured person pays their full, uncapped medical
+# spending — which put the uninsured value near -$30k/yr and dominated the
+# objective. Returns NULL if the file is missing/unfilled so the caller can fall
+# back. Columns: age_group, income, mean_oop, var_oop, catastrophic_rate.
+load_uninsured_oop <- function(path = "data/input/meps_uninsured_oop.csv") {
+  if (!file.exists(path)) return(NULL)
+  s <- read.csv(path, stringsAsFactors = FALSE)
+  if (!all(c("age_group", "income", "mean_oop", "catastrophic_rate") %in% names(s))) return(NULL)
+  if (anyNA(s$mean_oop) || anyNA(s$catastrophic_rate)) return(NULL)
+  s
+}
+
+# Per-ROW expected realized out-of-pocket and catastrophic rate for the uninsured
+# option, from the household's age mix and income bracket (same construction as
+# household_spending). Returns a list(oop, cat); schedule = NULL -> oop = default,
+# cat = 0 (so the caller can fall back to the old full-spending valuation).
+household_uninsured_oop <- function(cell_data, schedule = NULL, default = MEAN_SPENDING) {
+  n <- nrow(cell_data)
+  if (is.null(schedule)) return(list(oop = rep(default, n), cat = rep(0, n)))
+  d   <- as.data.table(cell_data)
+  p0  <- if ("perc_0to17"  %in% names(d)) d$perc_0to17  else rep(0, n)
+  p18 <- if ("perc_18to34" %in% names(d)) d$perc_18to34 else rep(0, n)
+  p35 <- if ("perc_35to54" %in% names(d)) d$perc_35to54 else rep(0, n)
+  p55 <- pmax(0, 1 - p0 - p18 - p35)
+  inc <- fifelse(("FPL_400plus"  %in% names(d)) & d$FPL_400plus  == 1, "400plus",
+          fifelse(("FPL_250to400" %in% names(d)) & d$FPL_250to400 == 1, "250to400", "lt250"))
+  look <- function(age, income, col) {
+    v <- schedule[[col]][match(paste(age, income), paste(schedule$age_group, schedule$income))]
+    fifelse(is.na(v), if (col == "mean_oop") default else 0, v)
+  }
+  age_mix <- function(col)
+    p0 * look("0to17", inc, col) + p18 * look("18to34", inc, col) +
+    p35 * look("35to54", inc, col) + p55 * look("55plus", inc, col)
+  list(oop = age_mix("mean_oop"), cat = age_mix("catastrophic_rate"))
+}
+
+# --- Social cost of being uninsured beyond realized OOP + distress ------------
+# Two literature-anchored channels, added per person-year to realized out-of-pocket
+# and the catastrophic-distress overlay:
+#   (1) risk protection / consumption smoothing -- Finkelstein-Hendren-Luttmer
+#       (JPE 2019) pure-insurance component from the Oregon experiment ($133-$1,106).
+#   (2) mortality -- age-specific baseline annual mortality x the proportional
+#       reduction in mortality from coverage (Miller-Johnson-Wherry QJE 2021,
+#       Goldin-Lurie-McCubbin QJE 2021: ~10-20%; Oregon null) x the common federal
+#       value of a statistical life (~$13M, HHS 2024). We apply a single VSL to all
+#       incomes by design, so the poor are not valued less for being unable to pay.
+# Reported as a LOW/CENTRAL/HIGH band; the mortality EFFECT SIZE is the main
+# uncertainty. The whole conclusion leans on channel (2), which dominates the others.
+UNINS_COST_SCENARIO <- "central"                                  # low | central | high
+UNINS_RISK_PROT  <- c(low = 150,    central = 625,    high = 1500)      # $/person-year (FHL)
+UNINS_VSL        <- c(low = 11e6,   central = 13e6,   high = 13e6)      # value of statistical life ($)
+UNINS_MORT_REDUX <- c(low = 0.05,   central = 0.15,   high = 0.20)      # proportional mortality reduction
+# US age-specific baseline annual all-cause mortality, non-elderly (approx., CDC).
+UNINS_BASE_MORT  <- c("0to17" = 0.0003, "18to34" = 0.0012, "35to54" = 0.003, "55plus" = 0.009)
+
+# Per-ROW age-weighted baseline annual mortality for the household. Split out so
+# the mortality dollar cost can be reconstructed from bootstrapped shares under any
+# (mort_redux, VSL) scenario without re-scoring.
+uninsured_base_mortality <- function(cell_data) {
+  n <- nrow(cell_data)
+  d   <- as.data.table(cell_data)
+  p0  <- if ("perc_0to17"  %in% names(d)) d$perc_0to17  else rep(0, n)
+  p18 <- if ("perc_18to34" %in% names(d)) d$perc_18to34 else rep(0, n)
+  p35 <- if ("perc_35to54" %in% names(d)) d$perc_35to54 else rep(0, n)
+  p55 <- pmax(0, 1 - p0 - p18 - p35)
+  p0 * UNINS_BASE_MORT[["0to17"]]  + p18 * UNINS_BASE_MORT[["18to34"]] +
+    p35 * UNINS_BASE_MORT[["35to54"]] + p55 * UNINS_BASE_MORT[["55plus"]]
+}
+
+# Per-ROW social cost of being uninsured for the household's age mix. Returns
+# annual dollars; add to realized OOP and distress in the uninsured valuation.
+uninsured_social_cost <- function(cell_data, scenario = UNINS_COST_SCENARIO) {
+  bm <- uninsured_base_mortality(cell_data)
+  UNINS_RISK_PROT[[scenario]] + bm * UNINS_MORT_REDUX[[scenario]] * UNINS_VSL[[scenario]]
 }

@@ -95,7 +95,9 @@ vN_navigator_coefs <- function(coefs) {
 # runs once per distinct combination. Effective tier per row from the metal dummies,
 # hsa, and (for silver) the household CSR variant by FPL; uninsured pays full
 # spending (no cap).
-vN_objective <- function(cell_data, year, cs_table, cv, rho, mean_spending) {
+vN_objective <- function(cell_data, year, cs_table, cv, rho, mean_spending,
+                         unins_sched = NULL, distress = DISTRESS_COST,
+                         unins_scenario = UNINS_COST_SCENARIO) {
   d <- as.data.table(cell_data)
   n <- nrow(d)
   espend <- if (length(mean_spending) == 1L) rep(mean_spending, n) else mean_spending
@@ -146,12 +148,32 @@ vN_objective <- function(cell_data, year, cs_table, cv, rho, mean_spending) {
   eoop_mean <- labs$ce_mean[idx]
   eoop_risk <- labs$ce_risk[idx]
 
+  # Uninsured option: value it by what uninsured people ACTUALLY pay (MEPS realized
+  # out-of-pocket by age/income) rather than their full, uncapped spending. The tail
+  # is handled explicitly as a catastrophic rate (share crossing 40% of income),
+  # priced by the dialable distress cost, and the rate is also returned so the
+  # multiplier can be varied after the fact. Falls back to the old full-spending
+  # uncapped valuation when the schedule is absent (unins_sched = NULL).
+  is_unins <- d$plan_id == "Uninsured"
+  cat_rate <- rep(0, nrow(d))
+  if (!is.null(unins_sched)) {
+    uo   <- household_uninsured_oop(d, unins_sched)
+    soc  <- uninsured_social_cost(d, unins_scenario)     # risk protection + mortality
+    eoop_mean[is_unins] <- uo$oop[is_unins]
+    # risk term for the uninsured collects the catastrophic-distress overlay and the
+    # risk-protection + mortality social cost (not the old uncapped-spending variance)
+    eoop_risk[is_unins] <- distress * uo$cat[is_unins] + soc[is_unins]
+    cat_rate[is_unins]  <- uo$cat[is_unins]
+  }
+
   # annual individual premium: `premium` is net premium in $100/member/month
   annual_indiv_premium <- fifelse(d$plan_id == "Uninsured", 0, d$premium * 100 * 12)
   data.table(v_prem  = -annual_indiv_premium,
              v_eoop  = -eoop_mean,
              v_risk  = -eoop_risk,
-             v_total = -(annual_indiv_premium + eoop_mean + eoop_risk))
+             v_total = -(annual_indiv_premium + eoop_mean + eoop_risk),
+             cat_rate = cat_rate,
+             is_unins = as.integer(is_unins))
 }
 
 # --- Welfare at actual choices: sum_j P_ij V^N_ij, weighted --------------------
@@ -178,26 +200,40 @@ welfare_at_choices <- function(cell_data, probs, vN_vec, hh_weight, alpha_vec = 
 # Wrap in tryCatch at the call site.
 scenario_welfare <- function(dt_final, coefs, lambda, year, cs_table,
                              cv = SPENDING_CV, rho = RHO_RISK_AVERSION,
-                             mean_spending = MEAN_SPENDING, per_hh = FALSE) {
+                             mean_spending = MEAN_SPENDING, per_hh = FALSE,
+                             unins_sched = NULL, unins_scenario = UNINS_COST_SCENARIO) {
   p   <- choice_probs(dt_final, coefs, lambda)
   nc  <- vN_navigator_coefs(coefs)
   vnv <- compute_utility(dt_final, nc)$V
   anv <- compute_alpha_i(dt_final, nc, spec = nc$term)
-  vob <- vN_objective(dt_final, year, cs_table, cv, rho, mean_spending)
+  vob <- vN_objective(dt_final, year, cs_table, cv, rho, mean_spending,
+                      unins_sched = unins_sched, unins_scenario = unins_scenario)
   w   <- dt_final$hh_weight
+  # Cost-band component inputs (all driven by the estimated parameters through the
+  # choice probabilities p; the uninsured-cost DOLLARS are NOT baked in here). The
+  # final objective welfare under any (risk_prot, mort_redux, VSL, distress) scenario
+  # is reconstructed as
+  #   obj_insured - unins_oop - risk_prot*share_unins
+  #               - mort_redux*VSL*unins_mort - distress*unins_cat
+  # so the bootstrap carries these five and the cost band is applied afterward.
+  is_unins <- as.numeric(dt_final$plan_id == "Uninsured")
+  uo   <- if (!is.null(unins_sched)) household_uninsured_oop(dt_final, unins_sched)
+          else list(oop = rep(0, nrow(dt_final)), cat = rep(0, nrow(dt_final)))
+  bm   <- uninsured_base_mortality(dt_final)
+  v_ins <- vob$v_total * (1 - is_unins); oop_u <- uo$oop * is_unins
+  bm_u  <- bm * is_unins;                cat_u <- uo$cat * is_unins
   if (per_hh) {
-    nav_h  <- welfare_at_choices(dt_final, p, vnv,        w, alpha_vec = anv, return_per_hh = TRUE)
-    obj_h  <- welfare_at_choices(dt_final, p, vob$v_total, w, return_per_hh = TRUE)
-    prem_h <- welfare_at_choices(dt_final, p, vob$v_prem,  w, return_per_hh = TRUE)
-    eoop_h <- welfare_at_choices(dt_final, p, vob$v_eoop,  w, return_per_hh = TRUE)
-    risk_h <- welfare_at_choices(dt_final, p, vob$v_risk,  w, return_per_hh = TRUE)
+    ph <- function(v, a = NULL) welfare_at_choices(dt_final, p, v, w, alpha_vec = a, return_per_hh = TRUE)$cs
+    nav_h <- welfare_at_choices(dt_final, p, vnv, w, alpha_vec = anv, return_per_hh = TRUE)
     return(data.table(household_number = nav_h$hh, w = nav_h$w,
-                      nav = nav_h$cs, obj = obj_h$cs,
-                      obj_prem = prem_h$cs, obj_eoop = eoop_h$cs, obj_risk = risk_h$cs))
+                      nav = nav_h$cs, obj = ph(vob$v_total),
+                      obj_prem = ph(vob$v_prem), obj_eoop = ph(vob$v_eoop), obj_risk = ph(vob$v_risk),
+                      obj_insured = ph(v_ins), share_unins = ph(is_unins),
+                      unins_oop = ph(oop_u), unins_mort = ph(bm_u), unins_cat = ph(cat_u)))
   }
-  c(nav      = welfare_at_choices(dt_final, p, vnv,        w, alpha_vec = anv),
-    obj      = welfare_at_choices(dt_final, p, vob$v_total, w),
-    obj_prem = welfare_at_choices(dt_final, p, vob$v_prem,  w),
-    obj_eoop = welfare_at_choices(dt_final, p, vob$v_eoop,  w),
-    obj_risk = welfare_at_choices(dt_final, p, vob$v_risk,  w))
+  wc <- function(v) welfare_at_choices(dt_final, p, v, w)
+  c(nav = welfare_at_choices(dt_final, p, vnv, w, alpha_vec = anv),
+    obj = wc(vob$v_total), obj_prem = wc(vob$v_prem), obj_eoop = wc(vob$v_eoop), obj_risk = wc(vob$v_risk),
+    obj_insured = wc(v_ins), share_unins = wc(is_unins),
+    unins_oop = wc(oop_u), unins_mort = wc(bm_u), unins_cat = wc(cat_u))
 }

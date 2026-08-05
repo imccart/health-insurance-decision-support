@@ -144,17 +144,24 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
                tryCatch(compute_consumer_surplus(dt, coefs, welfare_drop = COMM_TERMS), error = function(e) NA_real_) else NA_real_
     # per_hh = TRUE gives per-household nav / obj / components; the cell-level number
     # is the household-weight-weighted mean of those, identical to the old aggregate.
-    whh <- tryCatch(scenario_welfare(dt, coefs, lambda, y, CS_TABLE, mean_spending = espend, per_hh = TRUE), error = function(e) NULL)
+    whh <- tryCatch(scenario_welfare(dt, coefs, lambda, y, CS_TABLE, mean_spending = espend, per_hh = TRUE,
+                                     unins_sched = if (exists("UNINS_SCHED")) UNINS_SCHED else NULL), error = function(e) NULL)
     if (is.null(whh)) {
       cell <- data.table(region = r, year = y, scenario = lab, cs_weighted = cs, cs_nocomm = cs_nc,
                          cs_welfare_nav = NA_real_, cs_welfare_obj = NA_real_,
-                         obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_)
+                         obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_,
+                         obj_insured = NA_real_, share_unins = NA_real_,
+                         unins_oop = NA_real_, unins_mort = NA_real_, unins_cat = NA_real_)
       return(list(cell = cell, hh = NULL))
     }
     W <- sum(whh$w); agg <- function(x) sum(x * whh$w) / W
+    # cs_welfare_obj carries the baked-in central-scenario objective for continuity;
+    # the cost-band components below let sum2/cf3 rebuild it under low/high without re-scoring.
     cell <- data.table(region = r, year = y, scenario = lab, cs_weighted = cs, cs_nocomm = cs_nc,
                        cs_welfare_nav = agg(whh$nav), cs_welfare_obj = agg(whh$obj),
-                       obj_prem = agg(whh$obj_prem), obj_eoop = agg(whh$obj_eoop), obj_risk = agg(whh$obj_risk))
+                       obj_prem = agg(whh$obj_prem), obj_eoop = agg(whh$obj_eoop), obj_risk = agg(whh$obj_risk),
+                       obj_insured = agg(whh$obj_insured), share_unins = agg(whh$share_unins),
+                       unins_oop = agg(whh$unins_oop), unins_mort = agg(whh$unins_mort), unins_cat = agg(whh$unins_cat))
     list(cell = cell, hh = data.table(region = r, year = y, scenario = lab, whh))
   })
   per <- per[!vapply(per, is.null, logical(1))]

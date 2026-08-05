@@ -1,46 +1,34 @@
 # Meta --------------------------------------------------------------------
 
 ## Author:        Ian McCarthy
-## Description:   Parametric bootstrap for the counterfactual welfare statistics.
-##                Each draw perturbs the structural parameters by their estimated
-##                sampling distribution and re-solves the CF, so the spread across
-##                draws is the SE of the welfare outcomes. Run SEPARATELY from the
-##                main pipeline -- it re-runs the CF per draw and is slow.
+## Description:   Parametric bootstrap for the counterfactual welfare statistics,
+##                FROZEN-EQUILIBRIUM version. Each draw perturbs the demand
+##                parameters by their estimated sampling distribution and RE-SCORES
+##                welfare at the cf1 premiums (held fixed), rather than re-solving
+##                the equilibrium. The spread across draws is the SE of the welfare
+##                components. Run SEPARATELY from the main pipeline, after cf2.
 ##                  source("code/analysis/cf3_se.R")
 ##
 ## Design:
-##   * Demand params ~ N(theta_d, V_d) and cost params ~ N(theta_c, V_c) are drawn
-##     INDEPENDENTLY. Justified because the cost-GMM down-weights the FOC block
-##     (M3) ~5000x, so the cost estimates barely depend on demand -- the two
-##     blocks are effectively orthogonal, and no joint covariance is needed.
-##     V_d / V_c are the sandwich vcovs written by s5_se.R.
-##   * Observed premiums and shares (supply_results) are DATA, held fixed across
-##     draws; only the parameters move, propagating into the CF equilibria.
+##   * Frozen scoring. Holding the cf1 premiums fixed and re-scoring at each demand
+##     draw is validated: across draws the re-solved premiums move only a few dollars,
+##     so the omitted premium-response channel is small, and it avoids the multiple-
+##     equilibria noise the full re-solve carries for the commission-ban scenario.
+##   * Demand params ~ N(theta_d, V_d) only. Cost params enter welfare through
+##     premiums, which are frozen here, so they drop out of the re-scoring.
+##     V_d is the demand sandwich vcov written by s5_se.R.
 ##   * lambda is clamped to (0.05, 0.999) to stay RUM-consistent (rarely binds).
-##   * Per-draw headline statistics are checkpointed to cf_bootstrap_draws.csv
-##     (BSOD-recoverable); the summary (SE + 2.5/97.5 percentile CI) goes to
-##     cf_bootstrap_se.csv, alongside the point estimates from the saved CF.
+##   * Per-draw component values are checkpointed to cf_bootstrap_draws.csv; sum2
+##     reconstructs the coverage effect and the objective band from them and applies
+##     the bias correction, so cf3 stays the raw draw generator.
 
-# Packages + helpers (master + the set each worker re-sources). MASS is NOT
-# attached -- it masks dplyr::select, which run_cf_cell uses; call MASS::mvrnorm
-# qualified instead.
-pacman::p_load(tidyverse, data.table, nleqslv, Matrix)
-source("code/data-build/_helpers.R")
-source("code/analysis/helpers/constants.R")
-source("code/analysis/helpers/covariates.R")
-source("code/analysis/helpers/choice.R")
-source("code/analysis/helpers/supply.R")
-source("code/analysis/helpers/ra.R")
-source("code/analysis/helpers/estimate_demand.R")
-source("code/analysis/helpers/welfare_objective.R")
-source("code/analysis/helpers/welfare_engine.R")
+# Packages and helpers are loaded by _analysis.R (top section + helpers) before this
+# step runs, so the master does not re-source them. The cluster workers are separate
+# processes and DO re-source the helpers, in clusterEvalQ below. MASS is called
+# qualified (MASS::mvrnorm), never attached, to avoid masking dplyr::select.
 
-# Parameters. TEMP_DIR/SAMPLE_FRAC/MASTER_SEED/N_BOOT_CF flow from _analysis.R when
-# sourced there; defaulted here for a standalone run.
-if (!exists("TEMP_DIR"))    TEMP_DIR    <- "D:/temp-research-data/health-insurance-decision-support"
-if (!exists("SAMPLE_FRAC")) SAMPLE_FRAC <- 0.05
-if (!exists("MASTER_SEED")) MASTER_SEED <- 20260224
-if (!exists("N_BOOT_CF"))   N_BOOT_CF   <- 30L
+# TEMP_DIR, SAMPLE_FRAC, MASTER_SEED, and N_BOOT_CF come from _analysis.R. cf3 is
+# always run through the driver (top section + helpers), so there is no fallback.
 BOOT_SEED  <- 987654321L
 DRAWS_PATH <- "results/cf_bootstrap_draws.csv"
 SE_PATH    <- "results/cf_bootstrap_se.csv"
@@ -51,16 +39,13 @@ cat("=== CF parametric bootstrap ===\n  draws:", N_BOOT_CF, "\n")
 # Shared structural inputs (cells, cell_seeds, hh_split, plan_choice, commission)
 source("code/analysis/s1_inputs.R")
 
-# The per-cell CF solver, shared with cf1_estimate.R
-source("code/analysis/helpers/cf_cell.R")
-
-# The shared welfare scorer (same one cf2 uses). Each draw solves, then scores at
-# THAT draw's coefficients with the spending schedule, so the SEs are consistent
-# with cf2's point estimates. Its config:
-source("code/analysis/helpers/score_cf.R")
+# The shared welfare scorer (score_cf_cell) and helpers are already loaded by the
+# driver for the master, and re-sourced per worker in clusterEvalQ below. The frozen
+# bootstrap never solves, so cf_cell.R is not needed. Scorer config:
 CELL_DIR          <- file.path(TEMP_DIR, "choice_cells")
 COMM_TERMS        <- c("commission_broker")
 SPENDING_SCHEDULE <- load_spending_schedule()
+UNINS_SCHED       <- load_uninsured_oop()   # uninsured valued at realized OOP + social cost
 
 # Static CF inputs the skipped driver would have loaded. lazy = FALSE forces
 # eager reads -- exported objects must not carry readr's ALTREP file connection,
@@ -114,7 +99,8 @@ summarize_cf_headline <- function(cf) {
   obs <- unique(cf[cf$scenario == "observed",
                    c("region", "year", "cs_weighted", "cs_nocomm",
                      "cs_welfare_nav", "cs_welfare_obj",
-                     "obj_prem", "obj_eoop", "obj_risk")])
+                     "obj_prem", "obj_eoop", "obj_risk",
+                     "obj_insured", "share_unins", "unins_oop", "unins_mort", "unins_cat")])
   mdelta <- function(scen, col) {                  # mean over cells of (col[scen] - col[observed])
     s <- unique(cf[cf$scenario == scen, c("region", "year", col)])
     s <- s[!duplicated(s[c("region", "year")]), ]
@@ -131,6 +117,17 @@ summarize_cf_headline <- function(cf) {
   taus_e <- c(0.5, 1.0)
   grad_e <- vapply(taus_e, function(t) mdelta(sprintf("endog_tau%.2f", t), "cs_weighted"), numeric(1))
   names(grad_e) <- paste0("grad_cs_endog_tau", sprintf("%.2f", taus_e))
+  # Cost-band components per scenario (all parameter-driven): coverage effect
+  # (share_unins), insured-side composition (obj_insured), and the uninsured-weighted
+  # OOP / baseline-mortality / catastrophic pieces. The objective welfare and its
+  # low/central/high band are rebuilt from these in reporting with the uninsured cost
+  # applied post-hoc, so bootstrapping these carries the parameter SE into the band.
+  comp_scen <- c("zero_tau0.00", "zero_tau1.00", "uniform", "aligned",
+                 "endog_tau1.00", "flat_mandate", "defund_1.00")
+  comp <- unlist(lapply(comp_scen, function(s)
+    setNames(c(mdelta(s, "share_unins"), mdelta(s, "obj_insured"), mdelta(s, "unins_oop"),
+               mdelta(s, "unins_mort"),  mdelta(s, "unins_cat")),
+             paste0(c("dshare_", "dobjins_", "doop_", "dmort_", "dcat_"), s))))
   # obj decomposed into premium / expected-OOP / risk (the same columns cf2 reports;
   # here they get bootstrap SEs, so the assumption-driven risk piece is inferable too).
   c(va_cs            = unname(grad["grad_cs_tau1.00"] - grad["grad_cs_tau0.00"]),
@@ -154,7 +151,8 @@ summarize_cf_headline <- function(cf) {
     aligned_obj      = mdelta("aligned", "cs_welfare_obj"),
     aligned_obj_prem = mdelta("aligned", "obj_prem"),
     aligned_obj_eoop = mdelta("aligned", "obj_eoop"),
-    aligned_obj_risk = mdelta("aligned", "obj_risk"))
+    aligned_obj_risk = mdelta("aligned", "obj_risk"),
+    comp)
 }
 
 # Distributional headline stats for one draw: pool the per-household welfare that
@@ -183,53 +181,39 @@ dist_headline <- function(hh_dir) {
   out
 }
 
-# Point estimates from the saved (full) CF, for reference
-pt <- tryCatch(summarize_cf_headline(read_csv("results/counterfactual_results.csv",
+# Point estimates from cf2's saved welfare (counterfactual_welfare.csv), which carries
+# the cost-band components; counterfactual_results.csv holds only premiums + cf1's
+# provisional welfare and lacks the component columns.
+pt <- tryCatch(summarize_cf_headline(read_csv("results/counterfactual_welfare.csv",
                                               show_col_types = FALSE, lazy = FALSE)),
                error = function(e) NULL)
 
-# Tasks (one per cell, household slice attached) ---------------------------
+# Tasks (one per cell). Frozen bootstrap: we do NOT re-solve the equilibrium. Each
+# draw re-scores welfare at the drawn demand parameters holding the cf1 premiums
+# fixed, so a cell needs only its id; score_cf_cell reloads the cached cell data and
+# the premiums come from cf_base. This is far faster than re-solving per draw, and it
+# is justified because the equilibrium premiums move only a few dollars across draws
+# (validated), so the premium-response channel it omits is small.
 n_cells_total <- nrow(cells)
-tasks <- lapply(seq_len(nrow(cells)), function(i) {
-  key <- paste0(cells$region[i], ".", cells$year[i])
-  hhs <- hh_split[[key]]
-  list(r = cells$region[i], y = cells$year[i], seed = cell_seeds[i],
-       idx = i, n_total = n_cells_total,
-       warm = build_warm(cells$region[i], cells$year[i]),
-       hhs = if (is.null(hhs) || nrow(hhs) == 0) NULL else as.data.frame(hhs))
-})
+tasks <- lapply(seq_len(nrow(cells)), function(i)
+  list(r = cells$region[i], y = cells$year[i], idx = i, n_total = n_cells_total))
 rm(hh_split); gc(verbose = FALSE)
 
-# Worker that runs one cell at the CURRENT draw's parameters. run_cf_cell's own
-# per-cell chatter is captured (swallowed) so only one concise progress line streams
-# per cell; with the cluster's outfile="" these show live through the multi-hour
-# draw, so the run reports where it is (draw, cell index, rows, convergence, seconds)
-# instead of sitting on a blank cursor.
+# Worker that SCORES one cell at the current draw's demand parameters, holding the
+# cf1 equilibrium premiums (from cf_base) fixed. No solve. Writes per-household
+# welfare to HH_SINK, exactly as cf2 does. outfile="" streams one line per cell.
 run_one_boot <- function(task) {
-  if (is.null(task$hhs)) return(NULL)
+  cfb <- cf_base[region == task$r & year == task$y,
+                 .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau)]
+  if (nrow(cfb) == 0) return(NULL)
   t0  <- Sys.time()
-  sol <- NULL
-  tryCatch(
-    capture.output(
-      sol <- run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
-                         plan_choice, supply_results, coefs_b, commission_lookup,
-                         rs_coefs_b, claims_coefs_b, reins_df, STRUCTURAL_SPEC,
-                         warm_start = task$warm)),
-    error = function(e) NULL)
-  # Solve gave premiums; score them at THIS draw's coefficients with the schedule
-  # (same scorer as cf2), writing per-household welfare to HH_SINK.
-  out <- if (is.null(sol)) NULL else tryCatch(
-    score_cf_cell(task$r, task$y, as.data.table(sol), HH_SINK, coefs_b, lambda_b),
-    error = function(e) NULL)
-  el <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
-  db <- if (exists("draw_b")) draw_b else NA
-  info <- if (is.null(out)) "FAILED" else {
-    conv <- if (!is.null(sol) && "nleqslv_termcd" %in% names(sol))
-      round(100 * mean(sol$nleqslv_termcd <= 2, na.rm = TRUE)) else NA
-    sprintf("%d rows, %s%% conv", nrow(out), conv)
-  }
-  cat(sprintf("  [draw %s | cell %d/%d] r%s y%s: %s, %.0fs\n",
-      as.character(db), task$idx, task$n_total, task$r, task$y, info, el))
+  out <- tryCatch(score_cf_cell(task$r, task$y, cfb, HH_SINK, coefs_b, lambda_b),
+                  error = function(e) NULL)
+  el  <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  db  <- if (exists("draw_b")) draw_b else NA
+  cat(sprintf("  [draw %s | cell %d/%d] r%s y%s: %s, %.1fs\n",
+      as.character(db), task$idx, task$n_total, task$r, task$y,
+      if (is.null(out)) "FAILED" else sprintf("%d rows", nrow(out)), el))
   out
 }
 
@@ -252,9 +236,9 @@ parallel::clusterEvalQ(cl, {
   source("code/analysis/helpers/score_cf.R")
   data.table::setDTthreads(1)
 })
-parallel::clusterExport(cl, c("run_cf_cell", "run_one_boot", "SAMPLE_FRAC",
-  "plan_choice", "supply_results", "commission_lookup", "reins_df",
-  "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK", "CELL_DIR", "COMM_TERMS", "SPENDING_SCHEDULE"))
+parallel::clusterExport(cl, c("run_one_boot", "cf_base", "supply_results",
+  "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK", "CELL_DIR", "COMM_TERMS",
+  "SPENDING_SCHEDULE", "UNINS_SCHED"))
 message("  Parallel: ", n_workers, " workers; ", length(tasks), " cells/draw")
 
 # Draw loop ---------------------------------------------------------------
@@ -266,7 +250,9 @@ draws <- vector("list", N_BOOT_CF)
 # (top-level on.exit misbehaves in a sourced script, so it is not used here).
 tryCatch(
 for (b in seq_len(N_BOOT_CF)) {
-  # Demand draw (clamp lambda into the RUM-consistent interior)
+  # Demand draw only (clamp lambda into the RUM-consistent interior). Frozen scoring
+  # holds premiums fixed, so the cost parameters enter welfare only through premiums
+  # and drop out of the re-scoring; we therefore do not draw them.
   d_b <- MASS::mvrnorm(1, mu_d, Vd, tol = 1e-6)
   if (!is.na(d_b["lambda"])) {
     lam <- min(max(d_b["lambda"], 0.05), 0.999)
@@ -276,17 +262,12 @@ for (b in seq_len(N_BOOT_CF)) {
   coefs_b <- data.frame(term = names(d_b), estimate = as.numeric(d_b),
                         stringsAsFactors = FALSE)
   lambda_b <- setNames(coefs_b$estimate, coefs_b$term)[["lambda"]]
-  # Cost draw (split into risk-score alpha + claims gamma by name)
-  c_b <- MASS::mvrnorm(1, mu_c, Vc, tol = 1e-6)
-  rs_coefs_b     <- c_b[alpha_names]
-  claims_coefs_b <- c_b[gamma_names]
 
   draw_b <- b
-  parallel::clusterExport(cl, c("coefs_b", "rs_coefs_b", "claims_coefs_b", "draw_b", "lambda_b"),
-                          envir = environment())
+  parallel::clusterExport(cl, c("coefs_b", "draw_b", "lambda_b"), envir = environment())
   # Fresh per-household sink for this draw (workers write per cell; pooled below).
   unlink(HH_SINK, recursive = TRUE); dir.create(HH_SINK, recursive = TRUE, showWarnings = FALSE)
-  message(sprintf("  --- draw %d/%d: solving %d cells ---", b, N_BOOT_CF, length(tasks)))
+  message(sprintf("  --- draw %d/%d: scoring %d cells ---", b, N_BOOT_CF, length(tasks)))
   res  <- parallel::parLapplyLB(cl, tasks, run_one_boot)
   cf_b <- bind_rows(res[!vapply(res, is.null, logical(1))])
   stats <- if (nrow(cf_b) > 0) c(summarize_cf_headline(cf_b), dist_headline(HH_SINK)) else NULL
