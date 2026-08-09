@@ -367,6 +367,7 @@ build_structural <- function(plans, hhs, sample_frac,
 
   # Keep ALL households for supply-side aggregation
   dt[, assisted := fifelse(channel != "Unassisted", 1L, 0L)]
+  # assisted_* interactions are built from nonbroker (= navigator), not `assisted`; broker_* = broker.
 
   # Assistance / commission interaction terms (structural). Defined identically
   # to the demand path. Both channels carry their own metal-steering terms
@@ -486,12 +487,9 @@ compute_alpha_i <- function(cell_data, coefs, spec = NULL) {
       dVdp <- dVdp + get_coef(nm) * cell_data[[raw_col]]
   }
 
-  # Per-DOLLAR price sensitivity for the supply FOC. dVdp is dV/d(net_premium),
-  # and net_premium is in $100/member units (premium_oop/hh_size/100), so the
-  # derivative w.r.t. a raw-$ posted premium needs both / hh_size and / 100. The
-  # /100 converts the $100 demand scale to the raw-dollar scale the FOC, markup
-  # inversion, and consumer surplus use. Single source — every supply-side price
-  # derivative draws alpha_i from here.
+  # Per-dollar price sensitivity for the FOC. dVdp is dV/d(net_premium); net_premium
+  # is in $100/member, so the derivative w.r.t. a raw-$ posted premium divides by
+  # hh_size and by 100.
   dVdp / cell_data$hh_size / 100
 }
 

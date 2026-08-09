@@ -1,17 +1,15 @@
 # Meta --------------------------------------------------------------------
-## Description:   Shared counterfactual WELFARE SCORER, used by cf2 (point
-##                estimates) and cf3 (bootstrap draws). Given a cell's solved
-##                premiums + commissions per scenario (cf_cell: region, year,
-##                scenario, plan_id, premium_cf, commission_pmpm, tau), it reloads
-##                the cached structural choice data, rebuilds each scenario, re-levels
-##                premiums, applies the age/income spending schedule, and returns the
-##                cell-level welfare (+ writes per-household welfare to hh_dir). Reads
-##                the rest from the caller's environment: CELL_DIR, supply_results,
-##                coefs, lambda, STRUCTURAL_SPEC, COMM_TERMS, CS_TABLE,
-##                SPENDING_SCHEDULE. Frozen copies of cf_cell.R's scenario builder +
-##                consumer-surplus fn (isolate-experimental-builds convention): the
-##                scorer never sources the solver. cf2 passes cfres slices; cf3 passes
-##                each draw's solved premiums.
+## Description:   Shared counterfactual welfare scorer, used by cf2 (point estimates)
+##                and cf3 (bootstrap draws). Given a cell's solved premiums and
+##                commissions per scenario (cf_cell: region, year, scenario, plan_id,
+##                premium_cf, commission_pmpm, tau), it reloads the cached structural
+##                choice data, rebuilds each scenario, re-levels premiums, applies the
+##                spending schedule, and returns cell-level welfare, producer surplus,
+##                and government subsidy (and writes per-household welfare to hh_dir).
+##                Reads CELL_DIR, supply_results,
+##                coefs, lambda, STRUCTURAL_SPEC, COMM_TERMS, CS_TABLE, and
+##                SPENDING_SCHEDULE from the caller's environment. The scenario builder
+##                and consumer-surplus function are frozen copies of helpers/cf_cell.R.
 
 score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   fp <- file.path(CELL_DIR, sprintf("cell_%s_%s_data.csv", r, y))
@@ -108,20 +106,25 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     ins_dt[, V_scaled := V / lambda_cs]; ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
     ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]; ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
     ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]; ins_dt[, log_D_lam := lambda_cs * log_D]
-    ins_dt[, alpha_i := compute_alpha_i(ins_dt, coefs_cell, STRUCTURAL_SPEC)]
+    # Utils-to-dollars denominator: common alpha (mean base price sensitivity).
+    base_dt <- copy(ins_dt)
+    if ("nonbroker" %in% names(base_dt)) base_dt[, nonbroker := 0]
+    if ("broker"    %in% names(base_dt)) base_dt[, broker    := 0]
+    base_dt[, alpha_base := compute_alpha_i(base_dt, coefs_cell, STRUCTURAL_SPEC)]
+    hh_a      <- base_dt[, .(alpha_base = first(alpha_base), hh_weight = first(hh_weight)), by = household_number]
+    alpha_bar <- sum(hh_a$hh_weight * abs(hh_a$alpha_base)) / sum(hh_a$hh_weight)
     ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE); ins_dt[is.na(V_0), V_0 := 0]
-    hh_cs <- ins_dt[, .(log_D_lam = first(log_D_lam), V_0 = first(V_0), alpha_i = first(alpha_i), hh_weight = first(hh_weight)), by = household_number]
+    hh_cs <- ins_dt[, .(log_D_lam = first(log_D_lam), V_0 = first(V_0),
+                        hh_weight = first(hh_weight), hh_size = first(hh_size)), by = household_number]
     hh_cs[, mx := pmax(V_0, log_D_lam)]
-    hh_cs[, cs := (1 / abs(alpha_i)) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500))))]
+    # per member per year (matches the objective): / hh_size, x 12 (premium is monthly)
+    hh_cs[, cs := (1 / alpha_bar) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
     sum(hh_cs$hh_weight * hh_cs$cs) / sum(hh_cs$hh_weight)
   }
 
-  # Scenarios are enumerated from cf1's output; the commission vector per
-  # scenario is read from the persisted commission_pmpm exactly like premium_cf
-  # (for the endogenous-commission scenarios that column carries the SOLVED eta,
-  # so cf2 needs no scenario-construction knowledge and cannot drift from cf1).
-  # Scenario data flags recovered from the label: endog_tau -> tau + brokers
-  # remain; defund_<f> -> reverse conversion at fraction f; zero_tau -> tau.
+  # Scenario flags recovered from the label: endog_tau -> tau, brokers remain;
+  # defund_<f> -> reverse conversion at fraction f; zero_tau -> tau. Commissions
+  # come from the persisted commission_pmpm.
   scen_labels <- unique(cf_cell$scenario)
 
   per <- lapply(scen_labels, function(lab) {
@@ -138,12 +141,32 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     if (any(is.na(p_vec))) return(NULL)
     names(p_vec) <- plan_ids_cell
     dt <- update_premiums(as.data.table(copy(cd)), p_vec)
-    espend <- household_spending(dt, SPENDING_SCHEDULE)   # per-row; flat until MEPS filled
+    espend <- household_spending(dt, SPENDING_SCHEDULE)   # per-row expected spending
+
+    # Producer surplus (insurer margin net of commissions) and government subsidy (APTC paid, capped at premium), per member per year.
+    psg <- tryCatch({
+      mc_vec <- setNames(rows$mc, rows$plan_id)[plan_ids_cell]
+      pr <- choice_probs(dt, coefs, lambda)
+      dd <- as.data.table(copy(dt)); dd[, p_ch := pr]
+      M  <- dd[, .(w = first(hh_weight)), by = household_number][, sum(w)]
+      ins <- dd[plan_id != "Uninsured"]
+      ins[, `:=`(mem   = p_ch * hh_weight,
+                 mem_b = p_ch * hh_weight * fifelse(is.na(broker), 0, broker))]
+      enr <- ins[, .(mem = sum(mem), mem_b = sum(mem_b)), by = plan_id]
+      enr[, `:=`(p = p_vec[plan_id], mc = mc_vec[plan_id], eta = comm[plan_id])]
+      enr[is.na(eta), eta := 0]
+      ps_month <- enr[, sum((p - mc) * mem - eta * mem_b, na.rm = TRUE)]
+      ins[, sub_paid := pmin((p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor, subsidy_cf)]
+      ins[is.na(sub_paid), sub_paid := 0]
+      gov_month <- ins[, sum(p_ch * sub_paid, na.rm = TRUE)]
+      list(ps = ps_month / M * 12, gov = gov_month / M * 12)
+    }, error = function(e) list(ps = NA_real_, gov = NA_real_))
+
     cs    <- tryCatch(compute_consumer_surplus(dt, coefs), error = function(e) NA_real_)
     cs_nc <- if (!grepl("^zero_tau", lab) && lab != "uniform")
                tryCatch(compute_consumer_surplus(dt, coefs, welfare_drop = COMM_TERMS), error = function(e) NA_real_) else NA_real_
-    # per_hh = TRUE gives per-household nav / obj / components; the cell-level number
-    # is the household-weight-weighted mean of those, identical to the old aggregate.
+    # per_hh = TRUE returns per-household nav / obj / components; agg() below is the
+    # household-weighted mean.
     whh <- tryCatch(scenario_welfare(dt, coefs, lambda, y, CS_TABLE, mean_spending = espend, per_hh = TRUE,
                                      unins_sched = if (exists("UNINS_SCHED")) UNINS_SCHED else NULL), error = function(e) NULL)
     if (is.null(whh)) {
@@ -151,17 +174,19 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
                          cs_welfare_nav = NA_real_, cs_welfare_obj = NA_real_,
                          obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_,
                          obj_insured = NA_real_, share_unins = NA_real_,
-                         unins_oop = NA_real_, unins_mort = NA_real_, unins_cat = NA_real_)
+                         unins_oop = NA_real_, unins_mort = NA_real_, unins_cat = NA_real_,
+                         producer_surplus = psg$ps, gov_subsidy = psg$gov)
       return(list(cell = cell, hh = NULL))
     }
     W <- sum(whh$w); agg <- function(x) sum(x * whh$w) / W
-    # cs_welfare_obj carries the baked-in central-scenario objective for continuity;
-    # the cost-band components below let sum2/cf3 rebuild it under low/high without re-scoring.
+    # cs_welfare_obj is the central-scenario objective; the cost-band components let
+    # sum2/cf3 rebuild the low/high band.
     cell <- data.table(region = r, year = y, scenario = lab, cs_weighted = cs, cs_nocomm = cs_nc,
                        cs_welfare_nav = agg(whh$nav), cs_welfare_obj = agg(whh$obj),
                        obj_prem = agg(whh$obj_prem), obj_eoop = agg(whh$obj_eoop), obj_risk = agg(whh$obj_risk),
                        obj_insured = agg(whh$obj_insured), share_unins = agg(whh$share_unins),
-                       unins_oop = agg(whh$unins_oop), unins_mort = agg(whh$unins_mort), unins_cat = agg(whh$unins_cat))
+                       unins_oop = agg(whh$unins_oop), unins_mort = agg(whh$unins_mort), unins_cat = agg(whh$unins_cat),
+                       producer_surplus = psg$ps, gov_subsidy = psg$gov)
     list(cell = cell, hh = data.table(region = r, year = y, scenario = lab, whh))
   })
   per <- per[!vapply(per, is.null, logical(1))]

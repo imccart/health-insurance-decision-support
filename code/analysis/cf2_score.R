@@ -1,24 +1,12 @@
 # Meta --------------------------------------------------------------------
 
 ## Author:        Ian McCarthy
-## Description:   cf2 — WELFARE SCORING step. Reads the solved equilibria cf1
-##                already wrote (premium_cf AND commission_pmpm — the latter
-##                carries the SOLVED eta on the endogenous-commission scenarios —
-##                in results/counterfactual_results.csv) and RE-SCORES welfare
-##                from them, so welfare definitions can be iterated without
-##                re-running the (expensive) equilibrium solve in cf1. Per cell it
-##                reloads the cached structural choice data (TEMP_DIR/choice_cells/),
-##                rebuilds each scenario's choice data (build_scenario_data, with
-##                the tau / broker_remain / defund flags recovered from the
-##                scenario label), re-levels premiums to the cf1 solution
-##                (update_premiums), and scores. The two scenario-construction
-##                closures and the consumer-surplus function are FROZEN COPIES of
-##                helpers/cf_cell.R (isolate-experimental-builds convention): cf2
-##                never edits or sources the solver. Verified to reproduce cf1's
-##                welfare exactly (see the diff report at the tail).
-##
-##                Sourced by _analysis.R after cf1. Standalone-safe: reads its own
-##                inputs so it can be re-run alone while iterating on welfare.
+## Description:   cf2 welfare scoring. Reads cf1's solved premiums and commissions
+##                (results/counterfactual_results.csv) and re-scores welfare from them,
+##                so welfare definitions can be iterated without re-solving. Per cell it
+##                reloads the cached choice data, rebuilds each scenario, re-levels
+##                premiums to the cf1 solution, and scores (via score_cf.R). Sourced by
+##                _analysis.R after cf1; standalone-safe (reads its own inputs).
 
 cat("\n=== cf2: welfare scoring from solved equilibria ===\n")
 
@@ -35,19 +23,13 @@ COMM_TERMS <- c("commission_broker")
 source("code/analysis/helpers/welfare_objective.R")
 source("code/analysis/helpers/welfare_engine.R")
 CS_TABLE <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors = FALSE)
-# Optional age/income spending schedule. NULL until MEPS is filled in, in which case
-# household_spending() falls back to the flat MEAN_SPENDING (pre-schedule behavior).
+# Age/income spending schedule (NULL falls back to flat MEAN_SPENDING).
 SPENDING_SCHEDULE <- load_spending_schedule()
-# MEPS uninsured out-of-pocket schedule; NULL falls back to the old full-spending
-# uninsured valuation. When present, the uninsured option is valued at realized OOP
-# plus the literature-based social cost (UNINS_COST_SCENARIO), and score_cf emits the
-# cost-band components so the low/central/high welfare band is rebuilt in reporting.
+# MEPS uninsured OOP schedule (NULL falls back to the full-spending valuation).
 UNINS_SCHED <- load_uninsured_oop()
 
 CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
-# Per-household welfare (household_number x scenario) is written here, one file per
-# cell, so the DISTRIBUTION of effects across households can be built downstream
-# without holding every household in master memory.
+# Per-household welfare written here, one file per cell (feeds the distribution below).
 CF_WELFARE_HH_DIR <- file.path(TEMP_DIR, "cf_welfare_hh")
 if (dir.exists(CF_WELFARE_HH_DIR)) unlink(CF_WELFARE_HH_DIR, recursive = TRUE)
 dir.create(CF_WELFARE_HH_DIR, recursive = TRUE)
@@ -81,7 +63,7 @@ if (!is.null(cl)) {
     data.table::setDTthreads(1)
   })
   parallel::clusterExport(cl, c("score_cf_cell", "coefs", "lambda", "supply_results", "cfres",
-    "STRUCTURAL_SPEC", "COMM_TERMS", "CS_TABLE", "SPENDING_SCHEDULE", "CELL_DIR", "CF_WELFARE_HH_DIR", "TEMP_DIR"))
+    "STRUCTURAL_SPEC", "COMM_TERMS", "CS_TABLE", "SPENDING_SCHEDULE", "UNINS_SCHED", "CELL_DIR", "CF_WELFARE_HH_DIR", "TEMP_DIR"))
   welfare_list <- parallel::parLapplyLB(cl, tasks, score_one)
   parallel::stopCluster(cl)
 } else {
@@ -93,14 +75,13 @@ write_csv(cf_welfare, "results/counterfactual_welfare.csv")
 cat("  Written", nrow(cf_welfare), "rows to results/counterfactual_welfare.csv\n")
 
 # Verification vs cf1 -----------------------------------------------------
-# First pass reproduces cf1's welfare exactly; this diff must be ~0 everywhere.
+# cs_weighted / cs_welfare_nav must reproduce cf1 (diff ~0).
 chk <- merge(cf_welfare,
              unique(cfres[, .(region, year, scenario,
                               cf1_cs = cs_weighted, cf1_nav = cs_welfare_nav, cf1_obj = cs_welfare_obj)]),
              by = c("region", "year", "scenario"))
-# cs_weighted and cs_welfare_nav do not use spending, so they must reproduce cf1
-# exactly (~0). cs_welfare_obj reproduces cf1 only when spending is flat; with the
-# MEPS household schedule on, obj legitimately differs from cf1's flat-$6,000 value.
+# cs_weighted / cs_welfare_nav don't use spending (must reproduce cf1); cs_welfare_obj
+# differs from cf1 when the spending schedule is on.
 sched_on <- !is.null(SPENDING_SCHEDULE)
 cat("\n  --- cf2-vs-cf1 check (spending schedule ", if (sched_on) "ON" else "OFF", ") ---\n", sep = "")
 cat("    cs_weighted (must be ~0):", round(max(abs(chk$cs_weighted - chk$cf1_cs), na.rm = TRUE), 6), "\n")
@@ -111,11 +92,8 @@ cat("    obj = prem+eoop+risk (max |resid|):",
     round(max(abs(cf_welfare$cs_welfare_obj - (cf_welfare$obj_prem + cf_welfare$obj_eoop + cf_welfare$obj_risk)), na.rm = TRUE), 6), "\n")
 
 # Distribution of effects across households (point estimate) -----------------
-# Pool the per-household files, compute each household's effect relative to its own
-# observed choice (scenario minus observed), and summarize the distribution per
-# scenario: share worse off, mean, and 10/50/90th percentiles, for both the money
-# (obj) and navigator (nav) rulers. This is the distribution the mean effect
-# collapses; cf3 is where these get standard errors.
+# Each household's effect vs its own observed choice, summarized per scenario (share
+# worse off, mean, p10/50/90) for the money (obj) and navigator (nav) rulers.
 cat("\n  Building distribution of household effects...\n")
 wq <- function(x, w, p) { o <- order(x); x <- x[o]; w <- w[o]; x[which(cumsum(w) / sum(w) >= p)[1]] }
 dist_rows <- lapply(list.files(CF_WELFARE_HH_DIR, full.names = TRUE), function(f) {

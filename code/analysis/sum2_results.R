@@ -471,19 +471,15 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
   # --- 5a. Counterfactual headline table: premium and all three welfare measures ---
   # Welfare is the three measures of Section 6.3 (Small-Rosen CS, the navigator-
-  # rule money metric V^N, and the objective money metric V^obj), each a change
-  # relative to the observed equilibrium, per member per month. Premium change is
+  # rule money metric V^nav, and the objective money metric V^obj), each a change
+  # relative to the observed equilibrium, per member per year. Premium change is
   # share-weighted over plan-cells; welfare is averaged over the cell-level
   # welfare file (one row per region-year-scenario) so cells with more plans are
   # not over-weighted, and cf1's plan-level join is not used for the aggregates.
   cf_welf <- read_csv("results/counterfactual_welfare.csv", show_col_types = FALSE)
 
-  # Uninsured-cost band constants (source of truth: welfare_objective.R). The
-  # objective welfare under any (risk-protection, mortality, distress) scenario is
-  # rebuilt from the parameter-driven components, so the low/central/high band is
-  # arithmetic on the same cf2 output -- no re-scoring. Objective figures are ANNUAL
-  # dollars per member (VSL, spending, mortality are annual); CS / V^N carry their
-  # prior units. [TODO: reconcile CS/objective units to a common per-member-per-month.]
+  # Objective welfare band: rebuild low/central/high from cf2's components with the
+  # uninsured-cost constants (from welfare_objective.R). Per member per year.
   if (!exists("UNINS_RISK_PROT")) source("code/analysis/helpers/welfare_objective.R")
   obj_band <- function(cm, cs) cm$ins - cm$oop - UNINS_RISK_PROT[[cs]] * cm$shu -
     UNINS_MORT_REDUX[[cs]] * UNINS_VSL[[cs]] * cm$mort - DISTRESS_COST * cm$cat
@@ -491,6 +487,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   comp_means <- cf_welf %>%
     group_by(scenario) %>%
     summarize(cs = mean(cs_weighted, na.rm = TRUE), nav = mean(cs_welfare_nav, na.rm = TRUE),
+              ps = mean(producer_surplus, na.rm = TRUE), gov = mean(gov_subsidy, na.rm = TRUE),
               ins = mean(obj_insured, na.rm = TRUE), shu = mean(share_unins, na.rm = TRUE),
               oop = mean(unins_oop, na.rm = TRUE), mort = mean(unins_mort, na.rm = TRUE),
               cat = mean(unins_cat, na.rm = TRUE), .groups = "drop")
@@ -501,12 +498,14 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     mutate(
       d_cs   = cs  - obs_w$cs,
       d_nav  = nav - obs_w$nav,
+      d_ps   = ps  - obs_w$ps,
+      d_gov  = gov - obs_w$gov,
       d_shu  = shu - obs_w$shu,                                 # coverage effect (share pt)
       d_obj_low = obj_band(., "low")     - obs_ob[["low"]],
       d_obj    = obj_band(., "central")  - obs_ob[["central"]],  # central objective
       d_obj_hi = obj_band(., "high")     - obs_ob[["high"]]
     ) %>%
-    select(scenario, d_cs, d_nav, d_shu, d_obj_low, d_obj, d_obj_hi)
+    select(scenario, d_cs, d_nav, d_ps, d_gov, d_shu, d_obj_low, d_obj, d_obj_hi)
 
   prem_summary <- cf_results %>%
     group_by(scenario, tau) %>%
@@ -551,56 +550,90 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   # is the robust, parameter-driven result; the objective column is the central
   # uninsured-cost case, with the low/high band in the companion table below.
   tab_lines <- c(
-    "\\begin{tabular}{llrrrr}",
+    "\\begin{tabular}{llrrrrr}",
     "\\hline\\hline",
-    "Scenario & $\\tau$ & $\\Delta$ Premium & $\\Delta$ Uninsured (pp) & $\\Delta$ CS & $\\Delta V^{obj}$ \\\\",
+    "Scenario & $\\tau$ & $\\Delta$ Premium & $\\Delta$ Uninsured (pp) & $\\Delta$ CS & $\\Delta V^{nav}$ & $\\Delta V^{obj}$ \\\\",
     "\\hline"
   )
   for (i in seq_len(nrow(cf_summary))) {
     r <- cf_summary[i, ]
     tau_str <- if (is.na(r$tau)) "--" else fmt(r$tau)
+    # d_nav is per member per month; x12 to the annual basis of d_cs and d_obj
     tab_lines <- c(tab_lines, sprintf(
-      "%s & %s & %s & %s & %s & %s \\\\",
+      "%s & %s & %s & %s & %s & %s & %s \\\\",
       r$label, tau_str,
-      fmt(r$d_prem), fmt(100 * r$d_shu, 1), fmt(r$d_cs), fmt(r$d_obj, 0)
+      fmt(12 * r$d_prem), fmt(100 * r$d_shu, 1), fmt(r$d_cs), fmt(12 * r$d_nav, 0), fmt(r$d_obj, 0)
     ))
   }
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/counterfactual_results.tex")
   cat("  Wrote results/tables/counterfactual_results.tex\n")
 
-  # --- 5a1. Objective welfare band (uninsured cost low / central / high) --------
-  # The objective effect depends on how heavily the cost of being uninsured is
-  # weighted, driven mainly by the mortality valuation. This table shows the same
-  # change vs observed under the low, central, and high uninsured-cost calibrations;
-  # the parameter (bootstrap) uncertainty is separate and enters via cf3. Annual $.
+  # --- 5a1. Objective welfare band (low / central / high uninsured cost), annual $ ---
+  # Multi-scenario families print under one label with the tau or scale value as an
+  # indented sub-row.
+  fam_label <- c(
+    zero_tau0.00 = "Zero commission", zero_tau0.25 = "Zero commission",
+    zero_tau0.50 = "Zero commission", zero_tau0.75 = "Zero commission",
+    zero_tau1.00 = "Zero commission",
+    scale_0.25 = "Scaled commission", scale_0.50 = "Scaled commission",
+    scale_0.75 = "Scaled commission",
+    endog_tau0.50 = "Navigator expansion", endog_tau1.00 = "Navigator expansion",
+    defund_0.50 = "Navigator defunding", defund_1.00 = "Navigator defunding")
+  sub_label <- c(
+    zero_tau0.00 = "$\\tau=0.00$", zero_tau0.25 = "$\\tau=0.25$",
+    zero_tau0.50 = "$\\tau=0.50$", zero_tau0.75 = "$\\tau=0.75$",
+    zero_tau1.00 = "$\\tau=1.00$",
+    scale_0.25 = "25\\%", scale_0.50 = "50\\%", scale_0.75 = "75\\%",
+    endog_tau0.50 = "$\\tau=0.50$", endog_tau1.00 = "$\\tau=1.00$",
+    defund_0.50 = "50\\%", defund_1.00 = "100\\%")
   band_lines <- c(
     "\\begin{tabular}{lrrr}",
     "\\hline\\hline",
     "Scenario & $\\Delta V^{obj}$ low & central & high \\\\",
     "\\hline"
   )
+  prev_fam <- ""
   for (i in seq_len(nrow(cf_summary))) {
     r <- cf_summary[i, ]
-    band_lines <- c(band_lines, sprintf(
-      "%s & %s & %s & %s \\\\",
-      r$label, fmt(r$d_obj_low, 0), fmt(r$d_obj, 0), fmt(r$d_obj_hi, 0)
-    ))
+    sc <- as.character(r$scenario)
+    vals <- sprintf("%s & %s & %s", fmt(r$d_obj_low, 0), fmt(r$d_obj, 0), fmt(r$d_obj_hi, 0))
+    if (sc %in% names(fam_label)) {
+      if (fam_label[[sc]] != prev_fam) {
+        band_lines <- c(band_lines, sprintf("%s & & & \\\\", fam_label[[sc]]))
+        prev_fam <- fam_label[[sc]]
+      }
+      band_lines <- c(band_lines, sprintf("\\quad %s & %s \\\\", sub_label[[sc]], vals))
+    } else {
+      prev_fam <- ""
+      band_lines <- c(band_lines, sprintf("%s & %s \\\\", r$label, vals))
+    }
   }
   band_lines <- c(band_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(band_lines, "results/tables/counterfactual_welfare_band.tex")
   cat("  Wrote results/tables/counterfactual_welfare_band.tex\n")
 
+  # --- 5a1b. Producer surplus and government cost, per member per year ---
+  fisc_lines <- c(
+    "\\begin{tabular}{llrr}",
+    "\\hline\\hline",
+    "Scenario & $\\tau$ & $\\Delta$ Producer surplus & $\\Delta$ Gov.\\ subsidy \\\\",
+    "\\hline"
+  )
+  for (i in seq_len(nrow(cf_summary))) {
+    r <- cf_summary[i, ]
+    tau_str <- if (is.na(r$tau)) "--" else fmt(r$tau)
+    fisc_lines <- c(fisc_lines, sprintf("%s & %s & %s & %s \\\\",
+      r$label, tau_str, fmt(r$d_ps, 0), fmt(r$d_gov, 0)))
+  }
+  fisc_lines <- c(fisc_lines, "\\hline\\hline", "\\end{tabular}")
+  writeLines(fisc_lines, "results/tables/counterfactual_fiscal.tex")
+  cat("  Wrote results/tables/counterfactual_fiscal.tex\n")
+
   # --- 5a2. Welfare effects with bootstrap SEs (from cf3) ---
-  # cf3 writes point/se/CI keyed by the statistic names in summarize_cf_headline;
-  # curate the headline welfare effects (all $/member/month vs observed) into a table.
-  # Skips cleanly until cf3 has been run.
-  # cf3 writes per-draw component values (cf_bootstrap_draws.csv): for each key
-  # scenario, the coverage effect (dshare) and the insured-composition / uninsured
-  # out-of-pocket / mortality / catastrophic pieces. We reconstruct each draw's
-  # coverage effect and its central-scenario objective from those components, so the
-  # standard error captures the covariance across the pieces, and pair the bootstrap
-  # SE with the cf2 point estimate. Skips cleanly until cf3 has run.
+  # Reconstruct each draw's coverage effect and central objective from the component
+  # columns in cf_bootstrap_draws.csv, pair with the cf2 point estimate. Skips until
+  # cf3 has run.
   draws <- tryCatch(read_csv("results/cf_bootstrap_draws.csv", show_col_types = FALSE),
                     error = function(e) NULL)
   if (!is.null(draws) && nrow(draws) > 1) {
@@ -614,17 +647,10 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
                  flat_mandate  = "Flat-fee mandate",
                  defund_1.00   = "Navigator defunding")
     col <- function(p, s) draws[[paste0(p, "_", s)]]
-    # Bootstrap bias correction. The counterfactual quantities are nonlinear in the
-    # estimated parameters, so the bootstrap mean differs from the value at the point
-    # estimate; that difference estimates the bias. We report the bias-corrected point
-    # (2*theta_hat - bootstrap mean) and a bias-corrected percentile interval, whose
-    # z0 shift recenters the percentile CI on the point estimate's rank in the draws.
-    bc_ci <- function(d, pt, a = 0.05) {
-      z0 <- qnorm(mean(d < pt, na.rm = TRUE)); if (!is.finite(z0)) z0 <- 0
-      unname(quantile(d, pnorm(2 * z0 + qnorm(c(a / 2, 1 - a / 2))), na.rm = TRUE))
-    }
-    wl <- c("\\begin{tabular}{lrrrr}", "\\hline\\hline",
-            "Scenario & $\\Delta$ Uninsured (pp) & $\\Delta V^{obj}$ & bias-corr. & 95\\% CI \\\\", "\\hline")
+    # Point estimate with bootstrap SE in parentheses (2 significant figures).
+    sefmt <- function(x) format(signif(x, 2), scientific = FALSE, trim = TRUE)
+    wl <- c("\\begin{tabular}{lrr}", "\\hline\\hline",
+            "Scenario & $\\Delta$ Uninsured (pp) & $\\Delta V^{obj}$ \\\\", "\\hline")
     for (s in names(se_scen)) {
       if (!all(paste0(c("dshare","dobjins","doop","dmort","dcat"), "_", s) %in% names(draws))) next
       cov_d <- 100 * col("dshare", s)
@@ -633,12 +659,9 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       pr <- welf_summary[welf_summary$scenario == s, ]
       cov_pt <- if (nrow(pr)) 100 * pr$d_shu else mean(cov_d, na.rm = TRUE)
       obj_pt <- if (nrow(pr)) pr$d_obj else mean(obj_d, na.rm = TRUE)
-      obj_bc <- 2 * obj_pt - mean(obj_d, na.rm = TRUE)      # bias-corrected point estimate
-      ci     <- bc_ci(obj_d, obj_pt)
-      wl <- c(wl, sprintf("%s & %s (%s) & %s (%s) & %s & [%s, %s] \\\\",
-        se_scen[[s]], fmt(cov_pt, 1), fmt(sd(cov_d, na.rm = TRUE), 1),
-        fmt(obj_pt, 0), fmt(sd(obj_d, na.rm = TRUE), 0), fmt(obj_bc, 0),
-        fmt(ci[1], 0), fmt(ci[2], 0)))
+      wl <- c(wl, sprintf("%s & %s (%s) & %s (%s) \\\\",
+        se_scen[[s]], fmt(cov_pt, 1), sefmt(sd(cov_d, na.rm = TRUE)),
+        fmt(obj_pt, 0), sefmt(sd(obj_d, na.rm = TRUE))))
     }
     wl <- c(wl, "\\hline\\hline", "\\end{tabular}")
     writeLines(wl, "results/tables/counterfactual_welfare_se.tex")
@@ -673,7 +696,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
       labs(
         x = expression(tau ~ "(broker" %->% "navigator substitution rate)"),
-        y = "Change in consumer surplus ($/member/month)"
+        y = "Change in consumer surplus ($/member/year)"
       ) +
       scale_x_continuous(breaks = tau_results$tau) +
       theme_minimal(base_size = 12)
@@ -734,22 +757,19 @@ add_num <- function(name, val, d = 1) {
 # Sample sizes
 add_num("nHHfull", n_hh_full, 0)
 add_num("nHHclean", n_hh_clean, 0)
-add_num("nHHins", n_hh_ins, 0)
 
-# Rates are reported over INSURED household-years, the enrolling population the
-# text refers to. The full panel adds synthetic off-year rows where the household
-# is uninsured and both new_enrollee and assistance are zero by construction, so
-# a full-panel mean understates every enrollee rate.
-ins <- hh_full$insured == 1L
-add_num("pctNewEnrollee", mean(hh_full$new_enrollee[ins], na.rm = TRUE) * 100)
-
-# Assistance channel shares among insured households
-if (has_col(hh_full, "channel"))
-  add_num("pctAssisted", mean(hh_full$channel[ins] != "Unassisted", na.rm = TRUE) * 100)
-if (has_col(hh_full, "any_agent"))
-  add_num("pctBroker", mean(hh_full$any_agent[ins] == 1L, na.rm = TRUE) * 100)
-if (has_col(hh_full, "navigator"))
-  add_num("pctNavigator", mean(hh_full$navigator[ins] == 1L, na.rm = TRUE) * 100)
+# nHHins and the enrollee rates are reported over the prepped analysis sample
+# (catastrophic households dropped), so they match Table 1 and the estimation
+# sample rather than the pre-drop panel.
+hh_prep <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv"),
+                 select = c("insured", "new_enrollee", "channel", "any_agent", "navigator")) %>% as_tibble()
+ins <- hh_prep$insured == 1L
+add_num("nHHins", sum(ins), 0)
+add_num("pctNewEnrollee", mean(hh_prep$new_enrollee[ins], na.rm = TRUE) * 100)
+add_num("pctAssisted", mean(hh_prep$channel[ins] != "Unassisted", na.rm = TRUE) * 100)
+add_num("pctBroker", mean(hh_prep$any_agent[ins] == 1L, na.rm = TRUE) * 100)
+add_num("pctNavigator", mean(hh_prep$navigator[ins] == 1L, na.rm = TRUE) * 100)
+rm(hh_prep); gc(verbose = FALSE)
 
 # Demand headline: commission vs premium for broker-assisted households.
 # The per-dollar equivalence divides the commission coefficient by the mean

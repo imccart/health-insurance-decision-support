@@ -1,34 +1,20 @@
 # Meta --------------------------------------------------------------------
 
 ## Author:        Ian McCarthy
-## Description:   Parametric bootstrap for the counterfactual welfare statistics,
-##                FROZEN-EQUILIBRIUM version. Each draw perturbs the demand
-##                parameters by their estimated sampling distribution and RE-SCORES
-##                welfare at the cf1 premiums (held fixed), rather than re-solving
-##                the equilibrium. The spread across draws is the SE of the welfare
-##                components. Run SEPARATELY from the main pipeline, after cf2.
+## Description:   Parametric bootstrap SEs for the counterfactual welfare
+##                statistics. Each draw perturbs the demand parameters
+##                (N(theta_d, V_d), V_d from s5_se.R) and re-scores welfare at the
+##                cf1 premiums, held fixed. Writes per-draw values to
+##                cf_bootstrap_draws.csv; sum2 reconstructs the coverage effect and
+##                the objective band and applies the bias correction. Run after cf2,
+##                through the driver:
 ##                  source("code/analysis/cf3_se.R")
-##
-## Design:
-##   * Frozen scoring. Holding the cf1 premiums fixed and re-scoring at each demand
-##     draw is validated: across draws the re-solved premiums move only a few dollars,
-##     so the omitted premium-response channel is small, and it avoids the multiple-
-##     equilibria noise the full re-solve carries for the commission-ban scenario.
-##   * Demand params ~ N(theta_d, V_d) only. Cost params enter welfare through
-##     premiums, which are frozen here, so they drop out of the re-scoring.
-##     V_d is the demand sandwich vcov written by s5_se.R.
-##   * lambda is clamped to (0.05, 0.999) to stay RUM-consistent (rarely binds).
-##   * Per-draw component values are checkpointed to cf_bootstrap_draws.csv; sum2
-##     reconstructs the coverage effect and the objective band from them and applies
-##     the bias correction, so cf3 stays the raw draw generator.
+##                Why frozen scoring rather than a re-solve: code/docs/decisions.md.
 
-# Packages and helpers are loaded by _analysis.R (top section + helpers) before this
-# step runs, so the master does not re-source them. The cluster workers are separate
-# processes and DO re-source the helpers, in clusterEvalQ below. MASS is called
-# qualified (MASS::mvrnorm), never attached, to avoid masking dplyr::select.
+# Preamble and helpers come from _analysis.R; workers re-source the helpers in
+# clusterEvalQ below. MASS::mvrnorm is called qualified, never attached.
 
-# TEMP_DIR, SAMPLE_FRAC, MASTER_SEED, and N_BOOT_CF come from _analysis.R. cf3 is
-# always run through the driver (top section + helpers), so there is no fallback.
+# TEMP_DIR, N_BOOT_CF, etc. come from _analysis.R.
 BOOT_SEED  <- 987654321L
 DRAWS_PATH <- "results/cf_bootstrap_draws.csv"
 SE_PATH    <- "results/cf_bootstrap_se.csv"
@@ -39,44 +25,23 @@ cat("=== CF parametric bootstrap ===\n  draws:", N_BOOT_CF, "\n")
 # Shared structural inputs (cells, cell_seeds, hh_split, plan_choice, commission)
 source("code/analysis/s1_inputs.R")
 
-# The shared welfare scorer (score_cf_cell) and helpers are already loaded by the
-# driver for the master, and re-sourced per worker in clusterEvalQ below. The frozen
-# bootstrap never solves, so cf_cell.R is not needed. Scorer config:
+# Scorer config (score_cf_cell is loaded by the driver, re-sourced per worker):
 CELL_DIR          <- file.path(TEMP_DIR, "choice_cells")
 COMM_TERMS        <- c("commission_broker")
 SPENDING_SCHEDULE <- load_spending_schedule()
 UNINS_SCHED       <- load_uninsured_oop()   # uninsured valued at realized OOP + social cost
 
-# Static CF inputs the skipped driver would have loaded. lazy = FALSE forces
-# eager reads -- exported objects must not carry readr's ALTREP file connection,
-# which is invalid on the cluster workers (serialize error otherwise).
+# Static CF inputs. lazy = FALSE forces eager reads (readr ALTREP connections
+# break on the cluster workers).
 supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE, lazy = FALSE)
 reins_df       <- read_csv(file.path(TEMP_DIR, "reinsurance_factors.csv"), show_col_types = FALSE, lazy = FALSE)
 demand_spec    <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 STRUCTURAL_SPEC <- demand_spec$all
 CS_TABLE       <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors = FALSE)
 
-# Baseline cf1 equilibrium, per cell, to warm-start each draw's endogenous-scenario
-# solves (helpers/cf_cell.R argument warm_start). A perturbed draw sits next to the
-# baseline, so each cell starts near its answer and lands on the same spot in the
-# soft commission valley -- faster, and it keeps the draws coherent so the SE spread
-# reflects parameter uncertainty rather than where the solver happened to stop.
+# Baseline cf1 equilibrium per cell; cf_base premiums feed the frozen re-score.
 cf_base <- as.data.table(read_csv("results/counterfactual_results.csv",
                                   show_col_types = FALSE, lazy = FALSE))
-build_warm <- function(r, y) {
-  d <- cf_base[region == r & year == y & scenario != "observed"]
-  if (nrow(d) == 0) return(NULL)
-  ws <- list()
-  for (s in unique(d$scenario)) {
-    ds  <- d[scenario == s]
-    kdt <- ds[is.finite(comm_scale_cf),
-              .(k = first(comm_scale_cf)), by = .(pfx = sub("_.*", "", plan_id))]
-    ws[[s]] <- list(p = setNames(ds$premium_cf, ds$plan_id),
-                    k = if (nrow(kdt) > 0) setNames(kdt$k, kdt$pfx) else NULL)
-  }
-  ws
-}
-
 # Point estimates + sandwich covariances ----------------------------------
 read_vcov <- function(path) {
   d <- read.csv(path, check.names = FALSE, stringsAsFactors = FALSE)
@@ -87,13 +52,7 @@ coefs_hat <- read.csv("results/choice_coefficients_structural.csv", stringsAsFac
 Vd        <- read_vcov("results/choice_coefficients_structural_vcov.csv")
 mu_d      <- setNames(coefs_hat$estimate, coefs_hat$term)[rownames(Vd)]
 
-rs_hat <- read.csv(file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"), stringsAsFactors = FALSE)
-cl_hat <- read.csv(file.path(TEMP_DIR, "ra_claims_coefs_gmm.csv"), stringsAsFactors = FALSE)
-alpha_names <- rs_hat$term; gamma_names <- cl_hat$term
-Vc   <- read_vcov("results/cost_coefficients_gmm_vcov.csv")
-mu_c <- setNames(c(rs_hat$estimate, cl_hat$estimate), c(alpha_names, gamma_names))[rownames(Vc)]
-
-# Headline statistics from one CF result set (mirrors 4_counterfactuals Phase 4)
+# Headline statistics from one CF result set
 summarize_cf_headline <- function(cf) {
   cf  <- as.data.frame(cf)
   obs <- unique(cf[cf$scenario == "observed",
@@ -112,24 +71,20 @@ summarize_cf_headline <- function(cf) {
   taus <- c(0, 0.25, 0.5, 0.75, 1.0)
   grad <- vapply(taus, function(t) mdelta(sprintf("zero_tau%.2f", t), "cs_weighted"), numeric(1))
   names(grad) <- paste0("grad_cs_tau", sprintf("%.2f", taus))
-  # Endogenous-commission scenario families (trimmed grids; endog_tau0 = observed,
-  # so its delta is 0 by construction and is not carried).
+  # Endogenous-commission scenarios (endog_tau0 = observed, not carried).
   taus_e <- c(0.5, 1.0)
   grad_e <- vapply(taus_e, function(t) mdelta(sprintf("endog_tau%.2f", t), "cs_weighted"), numeric(1))
   names(grad_e) <- paste0("grad_cs_endog_tau", sprintf("%.2f", taus_e))
-  # Cost-band components per scenario (all parameter-driven): coverage effect
-  # (share_unins), insured-side composition (obj_insured), and the uninsured-weighted
-  # OOP / baseline-mortality / catastrophic pieces. The objective welfare and its
-  # low/central/high band are rebuilt from these in reporting with the uninsured cost
-  # applied post-hoc, so bootstrapping these carries the parameter SE into the band.
+  # Cost-band components per scenario (coverage share, insured composition, and the
+  # uninsured-weighted OOP / baseline mortality / catastrophic pieces). sum2 rebuilds
+  # the objective band from these.
   comp_scen <- c("zero_tau0.00", "zero_tau1.00", "uniform", "aligned",
                  "endog_tau1.00", "flat_mandate", "defund_1.00")
   comp <- unlist(lapply(comp_scen, function(s)
     setNames(c(mdelta(s, "share_unins"), mdelta(s, "obj_insured"), mdelta(s, "unins_oop"),
                mdelta(s, "unins_mort"),  mdelta(s, "unins_cat")),
              paste0(c("dshare_", "dobjins_", "doop_", "dmort_", "dcat_"), s))))
-  # obj decomposed into premium / expected-OOP / risk (the same columns cf2 reports;
-  # here they get bootstrap SEs, so the assumption-driven risk piece is inferable too).
+  # obj decomposed into premium / expected-OOP / risk.
   c(va_cs            = unname(grad["grad_cs_tau1.00"] - grad["grad_cs_tau0.00"]),
     grad,
     va_nav           = mdelta("zero_tau1.00", "cs_welfare_nav") - mdelta("zero_tau0.00", "cs_welfare_nav"),
@@ -155,11 +110,8 @@ summarize_cf_headline <- function(cf) {
     comp)
 }
 
-# Distributional headline stats for one draw: pool the per-household welfare that
-# run_cf_cell(hh_sink=...) wrote this draw, form each household's effect vs its own
-# observed choice, and return the share worse off (money + navigator rulers) for the
-# key scenarios. Always returns the same fixed-length named vector (NA where a
-# scenario is missing) so the per-draw rows stack cleanly.
+# Per-draw share worse off (money + navigator rulers) for the key scenarios, from the
+# per-household files this draw wrote. Fixed-length named vector, NA where missing.
 DIST_SCEN <- c("zero_tau0.00", "zero_tau1.00", "aligned", "endog_tau0.50")
 dist_headline <- function(hh_dir) {
   nm  <- c(paste0("shareworse_obj_", DIST_SCEN), paste0("shareworse_nav_", DIST_SCEN))
@@ -181,27 +133,21 @@ dist_headline <- function(hh_dir) {
   out
 }
 
-# Point estimates from cf2's saved welfare (counterfactual_welfare.csv), which carries
-# the cost-band components; counterfactual_results.csv holds only premiums + cf1's
-# provisional welfare and lacks the component columns.
+# Point estimates from cf2's saved welfare (counterfactual_welfare.csv; has the
+# component columns).
 pt <- tryCatch(summarize_cf_headline(read_csv("results/counterfactual_welfare.csv",
                                               show_col_types = FALSE, lazy = FALSE)),
                error = function(e) NULL)
 
-# Tasks (one per cell). Frozen bootstrap: we do NOT re-solve the equilibrium. Each
-# draw re-scores welfare at the drawn demand parameters holding the cf1 premiums
-# fixed, so a cell needs only its id; score_cf_cell reloads the cached cell data and
-# the premiums come from cf_base. This is far faster than re-solving per draw, and it
-# is justified because the equilibrium premiums move only a few dollars across draws
-# (validated), so the premium-response channel it omits is small.
+# Tasks, one per cell. Frozen re-score (no solve): score_cf_cell reloads the cached
+# cell data and takes premiums from cf_base.
 n_cells_total <- nrow(cells)
 tasks <- lapply(seq_len(nrow(cells)), function(i)
   list(r = cells$region[i], y = cells$year[i], idx = i, n_total = n_cells_total))
 rm(hh_split); gc(verbose = FALSE)
 
-# Worker that SCORES one cell at the current draw's demand parameters, holding the
-# cf1 equilibrium premiums (from cf_base) fixed. No solve. Writes per-household
-# welfare to HH_SINK, exactly as cf2 does. outfile="" streams one line per cell.
+# Score one cell at the draw's demand parameters, cf1 premiums fixed; writes
+# per-household welfare to HH_SINK.
 run_one_boot <- function(task) {
   cfb <- cf_base[region == task$r & year == task$y,
                  .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau)]
@@ -219,8 +165,7 @@ run_one_boot <- function(task) {
 
 # Cluster (set up once; static objects exported once, params per draw) -----
 n_workers <- max(1L, parallel::detectCores() - 2L)
-# outfile = "" lets each worker's per-cell progress line stream to the console live
-# (a draw solves all 114 cells over hours; without this the console sits blank).
+# outfile = "" streams each worker's per-cell progress to the console.
 cl <- parallel::makeCluster(n_workers, type = "PSOCK", outfile = "")
 parallel::clusterEvalQ(cl, {
   suppressMessages({ library(tidyverse); library(data.table); library(nleqslv) })
@@ -246,13 +191,10 @@ set.seed(BOOT_SEED)
 n_clamp <- 0L
 t0 <- Sys.time()
 draws <- vector("list", N_BOOT_CF)
-# tryCatch/finally guarantees the cluster is stopped even if a draw errors
-# (top-level on.exit misbehaves in a sourced script, so it is not used here).
+# finally stops the cluster even if a draw errors.
 tryCatch(
 for (b in seq_len(N_BOOT_CF)) {
-  # Demand draw only (clamp lambda into the RUM-consistent interior). Frozen scoring
-  # holds premiums fixed, so the cost parameters enter welfare only through premiums
-  # and drop out of the re-scoring; we therefore do not draw them.
+  # Demand draw only; lambda clamped to the RUM interior.
   d_b <- MASS::mvrnorm(1, mu_d, Vd, tol = 1e-6)
   if (!is.na(d_b["lambda"])) {
     lam <- min(max(d_b["lambda"], 0.05), 0.999)

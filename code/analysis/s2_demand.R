@@ -16,43 +16,29 @@
 STRUCTURAL_SPEC <- c(
   "premium",
   "silver", "bronze", "hmo", "hsa",
-  # Big-four brand dummies only. The seven regionals are kept as SEPARATE plans
-  # (own premium, commission, and cost), but carry NO brand fixed effect — adding
-  # one per regional pushes the nesting parameter lambda from 0.47 to 4.27
-  # (non-RUM). They sit in the dummy-less small baseline. Per-regional
-  # commission/cost key off the plan_id prefix, not these dummies.
+  # Big-four brand dummies only; the seven regionals carry no brand fixed effect
+  # (their commission/cost key off the plan_id prefix).
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
   "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
   "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
   "FPL_250to400_prem", "FPL_400plus_prem",
-  # Age x metal: the metal preference varies by household age mix so the young tilt
-  # into bronze beyond the common price effect (fixes the inverted age-by-metal
-  # sorting). Premium-independent; see covariates.R / build_structural.
+  # Age x metal (premium-independent; built in build_structural).
   "perc_0to17_silver", "perc_0to17_bronze",
   "perc_18to34_silver", "perc_18to34_bronze",
   "perc_35to54_silver", "perc_35to54_bronze",
-  # Gender x metal, mirroring age x metal: gives the predicted male share independent
-  # cross-plan variation (the model otherwise touches gender only through premium),
-  # so the risk-score male coefficient can identify instead of collapsing.
+  # Gender x metal (premium-independent).
   "perc_male_silver", "perc_male_bronze"
 )
 
 STRUCTURAL_ASST <- c(
   "assisted_silver", "assisted_bronze",
-  # Broker metal steering, estimated rather than assumed zero (symmetric with the
-  # navigator assisted_* terms). Brokers also carry commission_broker; navigators
-  # do not (institutional, not a behavioral assumption).
+  # Broker metal steering (brokers also carry commission_broker; navigators do not).
   "broker_silver", "broker_bronze",
-  # Channel-specific price response: navigator and broker each shift the premium
-  # coefficient (price interactions, raw_demo = nonbroker / broker).
+  # Channel-specific price response (raw_demo = nonbroker / broker).
   "assisted_premium", "broker_premium",
-  # Channel x Pareto-dominated plan (RF definition): a CSR-eligible household's
-  # Gold/Platinum alternatives, dominated by the enhanced Silver it qualifies for.
-  # Premium-independent (CSR x metal). See covariates.R / cf_cell.R.
+  # Channel x Pareto-dominated plan (premium-independent; see cf_cell.R).
   "nav_dominated", "broker_dominated",
-  # Commission steering enters as a level term only. v_hat is dropped from the
-  # structural side (a household constant cannot enter the logit except via a
-  # plan-varying interaction, and that interaction was collinear with the level).
+  # Commission steering, level term.
   "commission_broker"
 )
 

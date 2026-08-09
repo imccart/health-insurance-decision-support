@@ -67,3 +67,4 @@ source("code/analysis/cf3_se.R")             # slow (re-runs the CF per draw); c
 # sum: summary tables + figures -------------------------------------------
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk
 source("code/analysis/sum2_results.R")
+source("code/analysis/sum3_ext-margin.R")    # coverage decomposition + sensitivity
