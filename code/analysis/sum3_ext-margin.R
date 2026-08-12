@@ -18,9 +18,8 @@ cells <- list.files(CELL_DIR, pattern = "^cell_.*_data\\.csv$", full.names = TRU
 PRICE <- c("assisted_premium", "broker_premium")
 METAL <- c("assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
            "broker_silver", "broker_bronze")
-DOM   <- c("nav_dominated", "broker_dominated")
 COMM  <- c("commission_broker")
-ALL_ASSIST <- c(PRICE, METAL, DOM, COMM)
+ALL_ASSIST <- c(PRICE, METAL, COMM)
 
 zero_cols <- function(dt, cols) { dt <- copy(dt); for (c in intersect(cols, names(dt))) dt[[c]] <- 0; dt }
 
@@ -46,8 +45,8 @@ wnd <- function(dt, cols, lambda = lambda0, v0 = 0) {
 
 dec  <- c(cov = 0, pc = 0, tot = 0, den = 0)               # welfare decomposition
 LAM  <- c(0.5, lambda0, 0.85, 1.0); SHIFT <- c(-1, -0.5, 0, 0.5, 1)
-chan_nm <- c("full", "price", "metal", "dom", "comm")
-chan_cols <- list(full = ALL_ASSIST, price = PRICE, metal = METAL, dom = DOM, comm = COMM)
+chan_nm <- c("full", "price", "metal", "comm")
+chan_cols <- list(full = ALL_ASSIST, price = PRICE, metal = METAL, comm = COMM)
 base_nd <- c(0, 0)
 chan_nd <- setNames(rep(list(c(0, 0)), length(chan_nm)), chan_nm)
 lam_nd  <- setNames(rep(list(c(0, 0, 0)), length(LAM)),  as.character(LAM))    # base_num, full_num, den

@@ -90,9 +90,6 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
               assisted_gold = nonbroker*gold, assisted_plat = nonbroker*platinum,
               broker_silver = broker*silver, broker_bronze = broker*bronze,
               assisted_premium = nonbroker*premium, broker_premium = broker*premium)]
-    if ("dominated_plan" %in% names(cd)) {
-      cd[, nav_dominated := nonbroker*dominated_plan]; cd[, broker_dominated := broker*dominated_plan]
-    }
     cd
   }
 

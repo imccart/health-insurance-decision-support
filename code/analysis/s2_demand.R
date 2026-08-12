@@ -36,8 +36,6 @@ STRUCTURAL_ASST <- c(
   "broker_silver", "broker_bronze",
   # Channel-specific price response (raw_demo = nonbroker / broker).
   "assisted_premium", "broker_premium",
-  # Channel x Pareto-dominated plan (premium-independent; see cf_cell.R).
-  "nav_dominated", "broker_dominated",
   # Commission steering, level term.
   "commission_broker"
 )
@@ -135,8 +133,7 @@ if (file.exists(coefs_path)) {
     cat(sprintf("\n  beta_commission / |beta_premium| = %.4f\n", beta_c / abs(beta_p)))
   }
   for (m in c("assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
-              "broker_silver", "broker_bronze", "assisted_premium", "broker_premium",
-              "nav_dominated", "broker_dominated")) {
+              "broker_silver", "broker_bronze", "assisted_premium", "broker_premium")) {
     b <- coefs_structural$estimate[coefs_structural$term == m]
     if (length(b) == 1) cat(sprintf("  %s = %.6f\n", m, b))
   }

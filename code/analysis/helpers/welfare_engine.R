@@ -55,7 +55,7 @@ choice_probs <- function(cell_data, coefs, lambda) {
 
 # --- Navigator (informed-rule) normative utility, in utils --------------------
 # Imposes the navigator (informed) decision rule on everyone: the navigator's price
-# slope, metal valuations, and dominated-plan avoidance are folded onto the base
+# slope and metal valuations are folded onto the base
 # variables, and the broker / commission distortions are dropped. The age x metal
 # terms are base demographic preferences, not a channel distortion, so they pass
 # through unchanged. Experienced welfare = these coefficients applied to the plan
@@ -66,15 +66,9 @@ vN_navigator_coefs <- function(coefs) {
   if ("premium" %in% names(cm)) cm["premium"] <- g("premium") + g("assisted_premium")
   if ("silver"  %in% names(cm)) cm["silver"]  <- g("silver")  + g("assisted_silver")
   if ("bronze"  %in% names(cm)) cm["bronze"]  <- g("bronze")  + g("assisted_bronze")
-  # Dominated-plan avoidance: the informed rule is the navigator's, applied to all,
-  # so fold nav_dominated onto a base dominated_plan term (the column exists on every
-  # row) and drop the broker version. A plan the household is steered into that is
-  # dominated then carries the navigator's disutility in experienced welfare.
-  if ("nav_dominated" %in% names(cm) || "broker_dominated" %in% names(cm))
-    cm["dominated_plan"] <- g("nav_dominated")
   for (z in c("assisted_premium", "assisted_silver", "assisted_bronze",
               "assisted_gold", "assisted_plat", "broker_premium",
-              "broker_silver", "broker_bronze", "nav_dominated", "broker_dominated",
+              "broker_silver", "broker_bronze",
               "commission_broker", "v_hat_commission"))
     if (z %in% names(cm)) cm[z] <- 0
   data.frame(term = names(cm), estimate = as.numeric(cm), stringsAsFactors = FALSE)

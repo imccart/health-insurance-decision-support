@@ -948,14 +948,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     # nonbroker / broker kept: raw_demo for the premium interactions, which
     # recompute_prem_interactions updates as premiums move in the solve.
 
-    # Pareto-dominated flag rides on cd from build_structural (premium-independent,
-    # so it never changes in the solve); rebuild the channel interactions for the
-    # reassigned channels.
-    if ("dominated_plan" %in% names(cd)) {
-      cd[, nav_dominated    := nonbroker * dominated_plan]
-      cd[, broker_dominated := broker    * dominated_plan]
-    }
-
     cd
   }
 

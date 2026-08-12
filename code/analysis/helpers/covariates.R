@@ -170,16 +170,6 @@ get_covariate_menu <- function() {
     assisted_premium = list(type = "price_interaction", raw_demo = "nonbroker"),
     broker_premium   = list(type = "price_interaction", raw_demo = "broker"),
 
-    # --- Channel x Pareto-dominated plan (reduced-form definition) ---
-    # dominated_plan = 1 on a CSR-eligible household's Gold/Platinum alternatives,
-    # which its enhanced Silver dominates (higher AV, lower premium): Gold or
-    # Platinum for CSR-94 (FPL <= 1.50), Gold only for CSR-87 (FPL 1.50-2.00).
-    # nav_dominated / broker_dominated = channel * dominated_plan. Premium-
-    # INDEPENDENT (AV/metal/CSR only), so they are plain covariates: no alpha_i
-    # contribution, no premium recompute, and not collinear with the premium effect.
-    nav_dominated    = list(type = "assisted"),
-    broker_dominated = list(type = "assisted"),
-
     # --- Commission / CF ---
     commission_broker  = list(type = "commission"),
     v_hat_commission   = list(type = "commission"),

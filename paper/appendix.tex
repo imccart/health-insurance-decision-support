@@ -37,10 +37,10 @@ To impute consumer exchange market eligibility, we use data from the SIPP. The S
 
 \newpage
 
-\section{Additional Reduced-Form Results}
+\section{Additional Design-Based Results}
 \label{app:reduced_form}
 
-The reduced-form estimates in the body of the paper come from a prediction-based estimator. We fit the outcome model on unassisted households, weighted by inverse propensity weights, predict the counterfactual outcome for assisted households, and form the ATT as the difference between what assisted households chose and what the model predicts they would have chosen. Assistance never appears as a regressor, so there is no assistance coefficient to report and no control function anywhere in the estimation. This appendix reports the complementary pooled specifications, in which assistance does enter as a covariate and its coefficient can be traced across a progressive sequence of control sets.
+The design-based estimates in the body of the paper come from a prediction-based estimator. We fit the outcome model on unassisted households, weighted by inverse propensity weights, predict the counterfactual outcome for assisted households, and form the ATT as the difference between what assisted households chose and what the model predicts they would have chosen. Assistance never appears as a regressor, so there is no assistance coefficient to report and no control function anywhere in the estimation. This appendix reports the complementary pooled specifications, in which assistance does enter as a covariate and its coefficient can be traced across a progressive sequence of control sets.
 
 \subsection{Dominated Choices}
 
@@ -50,7 +50,7 @@ The assistance coefficient is stable across columns (1) through (3) and (5), mov
 
 The two terminal columns never appear together, and the reason is not that the combination would merely be underpowered. Broker density varies only across rating region and year, so region fixed effects leave the instrument with no variation to exploit. Within a region the number of licensed agents is close to a deterministic function of the year, which means a region-specific control function is identically zero rather than weak. Clustering standard errors at the level at which the instrument actually varies, the partial $F$ statistic on broker density is 3.6 and the incremental $R^2$ is 0.001, against a partial $F$ of roughly 7,600 when the clustering is ignored. The apparent strength of the instrument in the unclustered specification reflects the number of households rather than the number of markets. The instrument itself is a sensible one, and its first-stage relationship with assistance take-up is positive and in the expected direction, but it rests on too few markets for meaningful inference. Nonetheless, even with a weak first stage, the pooled results are consistent with the body estimates. The implied total effect in column (4) matches the stable columns, and every specification in the table points to the same modest reduction in dominated choices.
 
-Table~\ref{tab:app-dominated-sample} reports the body estimator re-run on new enrollees alongside the all-enrollee estimates. The body sample is all enrollees so that the reduced form and the structural model are estimated on the same households. Restricting to new enrollees produces larger effects for every channel, consistent with assistance mattering most for households making a first plan choice, and leaves the ordering across channels unchanged.
+Table~\ref{tab:app-dominated-sample} reports the body estimator re-run on new enrollees alongside the all-enrollee estimates. The body sample is all enrollees so that the design-based analysis and the structural model are estimated on the same households. Restricting to new enrollees produces larger effects for every channel, consistent with assistance mattering most for households making a first plan choice, and leaves the ordering across channels unchanged.
 
 \begin{table}[!h]
 \centering

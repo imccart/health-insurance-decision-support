@@ -275,8 +275,6 @@ if (nrow(coefs_structural) > 0) {
     "broker_bronze"      = "Broker $\\times$ Bronze",
     "assisted_premium"   = "Navigator $\\times$ premium",
     "broker_premium"     = "Broker $\\times$ premium",
-    "nav_dominated"      = "Navigator $\\times$ dominated plan",
-    "broker_dominated"   = "Broker $\\times$ dominated plan",
     "commission_broker"  = "Commission $\\times$ broker",
     "lambda"             = "$\\lambda$ (nesting parameter)"
   )

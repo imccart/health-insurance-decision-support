@@ -400,21 +400,6 @@ build_structural <- function(plans, hhs, sample_frac,
     # assisted_premium / broker_premium price interactions, so compute_alpha_i
     # and recompute_prem_interactions (which fire when premiums change) can find
     # them. Do not delete.
-
-    # Pareto-dominated plan (RF definition, applied at the plan level). A CSR-
-    # eligible household's Gold/Platinum alternatives are dominated by the enhanced
-    # Silver it qualifies for (higher AV at lower premium): Gold or Platinum for
-    # CSR-94 (FPL <= 1.50), Gold only for CSR-87 (FPL 1.50-2.00). Premium-
-    # INDEPENDENT (AV/metal/CSR only), so the channel interactions are plain
-    # covariates - no alpha_i term, no premium recompute, not collinear with price.
-    dt[, dominated_plan := fcase(
-      plan_id == "Uninsured", 0L,
-      csr94_elig == 1L & (gold == 1L | platinum == 1L), 1L,
-      csr87_elig == 1L & gold == 1L, 1L,
-      default = 0L
-    )]
-    dt[, nav_dominated    := nonbroker * dominated_plan]
-    dt[, broker_dominated := broker    * dominated_plan]
   }
 
   # Keep only HH where exactly one plan is chosen
