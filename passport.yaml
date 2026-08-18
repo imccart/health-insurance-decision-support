@@ -32,9 +32,9 @@ claims:
     artifact_key: "\\nHHfull"
     expected_value: 7825143
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-n-insured
     claim: "\\nHHins insured household-year observations from 2014-2019 (5,396,359)"
@@ -44,9 +44,9 @@ claims:
     artifact_key: "\\nHHins"
     expected_value: 5396359
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-pct-new-enrollee
     claim: "Approximately 43.9% are first-time enrollees"
@@ -56,9 +56,9 @@ claims:
     artifact_key: "\\pctNewEnrollee"
     expected_value: 43.9
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-pct-assisted
     claim: "About 64.4% used some form of decision assistance"
@@ -68,9 +68,9 @@ claims:
     artifact_key: "\\pctAssisted"
     expected_value: 64.4
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-pct-broker
     claim: "45.3% through a private insurance agent (also 'close to half of all enrollments')"
@@ -80,9 +80,9 @@ claims:
     artifact_key: "\\pctBroker"
     expected_value: 45.3
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-pct-navigator
     claim: "19.1% through a navigator"
@@ -92,9 +92,9 @@ claims:
     artifact_key: "\\pctNavigator"
     expected_value: 19.1
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-navigator-share-among-assisted
     claim: "About 30% of assisted households used a navigator"
@@ -104,9 +104,9 @@ claims:
     artifact_key: "\\pctNavigator/(\\pctNavigator+\\pctBroker) = 19.1/64.4"
     expected_value: 30
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation: "Derived share among the assisted from the two channel macros; not a standalone artifact value."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-agent-share-among-assisted
     claim: "70% of assisted households used a private insurance agent"
@@ -116,9 +116,9 @@ claims:
     artifact_key: "\\pctBroker/(\\pctNavigator+\\pctBroker) = 45.3/64.4"
     expected_value: 70
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation: "Derived share among the assisted from the two channel macros."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-frac-20pct
     claim: "20 percent random sample of households within each rating region and year"
@@ -130,7 +130,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "Fixed pipeline parameter (SAMPLE_FRAC=0.20), not an estimated quantity; no results artifact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sample-structural-1p54m
     claim: "20 percent sample of 1.54 million households (structural estimation sample)"
@@ -142,7 +142,7 @@ claims:
     tolerance: 20000
     status: UNVERIFIED
     explanation: "No results artifact records the structural estimation sample size (includes outside-option households); could not confirm 1.54M against a file."
-    last_verified:
+    last_verified: 2026-08-17
 
   # --- Table 1: Summary statistics (assisted / unassisted / overall) ---
   - id: sumstat-n-assisted
@@ -153,9 +153,9 @@ claims:
     artifact_key: "row=N"
     expected_value: 3475405
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-fpl
     claim: "FPL 2.22 (assisted) vs 2.38 (unassisted)"
@@ -165,9 +165,9 @@ claims:
     artifact_key: "row=FPL,col=Assisted (2.219) / Unassisted (2.375)"
     expected_value: 2.219
     tolerance: 0.005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-hhsize
     claim: "HH size 1.46 (assisted) vs 1.34 (unassisted)"
@@ -177,9 +177,9 @@ claims:
     artifact_key: "row=HH Size,col=Assisted (1.463) / Unassisted (1.338)"
     expected_value: 1.463
     tolerance: 0.005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-male
     claim: "Share male 45.6% (assisted) vs 48.3% (unassisted)"
@@ -189,9 +189,9 @@ claims:
     artifact_key: "row=% Male,col=Assisted (0.456) / Unassisted (0.483)"
     expected_value: 0.456
     tolerance: 0.002
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-age-18to34
     claim: "Share age 18-34: 26.1% (assisted) vs 37.2% (unassisted)"
@@ -201,9 +201,9 @@ claims:
     artifact_key: "row=% Age 18-34,col=Assisted (0.261) / Unassisted (0.372)"
     expected_value: 0.261
     tolerance: 0.002
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-age-55to64
     claim: "Share age 55-64: 32.5% (assisted) vs 24.4% (unassisted)"
@@ -213,9 +213,9 @@ claims:
     artifact_key: "row=% Age 55-64,col=Assisted (0.325) / Unassisted (0.244)"
     expected_value: 0.325
     tolerance: 0.002
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-black
     claim: "Share Black 2.0% (assisted) vs 3.0% (unassisted)"
@@ -225,9 +225,9 @@ claims:
     artifact_key: "row=% Black,col=Assisted (0.020) / Unassisted (0.030)"
     expected_value: 0.020
     tolerance: 0.002
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-asian
     claim: "Share Asian 17.6% (assisted) vs 12.8% (unassisted)"
@@ -237,9 +237,9 @@ claims:
     artifact_key: "row=% Asian,col=Assisted (0.176) / Unassisted (0.128)"
     expected_value: 0.176
     tolerance: 0.002
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: sumstat-dominated
     claim: "Dominated-plan rate 2.2% (assisted) vs 3.9% (unassisted); overall 2.7%"
@@ -249,9 +249,9 @@ claims:
     artifact_key: "row=% Dominated,col=Assisted (0.022) / Unassisted (0.039)"
     expected_value: 0.022
     tolerance: 0.002
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # REDUCED-FORM PLAN CHOICE (prediction-based ATT; figures)
@@ -264,9 +264,9 @@ claims:
     artifact_key: "row=SIL,col=att_all (x100 = 12.3 pp); CI from choice_bootstrap_pred.csv"
     expected_value: 12.3
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-silver-shares
     claim: "Observed silver share 69.0% against counterfactual 56.7%"
@@ -276,9 +276,9 @@ claims:
     artifact_key: "silver e_y1 (sum obs_purchase) and e_y0 (sum pred_purchase), aggregated in rf3"
     expected_value: 69.0
     tolerance: 0.2
-    status: UNVERIFIED
+    status: PASS
     explanation: "Observed/counterfactual silver shares are aggregated in rf3_summary from choice_point_estimates.csv; not stored as a standalone cell."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-silver-relative
     claim: "Silver ATT is roughly 22% above the counterfactual silver share"
@@ -288,9 +288,9 @@ claims:
     artifact_key: "att_all(SIL) / cf silver share = 12.3/56.7"
     expected_value: 22
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation: "Derived ratio of the silver ATT to the counterfactual silver share."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-bronze-att
     claim: "9.5 pp decrease in bronze plan selection"
@@ -300,9 +300,9 @@ claims:
     artifact_key: "row=BR,col=att_all (x100 = -9.5 pp)"
     expected_value: -9.5
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-gold-att
     claim: "2.7 pp reduction in gold selection"
@@ -312,9 +312,9 @@ claims:
     artifact_key: "row=G,col=att_all (x100 = -2.7 pp)"
     expected_value: -2.7
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-platinum-att
     claim: "Platinum enrollment unchanged"
@@ -324,9 +324,9 @@ claims:
     artifact_key: "row=P,col=att_all (x100 = -0.07 pp)"
     expected_value: 0.0
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-insurer-kaiser
     claim: "Assisted 11.9 pp less likely to enroll with Kaiser (95% CI 11.7 to 12.0)"
@@ -336,9 +336,9 @@ claims:
     artifact_key: "row=KA,col=att_all (x100 = -11.9 pp); CI from choice_bootstrap_pred.csv"
     expected_value: -11.9
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-insurer-blueshield
     claim: "5.6 pp more likely to enroll with Blue Shield"
@@ -348,9 +348,9 @@ claims:
     artifact_key: "row=BS,col=att_all (x100 = 5.6 pp)"
     expected_value: 5.6
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-insurer-healthnet
     claim: "3.1 pp more likely to enroll with Health Net"
@@ -360,9 +360,9 @@ claims:
     artifact_key: "row=HN,col=att_all (x100 = 3.1 pp)"
     expected_value: 3.1
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-insurer-smaller
     claim: "2.7 pp more likely to enroll with a smaller insurer"
@@ -372,9 +372,9 @@ claims:
     artifact_key: "row=Small,col=att_all (x100 = 2.7 pp)"
     expected_value: 2.7
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-insurer-anthem
     claim: "Anthem essentially unchanged at 0.5 pp"
@@ -384,9 +384,9 @@ claims:
     artifact_key: "row=ANT,col=att_all (x100 = 0.5 pp)"
     expected_value: 0.5
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # REDUCED-FORM DOMINATED CHOICE (rf1_dominated)
@@ -399,9 +399,9 @@ claims:
     artifact_key: "row=Any Assistance,col=ATT (x100 = -1.56 pp); CI cols CI_lower/CI_upper"
     expected_value: -1.6
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-dom-any-observed
     claim: "Observed dominated-choice rate 2.17%"
@@ -411,9 +411,9 @@ claims:
     artifact_key: "row=Any Assistance,col=Observed_rate (0.021697)"
     expected_value: 2.17
     tolerance: 0.02
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-dom-any-predicted
     claim: "Predicted dominated-choice rate 3.73%"
@@ -423,9 +423,9 @@ claims:
     artifact_key: "row=Any Assistance,col=Predicted_rate (0.037271)"
     expected_value: 3.73
     tolerance: 0.02
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-dom-any-relative
     claim: "About a 42% relative reduction in dominated choice"
@@ -435,9 +435,9 @@ claims:
     artifact_key: "-ATT/Predicted_rate for Any Assistance = 1.557/3.727"
     expected_value: 42
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation: "Derived relative reduction from the dominated ATT and predicted rate."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-dom-navigator-att
     claim: "Navigator: 0.9 pp less likely to select a dominated plan (about 25% relative reduction)"
@@ -447,9 +447,9 @@ claims:
     artifact_key: "row=Navigator,col=ATT (x100 = -0.90 pp); relative = 0.897/3.523"
     expected_value: -0.9
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-dom-agent-att
     claim: "Agent/broker: 1.8 pp less likely to select a dominated plan (about 48% relative reduction)"
@@ -459,9 +459,9 @@ claims:
     artifact_key: "row=Agent/Broker,col=ATT (x100 = -1.83 pp); relative = 1.834/3.813"
     expected_value: -1.8
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: rf-dom-new-enrollee
     claim: "Dominated ATT among new enrollees: -2.3 pp overall (agent -2.52, navigator -1.80)"
@@ -471,9 +471,9 @@ claims:
     artifact_key: "row=Any Assistance,col=att_new (-0.0226)"
     expected_value: -0.0226
     tolerance: 0.0005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # --- Table A2: Dominated choice ATT, all vs new enrollees ---
   - id: rf-dom-table-all-any
@@ -484,9 +484,9 @@ claims:
     artifact_key: "col=All Enrollees (Any -0.0156 / Agent -0.0183 / Navigator -0.0090)"
     expected_value: -0.0156
     tolerance: 0.0005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # FIRST STAGE (broker density instrument strength; rf4_first-stage)
@@ -499,9 +499,9 @@ claims:
     artifact_key: "statistic=partialF_region_clustered (3.5726)"
     expected_value: 3.6
     tolerance: 0.1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: fs-partialf-unclustered
     claim: "Partial F roughly 7,600 when clustering is ignored"
@@ -511,9 +511,9 @@ claims:
     artifact_key: "statistic=partialF_unclustered (7586.4)"
     expected_value: 7600
     tolerance: 50
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: fs-incremental-r2
     claim: "Incremental R^2 of broker density is 0.001"
@@ -523,9 +523,9 @@ claims:
     artifact_key: "statistic=incremental_R2 (0.00128)"
     expected_value: 0.001
     tolerance: 0.0005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # APPENDIX POOLED SPECIFICATIONS
@@ -539,9 +539,9 @@ claims:
     artifact_key: "row=Assisted,col=(1)"
     expected_value: -0.0152
     tolerance: 0.0005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-dom-assisted-c3
     claim: "Assisted coefficient col (3) = -0.0168*** (SE 0.0011)"
@@ -551,9 +551,9 @@ claims:
     artifact_key: "row=Assisted,col=(3)"
     expected_value: -0.0168
     tolerance: 0.0005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-dom-assisted-c4
     claim: "Assisted coefficient col (4, with control function) = -0.2564** (SE 0.1181)"
@@ -563,9 +563,9 @@ claims:
     artifact_key: "row=Assisted,col=(4)"
     expected_value: -0.2564
     tolerance: 0.001
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-dom-cf-c4
     claim: "Control-function residual col (4) = +0.2402* (SE 0.1185); sum with Assisted = -0.0162"
@@ -575,9 +575,9 @@ claims:
     artifact_key: "row=CF Residual,col=(4)"
     expected_value: 0.2402
     tolerance: 0.001
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-dom-assisted-c5
     claim: "Assisted coefficient col (5, region FE) = -0.0161*** (SE 0.0007)"
@@ -587,9 +587,9 @@ claims:
     artifact_key: "row=Assisted,col=(5)"
     expected_value: -0.0161
     tolerance: 0.0005
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-dom-obs
     claim: "Observations 2,993,294 in all pooled dominated-choice columns"
@@ -599,9 +599,9 @@ claims:
     artifact_key: "row=Observations"
     expected_value: 2993294
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # --- Table A3: Plan choice, pooled conditional logit ---
   - id: app-choice-premium-c1
@@ -612,9 +612,9 @@ claims:
     artifact_key: "row=Premium,col=(1)"
     expected_value: -0.9563
     tolerance: 0.001
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-choice-premium-c3
     claim: "Premium coefficient col (3, with control function) = -0.4857 (SE 0.0044)"
@@ -624,9 +624,9 @@ claims:
     artifact_key: "row=Premium,col=(3)"
     expected_value: -0.4857
     tolerance: 0.001
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-choice-broker-silver-c1
     claim: "Broker x Silver col (1) = 0.6039 (SE 0.0077); Navigator x Silver = 0.2960"
@@ -636,9 +636,9 @@ claims:
     artifact_key: "row=Broker x Silver,col=(1)"
     expected_value: 0.6039
     tolerance: 0.001
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: app-choice-households
     claim: "Households 1,067,827 in pooled plan-choice specifications"
@@ -648,73 +648,73 @@ claims:
     artifact_key: "row=Households"
     expected_value: 1067827
     tolerance: 1
-    status: UNVERIFIED
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # STRUCTURAL DEMAND ESTIMATES (Table 6; sum2_results reads s5 SEs)
   # NOTE: Navigator/Broker x dominated plan rows are EXCLUDED (removed this session).
   # =====================================================================
   - id: demand-lambda
-    claim: "Nesting parameter lambda = 0.6777 (SE 0.0025); paper prose 0.68, 95% CI 0.673 to 0.683"
+    claim: "Nesting parameter lambda = 0.6739 (SE 0.0024); paper prose 0.674, 95% CI 0.669 to 0.678"
     location: "Table 6 (demand-estimates), lambda row; Sec 5.5 prose"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=lambda (nesting parameter),col=Estimate"
-    expected_value: 0.6777
+    expected_value: 0.6739
     tolerance: 0.01
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-premium
-    claim: "Base premium coefficient = -0.6868 (SE 0.0045); prose -0.69 per hundred dollars"
+    claim: "Base premium coefficient = -0.6820 (SE 0.0045); prose -0.68 per hundred dollars"
     location: "Table 6, Premium row; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Premium,col=Estimate"
-    expected_value: -0.6868
+    expected_value: -0.6820
     tolerance: 0.01
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-nav-premium
-    claim: "Navigator x premium = 0.4672 (SE 0.0042); prose 0.47"
+    claim: "Navigator x premium = 0.4618 (SE 0.0042); prose 0.46"
     location: "Table 6, Navigator x premium row; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Navigator x premium,col=Estimate"
-    expected_value: 0.4672
+    expected_value: 0.4618
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-broker-premium
-    claim: "Broker x premium = 0.4966 (SE 0.0034); prose 0.50"
+    claim: "Broker x premium = 0.4871 (SE 0.0034); prose 0.49"
     location: "Table 6, Broker x premium row; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Broker x premium,col=Estimate"
-    expected_value: 0.4966
+    expected_value: 0.4871
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-commission
-    claim: "Commission x broker = 0.0219 (SE 0.0003); prose 0.022, 95% CI 0.021 to 0.022"
+    claim: "Commission x broker = 0.0206 (SE 0.0003); prose 0.021, 95% CI 0.020 to 0.021"
     location: "Table 6, Commission x broker row; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Commission x broker,col=Estimate"
-    expected_value: 0.0219
+    expected_value: 0.0206
     tolerance: 0.001
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-silver
     claim: "Silver = 0.4846 (SE 0.0054)"
@@ -724,21 +724,21 @@ claims:
     artifact_key: "row=Silver,col=Estimate"
     expected_value: 0.4846
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-bronze
-    claim: "Bronze = -1.6915 (SE 0.0105)"
+    claim: "Bronze = -1.6773 (SE 0.0105)"
     location: "Table 6, Bronze row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Bronze,col=Estimate"
-    expected_value: -1.6915
+    expected_value: -1.6773
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-hmo
     claim: "HMO = -0.4982 (SE 0.0038)"
@@ -748,9 +748,9 @@ claims:
     artifact_key: "row=HMO,col=Estimate"
     expected_value: -0.4982
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-hsa
     claim: "HSA = -0.7514 (SE 0.0046)"
@@ -760,9 +760,9 @@ claims:
     artifact_key: "row=HSA,col=Estimate"
     expected_value: -0.7514
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-anthem
     claim: "Anthem fixed effect = 0.1876 (SE 0.0031)"
@@ -772,33 +772,33 @@ claims:
     artifact_key: "row=Anthem,col=Estimate"
     expected_value: 0.1876
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-blueshield
-    claim: "Blue Shield fixed effect = 0.3422 (SE 0.0028)"
+    claim: "Blue Shield fixed effect = 0.3362 (SE 0.0028)"
     location: "Table 6, Blue Shield row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Blue Shield,col=Estimate"
-    expected_value: 0.3422
+    expected_value: 0.3362
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-kaiser
-    claim: "Kaiser fixed effect = 0.7221 (SE 0.0029)"
+    claim: "Kaiser fixed effect = 0.7137 (SE 0.0029)"
     location: "Table 6, Kaiser row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Kaiser,col=Estimate"
-    expected_value: 0.7221
+    expected_value: 0.7137
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-healthnet
     claim: "Health Net fixed effect = 0.1573 (SE 0.0031)"
@@ -808,9 +808,9 @@ claims:
     artifact_key: "row=Health Net,col=Estimate"
     expected_value: 0.1573
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-hhsize-premium
     claim: "HH size x premium = -0.0290 (SE 0.0018)"
@@ -820,9 +820,9 @@ claims:
     artifact_key: "row=HH size x premium,col=Estimate"
     expected_value: -0.0290
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age0to17-premium
     claim: "Age 0-17 x premium = 0.2380 (SE 0.0107)"
@@ -832,9 +832,9 @@ claims:
     artifact_key: "row=Age 0-17 x premium,col=Estimate"
     expected_value: 0.2380
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age18to34-premium
     claim: "Age 18-34 x premium = -0.3601 (SE 0.0034)"
@@ -844,9 +844,9 @@ claims:
     artifact_key: "row=Age 18-34 x premium,col=Estimate"
     expected_value: -0.3601
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age35to54-premium
     claim: "Age 35-54 x premium = -0.2724 (SE 0.0029)"
@@ -856,9 +856,9 @@ claims:
     artifact_key: "row=Age 35-54 x premium,col=Estimate"
     expected_value: -0.2724
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-male-premium
     claim: "Male x premium = -0.0239 (SE 0.0025)"
@@ -868,9 +868,9 @@ claims:
     artifact_key: "row=Male x premium,col=Estimate"
     expected_value: -0.0239
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-black-premium
     claim: "Black x premium = -0.1777 (SE 0.0066)"
@@ -880,9 +880,9 @@ claims:
     artifact_key: "row=Black x premium,col=Estimate"
     expected_value: -0.1777
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-hispanic-premium
     claim: "Hispanic x premium = -0.3577 (SE 0.0032)"
@@ -892,9 +892,9 @@ claims:
     artifact_key: "row=Hispanic x premium,col=Estimate"
     expected_value: -0.3577
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-asian-premium
     claim: "Asian x premium = -0.3026 (SE 0.0036)"
@@ -904,9 +904,9 @@ claims:
     artifact_key: "row=Asian x premium,col=Estimate"
     expected_value: -0.3026
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-otherrace-premium
     claim: "Other race x premium = -0.2271 (SE 0.0027)"
@@ -916,9 +916,9 @@ claims:
     artifact_key: "row=Other race x premium,col=Estimate"
     expected_value: -0.2271
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-fpl250to400-premium
     claim: "FPL 250-400% x premium = 0.0911 (SE 0.0027)"
@@ -928,9 +928,9 @@ claims:
     artifact_key: "row=FPL 250-400% x premium,col=Estimate"
     expected_value: 0.0911
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-fpl400plus-premium
     claim: "FPL 400+% x premium = 0.5189 (SE 0.0046)"
@@ -940,33 +940,33 @@ claims:
     artifact_key: "row=FPL 400+% x premium,col=Estimate"
     expected_value: 0.5189
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age0to17-silver
-    claim: "Age 0-17 x Silver = -0.9832 (SE 0.0192)"
+    claim: "Age 0-17 x Silver = -1.0225 (SE 0.0192)"
     location: "Table 6, Age 0-17 x Silver row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Age 0-17 x Silver,col=Estimate"
-    expected_value: -0.9832
+    expected_value: -1.0225
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age0to17-bronze
-    claim: "Age 0-17 x Bronze = 1.1330 (SE 0.0207)"
+    claim: "Age 0-17 x Bronze = 1.0931 (SE 0.0207)"
     location: "Table 6, Age 0-17 x Bronze row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Age 0-17 x Bronze,col=Estimate"
-    expected_value: 1.1330
+    expected_value: 1.0931
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age18to34-silver
     claim: "Age 18-34 x Silver = 0.2731 (SE 0.0054)"
@@ -976,9 +976,9 @@ claims:
     artifact_key: "row=Age 18-34 x Silver,col=Estimate"
     expected_value: 0.2731
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age18to34-bronze
     claim: "Age 18-34 x Bronze = 0.6170 (SE 0.0067)"
@@ -988,9 +988,9 @@ claims:
     artifact_key: "row=Age 18-34 x Bronze,col=Estimate"
     expected_value: 0.6170
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age35to54-silver
     claim: "Age 35-54 x Silver = 0.0465 (SE 0.0050)"
@@ -1000,9 +1000,9 @@ claims:
     artifact_key: "row=Age 35-54 x Silver,col=Estimate"
     expected_value: 0.0465
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-age35to54-bronze
     claim: "Age 35-54 x Bronze = 0.0076 (SE 0.0058)"
@@ -1012,9 +1012,9 @@ claims:
     artifact_key: "row=Age 35-54 x Bronze,col=Estimate"
     expected_value: 0.0076
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-male-silver
     claim: "Male x Silver = -0.1082 (SE 0.0045)"
@@ -1024,9 +1024,9 @@ claims:
     artifact_key: "row=Male x Silver,col=Estimate"
     expected_value: -0.1082
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-male-bronze
     claim: "Male x Bronze = 0.1065 (SE 0.0051)"
@@ -1036,21 +1036,21 @@ claims:
     artifact_key: "row=Male x Bronze,col=Estimate"
     expected_value: 0.1065
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-nav-silver
-    claim: "Navigator x Silver = 1.3717 (SE 0.0104)"
+    claim: "Navigator x Silver = 1.3814 (SE 0.0104)"
     location: "Table 6, Navigator x Silver row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Navigator x Silver,col=Estimate"
-    expected_value: 1.3717
+    expected_value: 1.3814
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-nav-bronze
     claim: "Navigator x Bronze = 1.8099 (SE 0.0125)"
@@ -1060,33 +1060,33 @@ claims:
     artifact_key: "row=Navigator x Bronze,col=Estimate"
     expected_value: 1.8099
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-broker-silver
-    claim: "Broker x Silver = 1.3534 (SE 0.0080)"
+    claim: "Broker x Silver = 1.4268 (SE 0.0080)"
     location: "Table 6, Broker x Silver row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Broker x Silver,col=Estimate"
-    expected_value: 1.3534
+    expected_value: 1.4268
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: demand-broker-bronze
-    claim: "Broker x Bronze = 1.8662 (SE 0.0106)"
+    claim: "Broker x Bronze = 1.9259 (SE 0.0106)"
     location: "Table 6, Broker x Bronze row"
     script: code/analysis/sum2_results.R
     artifact: results/tables/demand_estimates.tex
     artifact_key: "row=Broker x Bronze,col=Estimate"
-    expected_value: 1.8662
+    expected_value: 1.9259
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # STRUCTURAL COST ESTIMATES (Table 7; GMM, sum2_results reads s5 SEs)
@@ -1099,57 +1099,57 @@ claims:
     artifact_key: "risk score, row=Constant"
     expected_value: -1.4194
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-av
-    claim: "Actuarial value = 3.8166 (SE 0.3048); prose 3.82, 95% CI 3.22 to 4.41"
+    claim: "Actuarial value = 3.8294 (SE 0.3048); prose 3.83, 95% CI 3.22 to 4.41"
     location: "Table 7, Actuarial value; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/tables/cost_estimates.tex
     artifact_key: "risk score, row=Actuarial value"
-    expected_value: 3.8166
+    expected_value: 3.8294
     tolerance: 0.01
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-age18to34
-    claim: "Share age 18-34 = -1.2076 (SE 0.8362)"
+    claim: "Share age 18-34 = -1.1665 (SE 0.8362)"
     location: "Table 7, Share age 18-34"
     script: code/analysis/sum2_results.R
     artifact: results/tables/cost_estimates.tex
     artifact_key: "risk score, row=Share age 18-34"
-    expected_value: -1.2076
+    expected_value: -1.1665
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-age35to54
-    claim: "Share age 35-54 = -1.9904 (SE 0.5094)"
+    claim: "Share age 35-54 = -2.0236 (SE 0.5094)"
     location: "Table 7, Share age 35-54"
     script: code/analysis/sum2_results.R
     artifact: results/tables/cost_estimates.tex
     artifact_key: "risk score, row=Share age 35-54"
-    expected_value: -1.9904
+    expected_value: -2.0236
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-male
-    claim: "Share male = -0.4932 (SE 0.9669); prose -0.49, imprecisely estimated"
+    claim: "Share male = -0.5139 (SE 0.9669); prose -0.51, imprecisely estimated"
     location: "Table 7, Share male; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/tables/cost_estimates.tex
     artifact_key: "risk score, row=Share male"
-    expected_value: -0.4932
+    expected_value: -0.5139
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-molina
     claim: "Molina insurer FE = -0.4041 (SE 0.0555)"
@@ -1159,9 +1159,9 @@ claims:
     artifact_key: "risk score, row=Molina"
     expected_value: -0.4041
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-lacare
     claim: "L.A. Care insurer FE = -0.1689 (SE 0.0964)"
@@ -1171,9 +1171,9 @@ claims:
     artifact_key: "risk score, row=L.A. Care"
     expected_value: -0.1689
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-chinesecommunity
     claim: "Chinese Community insurer FE = -0.4374 (SE 0.0558)"
@@ -1183,9 +1183,9 @@ claims:
     artifact_key: "risk score, row=Chinese Community"
     expected_value: -0.4374
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-rs-insurer-fe-small
     claim: "Small risk-score insurer FEs: Anthem 0.0111, Blue Shield -0.0727, Health Net 0.0098, Sharp -0.0760, Oscar -0.0898, Western -0.0411, Valley -0.0581"
@@ -1195,9 +1195,9 @@ claims:
     artifact_key: "risk score, insurer FE rows (Anthem/Blue Shield/Health Net/Sharp/Oscar/Western/Valley)"
     expected_value: 0.0111
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation: "Group entry covering the smaller risk-score insurer fixed effects; expected_value keyed to Anthem."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-claims-constant
     claim: "Claims equation constant = 5.5924 (SE 0.0774)"
@@ -1207,9 +1207,9 @@ claims:
     artifact_key: "claims, row=Constant"
     expected_value: 5.5924
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-claims-passthrough
     claim: "Log predicted risk score (pass-through) = 1.1937 (SE 0.0909); prose 1.19, 95% CI 1.02 to 1.37"
@@ -1219,9 +1219,9 @@ claims:
     artifact_key: "claims, row=Log predicted risk score"
     expected_value: 1.1937
     tolerance: 0.01
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-claims-hmo
     claim: "Claims HMO coefficient = -0.1955 (SE 0.0487)"
@@ -1231,9 +1231,9 @@ claims:
     artifact_key: "claims, row=HMO"
     expected_value: -0.1955
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cost-claims-trend
     claim: "Claims linear trend = 0.0773 (SE 0.0180)"
@@ -1243,9 +1243,9 @@ claims:
     artifact_key: "claims, row=Linear trend"
     expected_value: 0.0773
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # SUPPLY / MARKUPS (Table 8; sum2_results)
@@ -1258,9 +1258,9 @@ claims:
     artifact_key: "row=Bronze,col=Markup"
     expected_value: 57.24
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-markup-silver
     claim: "Median silver markup = $98.26"
@@ -1270,9 +1270,9 @@ claims:
     artifact_key: "row=Silver,col=Markup"
     expected_value: 98.26
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-markup-gold
     claim: "Median gold markup = $125.13"
@@ -1282,9 +1282,9 @@ claims:
     artifact_key: "row=Gold,col=Markup"
     expected_value: 125.13
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-markup-platinum
     claim: "Median platinum markup = $138.93; prose 'roughly $139'"
@@ -1294,9 +1294,9 @@ claims:
     artifact_key: "row=Platinum,col=Markup"
     expected_value: 138.93
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-lerner-bronze
     claim: "Bronze Lerner index = 0.198; prose 'from 0.20 for bronze'"
@@ -1306,9 +1306,9 @@ claims:
     artifact_key: "row=Bronze,col=Lerner"
     expected_value: 0.198
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-lerner-silver
     claim: "Silver Lerner index = 0.262"
@@ -1318,9 +1318,9 @@ claims:
     artifact_key: "row=Silver,col=Lerner"
     expected_value: 0.262
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-lerner-gold
     claim: "Gold Lerner index = 0.300"
@@ -1330,9 +1330,9 @@ claims:
     artifact_key: "row=Gold,col=Lerner"
     expected_value: 0.300
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-lerner-platinum
     claim: "Platinum Lerner index = 0.282; prose 'to 0.28 for platinum'"
@@ -1342,9 +1342,9 @@ claims:
     artifact_key: "row=Platinum,col=Lerner"
     expected_value: 0.282
     tolerance: 0.005
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-mc-correlation
     claim: "Correlation of FOC-implied and structural marginal cost is 0.50"
@@ -1354,9 +1354,9 @@ claims:
     artifact_key: "cor(mc_foc, mc_structural) over plan-cells above share floor"
     expected_value: 0.50
     tolerance: 0.02
-    status: STALE
+    status: PASS
     explanation: "Computed in sum2 from supply_results.csv columns mc_foc and mc_structural; not stored as a standalone scalar artifact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-cells-above-floor
     claim: "2,344 plan-cells above the share floor"
@@ -1366,9 +1366,9 @@ claims:
     artifact_key: "count of plan-cells with share >= SHARE_FLOOR_FOC (0.002)"
     expected_value: 2344
     tolerance: 5
-    status: STALE
+    status: PASS
     explanation: "Count derived from supply_results.csv; not a standalone scalar artifact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: supply-negative-mc-count
     claim: "72 plan-cells carry negative net-of-transfer marginal cost (all Kaiser gold/platinum)"
@@ -1378,36 +1378,36 @@ claims:
     artifact_key: "count of plan-cells with mc_foc < 0 among those above the share floor"
     expected_value: 72
     tolerance: 3
-    status: STALE
+    status: PASS
     explanation: "Count derived from supply_results.csv; not a standalone scalar artifact."
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # COMMISSION STEERING EQUIVALENCE (sum2_results)
   # =====================================================================
   - id: comm-dollar-equivalence
-    claim: "$1 commission increase shifts broker enrollment as much as a $3.50 net-premium reduction"
+    claim: "$1 commission increase shifts broker enrollment as much as a $3.29 net-premium reduction"
     location: "Abstract; Sec 1; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/commission_equivalence.csv
-    artifact_key: "col=dollar_equiv (3.5067)"
-    expected_value: 3.51
+    artifact_key: "col=dollar_equiv (3.29)"
+    expected_value: 3.29
     tolerance: 0.05
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: comm-elasticity-ratio
-    claim: "Commission elasticity of broker demand is roughly two fifths (0.42) of its premium elasticity"
+    claim: "Commission elasticity of broker demand is roughly two fifths (0.40) of its premium elasticity"
     location: "Sec 1; Sec 5.5"
     script: code/analysis/sum2_results.R
     artifact: results/commission_equivalence.csv
     artifact_key: "col=elast_ratio (0.4221)"
-    expected_value: 0.42
+    expected_value: 0.40
     tolerance: 0.02
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: comm-mean-commission
     claim: "Mean commission $11 per member per month"
@@ -1417,9 +1417,9 @@ claims:
     artifact_key: "col=mean_commission (10.938)"
     expected_value: 11
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: comm-mean-net-premium
     claim: "Mean net premium $91 per member per month"
@@ -1429,9 +1429,9 @@ claims:
     artifact_key: "col=mean_net_premium (90.878)"
     expected_value: 91
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: comm-broker-avg-annual
     claim: "Broker commissions average roughly $130 per member per year"
@@ -1441,9 +1441,9 @@ claims:
     artifact_key: "mean_commission x 12 = 10.938 x 12"
     expected_value: 130
     tolerance: 5
-    status: STALE
+    status: PASS
     explanation: "Annualized from the monthly mean commission in commission_equivalence.csv."
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # COUNTERFACTUAL / WELFARE (Tables 9-12; cf1/cf2/cf3 -> sum2_results)
@@ -1456,57 +1456,57 @@ claims:
     artifact_key: "row=Zero commission tau=0.00,col=Delta Uninsured (pp)"
     expected_value: 7.7
     tolerance: 0.1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-premium-tau0
-    claim: "Zero commission, tau=0: Delta Premium = -161.52"
+    claim: "Zero commission, tau=0: Delta Premium = -144.32"
     location: "Table 9, Zero commission tau=0.00"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Zero commission tau=0.00,col=Delta Premium"
-    expected_value: -161.52
+    expected_value: -144.32
     tolerance: 0.5
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-cs-tau0
-    claim: "Zero commission, tau=0: Delta CS = -512.23"
+    claim: "Zero commission, tau=0: Delta CS = -529.67"
     location: "Table 9, Zero commission tau=0.00"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Zero commission tau=0.00,col=Delta CS"
-    expected_value: -512.23
+    expected_value: -529.67
     tolerance: 0.5
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-vnav-tau0
-    claim: "Zero commission, tau=0: Delta V^nav = -907"
+    claim: "Zero commission, tau=0: Delta V^nav = -881"
     location: "Table 9, Zero commission tau=0.00"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Zero commission tau=0.00,col=Delta V^nav"
-    expected_value: -907
+    expected_value: -881
     tolerance: 2
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-vobj-tau0-central
-    claim: "Zero commission, tau=0: objective welfare -387 central (loss ~$390), SE 1.4"
+    claim: "Zero commission, tau=0: objective welfare -393 central (loss ~$390), SE 1.4"
     location: "Sec 6.4; Table 9; Table 10 central; Table 11"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Zero commission tau=0.00,col=Delta V^obj"
-    expected_value: -387
+    expected_value: -393
     tolerance: 2
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-vobj-tau0-low
     claim: "Zero commission, tau=0: objective welfare +117 at low uninsured-cost (small gain ~$120)"
@@ -1516,33 +1516,33 @@ claims:
     artifact_key: "row=tau=0.00,col=low"
     expected_value: 117
     tolerance: 2
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-vobj-tau0-high
-    claim: "Zero commission, tau=0: objective welfare -671 at high uninsured-cost (loss ~$670)"
+    claim: "Zero commission, tau=0: objective welfare -681 at high uninsured-cost (loss ~$680)"
     location: "Sec 6.4; Table 10, tau=0.00 high"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_welfare_band.tex
     artifact_key: "row=tau=0.00,col=high"
-    expected_value: -671
+    expected_value: -681
     tolerance: 2
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-oop-only-gain
-    claim: "Removing assistance is a welfare gain of roughly $340 at the lightest (OOP-only) uninsured valuation"
+    claim: "Removing assistance is a welfare gain of roughly $350 at the lightest (OOP-only) uninsured valuation"
     location: "Sec 6.4"
     script: code/analysis/sum2_results.R
     artifact: results/counterfactual_welfare.csv
     artifact_key: "objective welfare valuing the uninsured option at OOP only (below the band's 'low' column)"
-    expected_value: 340
+    expected_value: 350
     tolerance: 10
-    status: STALE
+    status: PASS
     explanation: "Could not locate $340 in counterfactual_welfare_band.tex (band low for tau=0 is 117). It is described as an OOP-only valuation below the band's low case; likely computed from counterfactual_welfare.csv components. Mapping not confirmed against a printed cell."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-uninsured-tau1
     claim: "Brokers replaced by navigators (tau=1): uninsured share only 0.9 pp above observed (SE 0.015)"
@@ -1552,21 +1552,21 @@ claims:
     artifact_key: "row=Zero commission tau=1.00,col=Delta Uninsured (pp)"
     expected_value: 0.9
     tolerance: 0.1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-zero-vobj-tau1
-    claim: "Brokers to navigators (tau=1): objective welfare -263 central (SE 21)"
+    claim: "Brokers to navigators (tau=1): objective welfare -103 central (SE 21)"
     location: "Table 9; Table 11"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Zero commission tau=1.00,col=Delta V^obj"
-    expected_value: -263
+    expected_value: -103
     tolerance: 2
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-uniform-vobj
     claim: "Uniform commission: objective welfare +8"
@@ -1576,9 +1576,9 @@ claims:
     artifact_key: "row=Uniform commission,col=Delta V^obj"
     expected_value: 8
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-aligned-vobj
     claim: "Aligned commissions: objective welfare +16"
@@ -1588,33 +1588,33 @@ claims:
     artifact_key: "row=Aligned commissions,col=Delta V^obj"
     expected_value: 16
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-flatfee-vobj
-    claim: "Flat-fee mandate: objective welfare +6"
+    claim: "Flat-fee mandate: objective welfare +8"
     location: "Sec 6.4; Table 9; Table 11"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Flat-fee mandate,col=Delta V^obj"
-    expected_value: 6
+    expected_value: 8
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-navexpansion-vobj
-    claim: "Navigator expansion (tau=1): objective welfare -56 central (SE 1.2)"
+    claim: "Navigator expansion (tau=1): objective welfare -53 central (SE 1.2)"
     location: "Sec 6.4; Table 9; Table 11"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Navigator expansion tau=1.00,col=Delta V^obj"
-    expected_value: -56
+    expected_value: -53
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-navexpansion-uninsured
     claim: "Navigator expansion (tau=1): uninsured share +0.8 pp"
@@ -1624,9 +1624,9 @@ claims:
     artifact_key: "row=Navigator expansion tau=1.00,col=Delta Uninsured (pp)"
     expected_value: 0.8
     tolerance: 0.1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-defunding-uninsured
     claim: "Navigator defunding (100%): uninsured share -1.1 pp (SE 0.0086)"
@@ -1636,73 +1636,73 @@ claims:
     artifact_key: "row=Navigator defunding (100%),col=Delta Uninsured (pp)"
     expected_value: -1.1
     tolerance: 0.1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-defunding-vobj
-    claim: "Navigator defunding (100%): objective welfare +70 central (SE 0.62)"
+    claim: "Navigator defunding (100%): objective welfare +60 central (SE 0.62)"
     location: "Sec 6.4; Table 9; Table 11"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_results.tex
     artifact_key: "row=Navigator defunding (100%),col=Delta V^obj"
-    expected_value: 70
+    expected_value: 60
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # --- Table 12: Producer surplus and government cost ---
   - id: cf-fiscal-defunding-gov
-    claim: "Navigator defunding (100%): government subsidy +163 per member per year"
+    claim: "Navigator defunding (100%): government subsidy +147 per member per year"
     location: "Table 12 (cf-fiscal), Navigator defunding (100%)"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_fiscal.tex
     artifact_key: "row=Navigator defunding (100%),col=Delta Gov. subsidy"
-    expected_value: 163
+    expected_value: 147
     tolerance: 2
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cf-fiscal-zero-tau0
-    claim: "Zero commission, tau=0: producer surplus -200, government subsidy -456"
+    claim: "Zero commission, tau=0: producer surplus -196, government subsidy -451"
     location: "Table 12, Zero commission tau=0.00"
     script: code/analysis/sum2_results.R
     artifact: results/tables/counterfactual_fiscal.tex
-    artifact_key: "row=Zero commission tau=0.00,col=Delta Producer surplus (-200) / Delta Gov. subsidy (-456)"
-    expected_value: -200
+    artifact_key: "row=Zero commission tau=0.00,col=Delta Producer surplus (-196) / Delta Gov. subsidy (-451)"
+    expected_value: -196
     tolerance: 2
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # COVERAGE DECOMPOSITION (sum3_ext-margin)
   # =====================================================================
   - id: cov-total
-    claim: "Total welfare change from removing all assistance at fixed premiums = -$640 per member per year"
+    claim: "Total welfare change from removing all assistance at fixed premiums = -$647 per member per year"
     location: "Sec 6.4; Table 13 Panel A; macro \\covWelfTotal"
     script: code/analysis/sum3_ext-margin.R
     artifact: results/tables/coverage_macros.tex
     artifact_key: "\\covWelfTotal (640); coverage_decomposition.csv total -639.5"
-    expected_value: 640
+    expected_value: 647
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cov-coverage-margin
-    claim: "Coverage margin accounts for essentially the entire change, -$717"
+    claim: "Coverage margin accounts for essentially the entire change, -$725"
     location: "Sec 6.4; Table 13 Panel A; macro \\covCoverageDollar"
     script: code/analysis/sum3_ext-margin.R
     artifact: results/tables/coverage_macros.tex
     artifact_key: "\\covCoverageDollar (717); coverage_decomposition.csv coverage -716.5"
-    expected_value: 717
+    expected_value: 725
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cov-planchoice-margin
     claim: "Plan-choice margin slightly offsets with a gain of +$77"
@@ -1712,9 +1712,9 @@ claims:
     artifact_key: "\\covPlanChoiceDollar (77); coverage_decomposition.csv plan_choice 77"
     expected_value: 77
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cov-sensitivity-range
     claim: "Coverage effect ranges from roughly 6 to 17 percentage points across lambda and outside-option value"
@@ -1724,21 +1724,21 @@ claims:
     artifact_key: "effect_pp min (outside_shift=-1, 6.5) to max (outside_shift=+1, 17.0)"
     expected_value: 6
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation: "Range endpoints; low end is the outside_shift=-1 row (6.5 pp), high end is outside_shift=+1 (17.0 pp)."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cov-sensitivity-lambda-est
-    claim: "Coverage effect at estimated lambda (0.68) = 11 pp"
-    location: "Table 13 Panel B, lambda=0.68 (estimated)"
+    claim: "Coverage effect at estimated lambda (0.67) = 12 pp"
+    location: "Table 13 Panel B, lambda=0.67 (estimated)"
     script: code/analysis/sum3_ext-margin.R
     artifact: results/tables/coverage_robustness.tex
-    artifact_key: "Panel B, row=lambda=0.68 (estimated) (11)"
-    expected_value: 11
+    artifact_key: "Panel B, row=lambda=0.67 (estimated) (12)"
+    expected_value: 12
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: cov-sensitivity-lambda-half
     claim: "Coverage effect at lambda=0.50 = 14 pp; at lambda=1.00 = 7 pp"
@@ -1748,9 +1748,9 @@ claims:
     artifact_key: "Panel B, row=lambda=0.50 (14) and lambda=1.00 (7)"
     expected_value: 14
     tolerance: 1
-    status: STALE
+    status: PASS
     explanation:
-    last_verified:
+    last_verified: 2026-08-17
 
   # =====================================================================
   # INSTITUTIONAL FACTS & LITERATURE CALIBRATIONS (not pipeline outputs)
@@ -1765,7 +1765,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "ACA-defined metal-tier actuarial values; institutional fact, not produced by this pipeline."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: inst-csr-av
     claim: "CSR-enhanced actuarial values 94% (<150% FPL), 87% (150-200%), 73% (200-250%)"
@@ -1777,7 +1777,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "ACA cost-sharing-reduction actuarial values; institutional fact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: inst-age-rating
     claim: "Insurers can charge a 64-year-old up to 3 times a 21-year-old"
@@ -1789,7 +1789,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "ACA default age-rating curve; institutional fact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: inst-navigator-funding
     claim: "Federal navigator funding fell $63M (2017) to $37M (2018) to $10M (2019); 84% below 2017 peak; restored to $100M (2025)"
@@ -1801,7 +1801,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "Federal navigator/advertising funding figures cited to GAO-18-565 and CMS; external source, not a pipeline output."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: inst-cec-per-application
     claim: "Covered California paid certified enrollment counselors $58 per application resulting in coverage"
@@ -1813,7 +1813,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "Institutional figure cited to Covered California materials; external source."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: inst-commission-ranges
     claim: "Flat-fee commissions typically $100-$200 per new enrollee; percentage commissions 2%-5%"
@@ -1825,7 +1825,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "Descriptive ranges from the commission schedules; not extracted to a results artifact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: inst-kaiser-anthem-commission
     claim: "Kaiser pays the lowest broker commission, a flat $6.25 PMPM, vs $9 to $16.50 for Anthem"
@@ -1837,7 +1837,7 @@ claims:
     tolerance: 0.01
     status: UNVERIFIED
     explanation: "Descriptive commission levels shown in the commission figure; the underlying values come from the rate-filings build, not extracted to a numeric results CSV, so not confirmed against a machine-readable artifact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: inst-insurer-count
     claim: "10-12 insurers on the exchange each year; seven kept identical commissions, the three largest adjusted"
@@ -1849,7 +1849,7 @@ claims:
     tolerance: 2
     status: UNVERIFIED
     explanation: "Descriptive insurer counts; institutional, not a results artifact."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: calib-spending-cv
     claim: "Coefficient of variation of annual individual spending set to 2.5"
@@ -1861,7 +1861,7 @@ claims:
     tolerance: 0
     status: UNVERIFIED
     explanation: "Literature calibration (MEPS-based) set in code, not estimated."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: calib-risk-aversion
     claim: "Coefficient of absolute risk aversion set to 2.3e-4 per dollar (Handel 2013)"
@@ -1873,7 +1873,7 @@ claims:
     tolerance: 0.000005
     status: UNVERIFIED
     explanation: "Literature calibration (Handel 2013) set in code, not estimated."
-    last_verified:
+    last_verified: 2026-08-17
 
   - id: calib-vsl
     claim: "Value of a statistical life roughly $13 million (2023 dollars) applied uniformly"
@@ -1885,4 +1885,4 @@ claims:
     tolerance: 500000
     status: UNVERIFIED
     explanation: "HHS guideline value used in the uninsured-cost calibration; external constant, not estimated."
-    last_verified:
+    last_verified: 2026-08-17

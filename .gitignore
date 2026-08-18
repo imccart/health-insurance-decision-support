@@ -4,6 +4,9 @@ data/
 # Background literature (PDFs, notes — not tracked)
 background/
 
+# Working notes (planning, reviews, drafts — per kickoff-research)
+notes/
+
 # Scratch/temporary files
 scratch/
 
