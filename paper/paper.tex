@@ -194,19 +194,19 @@ Household $i$ chooses the plan $j$ that maximizes indirect utility
 \begin{equation}
 \label{eqn:utility}
 \begin{split}
-U_{ijt} = {} & \alpha_{it} \cdot p_{ijt} + \beta^{C} \cdot C_{jt} a_{it}^B
-        + MT'_j \cdot \left( \beta^{N} \cdot a_{it}^N + \beta^{B} \cdot a_{it}^B \right) \\
-        & + MT'_j \cdot \Gamma \cdot w_{it}
-        + x'_{ij}\cdot \beta^x + \xi_{j} + \varepsilon_{ijt},
+U_{ijt} = {} & \alpha_{it}\, p_{ijt} + \beta^{C}\, \mathcal{C}_{jt}\, a_{it}^B
+        + \beta^{N}_{m(j)}\, a_{it}^N + \beta^{B}_{m(j)}\, a_{it}^B \\
+        & + \gamma_{m(j)}\, w_{it}
+        + \beta^{x}\, x_{ij} + \xi_{j} + \varepsilon_{ijt},
 \end{split}
 \end{equation}
-where $p_{ijt}$ is household $i$'s subsidized premium for plan $j$ in year $t$, $\eta_{jt}$ is the per-member-per-month commission paid to brokers enrolling consumers in plan $j$, $a_{it}^B$ and $a_{it}^N$ are indicators for whether household $i$ used a private broker or a navigator, $MT_j$ is a vector of metal tier indicators, $w_{it}$ is a vector of household demographics, $x_{ij}$ is a vector of plan and household-plan interaction characteristics, $\xi_{j}$ captures unobserved plan characteristics, and $\varepsilon_{ijt}$ is an error term.\footnote{While inertia is known to play an important role in health insurance plan choice \citep{handel2013, polyakova2016}, it is less of a concern for our analysis. Approximately \pctNewEnrollee\% of insured household-year observations in our sample are first-time enrollees, consistent with the high churn rates characteristic of ACA individual market coverage. The supplemental appendix reports the design-based assistance effects re-estimated on new enrollees, where inertia plays no role, and finds the same pattern with somewhat larger magnitudes.}
+where $p_{ijt}$ is household $i$'s subsidized premium for plan $j$ in year $t$, $\mathcal{C}_{jt}$ is the per-member-per-month commission paid to brokers enrolling consumers in plan $j$, $a_{it}^B$ and $a_{it}^N$ are indicators for whether household $i$ used a private broker or a navigator, $m(j)$ denotes plan $j$'s metal tier, $w_{it}$ is a vector of household demographics, $x_{ij}$ is a vector of plan and household-plan interaction characteristics, $\xi_{j}$ captures unobserved plan characteristics, and $\varepsilon_{ijt}$ is an error term.\footnote{While inertia is known to play an important role in health insurance plan choice \citep{handel2013, polyakova2016}, it is less of a concern for our analysis. Approximately \pctNewEnrollee\% of insured household-year observations in our sample are first-time enrollees, consistent with the high churn rates characteristic of ACA individual market coverage. The supplemental appendix reports the design-based assistance effects re-estimated on new enrollees, where inertia plays no role, and finds the same pattern with somewhat larger magnitudes.}
 
-Each of the two assistance channels enters utility separately via channel-by-metal interactions $MT'_{j} \cdot (\beta^{N} \cdot a_{it}^N + \beta^{B} \cdot a_{it}^B)$, which allow navigators and brokers to shift metal tier preferences by different amounts. The commission term $\beta^{C} \cdot C_{jt} a_{it}^B$ enters utility only for broker-assisted households, since navigators receive no plan-specific compensation, and a positive $\beta^{C}$ indicates that brokers steer consumers toward plans with higher commissions. For unassisted households, all assistance-related terms are zero, and choices are driven entirely by premiums, plan characteristics, and unobserved preferences.
+Each of the two assistance channels enters utility separately via channel-by-metal interactions $\beta^{N}_{m(j)} a_{it}^N + \beta^{B}_{m(j)} a_{it}^B$, which allow navigators and brokers to shift metal tier preferences by different amounts. The commission term $\beta^{C} \mathcal{C}_{jt} a_{it}^B$ enters utility only for broker-assisted households, since navigators receive no plan-specific compensation, and a positive $\beta^{C}$ indicates that brokers steer consumers toward plans with higher commissions. For unassisted households, all assistance-related terms are zero, and choices are driven entirely by premiums, plan characteristics, and unobserved preferences.
 
 Attaching the commission term to every plan in a broker-assisted household's choice set treats the household as selecting a broker and a plan together rather than in a fixed order. A household that is already aware of a few plans and consults an agent as it nears a decision, and a household that chooses an agent and a plan at the same time, both reduce to a broker-channel household whose choice over the full menu is tilted by the commissions attached to those plans. The alternative in which a household first commits to a particular agent and is then confined to the carriers that agent represents would require the identity of each household's agent and that agent's carrier contracts, neither of which we observe. Because commissions enter the choice over the entire menu, $\beta^{C}$ measures the average pull of commissions on broker-assisted choices.
 
-The demographic-by-metal interactions $MT'_j \cdot \Gamma \cdot w_{it}$ let the valuation of coverage generosity vary with household age composition and gender composition. These are not a channel distortion but a feature of preferences, and they matter for the supply side. Without them the model sorts households across metal tiers almost entirely through the price coefficient, predicted enrollee composition varies too little across plans within a market, and the risk score equation in Section~\ref{subsec:supply} cannot separate the demographic composition of a plan's enrollees from its generosity.
+The demographic-by-metal interactions $\gamma_{m(j)} w_{it}$ let the valuation of coverage generosity vary with household age composition and gender composition. These are not a channel distortion but a feature of preferences, and they matter for the supply side. Without them the model sorts households across metal tiers almost entirely through the price coefficient, predicted enrollee composition varies too little across plans within a market, and the risk score equation in Section~\ref{subsec:supply} cannot separate the demographic composition of a plan's enrollees from its generosity.
 
 Insurers set commissions either as a flat per-member-per-month amount or as a percentage of the unsubsidized premium. For percentage-based commissions, we convert to per-member-per-month equivalents using the plan's average unsubsidized premium. In practice, commission schedules exhibit remarkably little temporal variation. Of the ten insurers operating on the exchange during our sample period, seven maintained identical commission rates across all years. Only the three largest insurers (Anthem, Blue Shield, and Health Net) adjusted their rates, and these adjustments followed a monotone downward trend rather than the year-to-year reoptimization that a commission first-order condition would imply. We return to the insurer's commission choice in the counterfactuals of Section~\ref{sec:welfare}, where we let commissions re-optimize according to the first-order condition in Equation~\eqref{eqn:comm_foc}.\footnote{Health Net's switch from percentage-based to flat commissions in 2018 followed its acquisition by Centene and represents an organizational change rather than marginal optimization.}
 
@@ -252,14 +252,14 @@ where $b$ denotes the benchmark plan. This subsidy linkage creates substantial c
 \subsection{Insurer Pricing}
 \label{subsec:supply}
 
-Taking commission schedules as given, each insurer $f$ chooses base premiums $p_{jmt}$ for each of its plans to maximize expected variable profit
+Each insurer $f$ chooses base premiums $p_{jmt}$ and broker commissions for each of its plans to maximize expected variable profit
 \begin{equation}
 \label{eqn:profit}
 	\pi_{ft} = R_{ft} - (1 - \iota_{ft}) C_{ft} - \mathcal{C}_{ft} + RA_{ft} - V_{ft},
 \end{equation}
 where $R_{ft}$ is total premium revenue, $C_{ft}$ is total claims, $\iota_{ft}$ is the reinsurance rate (the expected share of claims covered by the ACA transitional reinsurance program), $\mathcal{C}_{ft}$ is total commissions paid, $RA_{ft}$ is the net risk adjustment transfer, and $V_{ft}$ is variable administrative cost excluding commissions. Total commissions paid by the firm are
 \begin{equation*}
-    \mathcal{C}_{ft} = \sum_{m \in M} \sum_{j \in J_{fmt}} \sum_{i \in I} a_{it}^B \, q_{ijt} \, \eta_{jt},
+    \mathcal{C}_{ft} = \sum_{m \in M} \sum_{j \in J_{fmt}} \sum_{i \in I} a_{it}^B \, q_{ijt} \, \mathcal{C}_{jt},
 \end{equation*}
 where $a_{it}^B$ indicates broker-assisted enrollment and $q_{ijt}$ are the choice probabilities from Equation~\eqref{eqn:choice_probs}.
 
@@ -294,18 +294,25 @@ where $\hat{r}_{jmt}$ is the fitted risk score from Equation~\eqref{eqn:risk_sco
 for each plan $j$ offered by firm $f$. Collecting the first-order conditions across all plans into matrix form, the equilibrium markup for each plan is
 \begin{equation}
 \label{eqn:markup}
-	p - mc = \Omega^{-1}\left(s + \Omega^{B} \eta \right),
+	p - mc = \Omega^{-1}\left(s + \Omega^{B} \mathcal{C} \right),
 \end{equation}
-where $p$ is the vector of base premiums, $mc$ is the vector of marginal costs (net of risk adjustment and reinsurance), $s$ is the vector of market shares, and $\eta$ is the vector of commission rates. The ownership matrix $\Omega$ has elements
+where $p$ is the vector of base premiums, $mc$ is the vector of marginal costs (net of risk adjustment and reinsurance), $s$ is the vector of market shares, and $\mathcal{C}$ is the vector of commission rates. The ownership matrix $\Omega$ has elements
 $$
 \Omega_{jl} = -\mathbbm{1}\left[f(j)=f(l)\right] \frac{\partial s_l}{\partial p_j},
 $$
-and $\Omega^B$ is the analogous matrix constructed from broker-assisted demand derivatives only. The term $\Omega^{B} \eta$ captures how commission costs distort pricing relative to a standard Bertrand-Nash equilibrium without intermediaries. Plans with higher commissions and more price-sensitive broker-assisted enrollees face larger upward pressure on premiums.
+and $\Omega^B$ is the analogous matrix constructed from broker-assisted demand derivatives only. The term $\Omega^{B} \mathcal{C}$ captures how commission costs distort pricing relative to a standard Bertrand-Nash equilibrium without intermediaries. Plans with higher commissions and more price-sensitive broker-assisted enrollees face larger upward pressure on premiums.
+
+\paragraph{Commission first-order conditions.} The same profit function governs each insurer's choice of commissions. We parameterize this choice as a scaling of the insurer's commission schedule by a factor $k_f$, so that the commission on plan $j$ is $\mathcal{C}_{jt} = k_f w_{jt}$, where $w_{jt}$ is the plan's commission basis, a flat per-member amount for flat schedules and the observed rate times the plan's premium for percentage schedules. Differentiating the variable profit in Equation~\eqref{eqn:profit} with respect to $k_f$ yields the commission first-order condition
+\begin{equation}
+\label{eqn:comm_foc}
+\sum_{j \in J_{ft}} \left( p_{jt} - mc_{jt} - \mathcal{C}_{jt} \right) \frac{\partial q^{B}_{jt}}{\partial k_f} + \frac{\partial RA_{ft}}{\partial k_f} = \left( 1 + \mu_f \right) \sum_{j \in J_{ft}} w_{jt}\, q^{B}_{jt},
+\end{equation}
+where $q^{B}_{jt}$ is broker-assisted enrollment in plan $j$ and $J_{ft}$ is the set of plans offered by insurer $f$. The left-hand side is the marginal benefit of a higher commission, the additional variable profit from the broker-assisted enrollment the commission attracts, which operates through the steering coefficient $\beta^{C}$, together with the induced change in risk adjustment transfers. The right-hand side is the marginal cost, the additional commission outlay, scaled by a per-insurer wedge $\mu_f$ that represents the shadow value of a commission dollar. We calibrate $\mu_f$ so that the observed schedule ($k_f = 1$) satisfies Equation~\eqref{eqn:comm_foc}, which makes the observed premiums and commissions a joint fixed point.
 
 \subsection{Estimation}
 \label{subsec:estimation}
 
-We estimate the model sequentially in three stages. First, we estimate the demand parameters $\boldsymbol{\beta}$ and the nesting parameter $\lambda$ by maximum likelihood using the nested logit choice probabilities in Equation~\eqref{eqn:choice_probs}. We pool households across markets and years, estimating a single set of coefficients, and weight each household by its size (number of members). As in Section~\ref{subsec:causal-methods}, demand is estimated on a 20 percent random sample of households drawn within each rating region and year. This weighting ensures that predicted market shares correspond to member-level enrollment, which is the relevant unit for insurer revenue, risk pool composition, and the supply-side first-order conditions. Second, given the estimated demand parameters, we compute market shares and the elasticity matrices $\Omega$ and $\Omega^B$ for each market-year cell and recover plan-level marginal costs by inverting the pricing first-order condition in Equation~\eqref{eqn:markup}. Third, we estimate the cost parameters by two-step generalized method of moments, following \cite{saltzman2019}. The moment conditions stack three blocks, namely the risk score residuals from Equation~\eqref{eqn:risk_score_estimation}, the claims residuals from Equation~\eqref{eqn:avg_claims_estimation}, and the pricing first-order condition residuals from Equation~\eqref{eqn:pricing_foc} evaluated at observed premiums. The second-step weight matrix is the inverse of the estimated moment covariance rather than a block-diagonal scalar, which matters for precision as much as for point estimates.\footnote{Using a scalar weight understates the risk score standard errors by more than an order of magnitude in our data.} We drop a plan-cell from the first-order condition block when its predicted within-cell share falls below 0.002, since the markup inversion is ill-conditioned as the share approaches zero.
+We estimate the model sequentially in three stages. First, we estimate the demand parameters $\boldsymbol{\beta}$ and the nesting parameter $\lambda$ by maximum likelihood using the nested logit choice probabilities in Equation~\eqref{eqn:choice_probs}. We pool households across markets and years, estimating a single set of coefficients, and weight each household by its size (number of members). As in Section~\ref{subsec:causal-methods}, demand is estimated on a 20 percent random sample of households drawn within each rating region and year. This weighting ensures that predicted market shares correspond to member-level enrollment, which is the relevant unit for insurer revenue, risk pool composition, and the supply-side first-order conditions. Second, given the estimated demand parameters, we compute market shares and the elasticity matrices $\Omega$ and $\Omega^B$ for each market-year cell and recover plan-level marginal costs by inverting the pricing first-order condition in Equation~\eqref{eqn:markup}. Third, we estimate the cost parameters by two-step generalized method of moments, following \cite{saltzman2019}. The moment conditions stack three blocks, namely the risk score residuals from Equation~\eqref{eqn:risk_score_estimation}, the claims residuals from Equation~\eqref{eqn:avg_claims_estimation}, and the pricing first-order condition residuals from Equation~\eqref{eqn:pricing_foc} evaluated at observed premiums. Since commissions are observed, the commission first-order condition enters only in the counterfactuals rather than as a moment in estimation. The second-step weight matrix is the inverse of the estimated moment covariance rather than a block-diagonal scalar, which matters for precision as much as for point estimates.\footnote{Using a scalar weight understates the risk score standard errors by more than an order of magnitude in our data.} We drop a plan-cell from the first-order condition block when its predicted within-cell share falls below 0.002, since the markup inversion is ill-conditioned as the share approaches zero.
 
 We report analytical standard errors. For the demand parameters we use a sandwich estimator clustered at the household level, computed from the score and Hessian of the pooled likelihood. For the cost parameters we use the corresponding generalized method of moments sandwich, which accounts for the first-stage demand estimates entering through the predicted demographic shares and the first-order condition residuals. Standard errors for the counterfactual welfare quantities in Section~\ref{sec:welfare} are obtained by a parametric bootstrap over the demand parameters, re-scoring welfare at the solved equilibrium premiums held fixed rather than re-solving the equilibrium on each draw.\footnote{Re-solving the pricing equilibrium on every bootstrap draw is computationally prohibitive. Holding premiums at their solved values is a small approximation, since the equilibrium premiums move by only a few dollars per plan across draws, leaving the welfare standard errors nearly unchanged.}
 
@@ -331,7 +338,7 @@ The design-based evidence in Section~\ref{sec:causal} shows that broker assistan
 
 We consider a set of counterfactual scenarios that isolate different aspects of the welfare tradeoff. The scenarios fall into two groups. In the first, we impose a counterfactual commission schedule and let insurers re-optimize premiums alone. In the second, insurers re-optimize premiums and commissions jointly, so that the commission schedule itself responds to the policy change.
 
-\paragraph{Zero commissions.} In the first scenario, we set all commissions to zero and solve for the new equilibrium premium vector. This scenario has two effects. First, insurers' marginal costs fall by the amount of eliminated commission payments, generating downward pressure on premiums. Second, the steering channel in the demand model is shut off ($\eta_j = 0$ for all $j$), so broker-assisted households no longer receive commission-driven plan recommendations. Households who previously used a broker may still receive assistance (from a navigator, for instance) or may revert to unassisted choice. The welfare implications depend critically on what replaces broker assistance.
+\paragraph{Zero commissions.} In the first scenario, we set all commissions to zero and solve for the new equilibrium premium vector. This scenario has two effects. First, insurers' marginal costs fall by the amount of eliminated commission payments, generating downward pressure on premiums. Second, the steering channel in the demand model is shut off ($\mathcal{C}_j = 0$ for all $j$), so broker-assisted households no longer receive commission-driven plan recommendations. Households who previously used a broker may still receive assistance (from a navigator, for instance) or may revert to unassisted choice. The welfare implications depend critically on what replaces broker assistance.
 
 To capture this, we parameterize the substitution from broker assistance to navigator assistance using a substitution rate $\tau \in [0, 1]$. At $\tau = 0$, all formerly broker-assisted households become unassisted. At $\tau = 1$, all switch to navigator assistance, retaining the benefits of guidance without the commission-driven steering. For intermediate values, a fraction $\tau$ of broker-assisted households transition to navigators, with the remainder becoming unassisted. We allocate the $\tau$ fraction based on each household's estimated propensity to use a navigator, computed from a logistic regression of navigator use among assisted households. This propensity-based allocation reflects the idea that households most similar to current navigator users are most likely to substitute toward navigator assistance.
 
@@ -341,12 +348,7 @@ We solve the zero-commission equilibrium at each point on a grid of $\tau$ value
 
 \paragraph{Aligned commissions.} A further scenario reallocates commissions across plans in proportion to each plan's non-commission consumer value, the mean over the cell's households of their indirect utility from the plan with the commission term removed, rescaled to hold the total commission budget fixed at its observed level. This keeps compensation constant but ties it to consumer fit rather than to insurer margin, so that brokers steer toward the plans households value most. It isolates the alignment of commissions from their level.
 
-\paragraph{Endogenous commissions.} The remaining scenarios let insurers choose commissions as well as premiums. Each insurer $f$ scales its observed commission schedule by a factor $k_f$, so that the commission on plan $j$ becomes $\eta_{jt} = k_f w_{jt}$, where $w_{jt}$ is the plan's commission basis, a flat per-member amount for flat schedules and the observed rate times the plan's premium for percentage schedules. Differentiating the variable profit in Equation~\eqref{eqn:profit} with respect to $k_f$ yields the commission first-order condition
-\begin{equation}
-\label{eqn:comm_foc}
-\sum_{j \in J_{ft}} \left( p_{jt} - mc_{jt} - \eta_{jt} \right) \frac{\partial q^{B}_{jt}}{\partial k_f} + \frac{\partial RA_{ft}}{\partial k_f} = \left( 1 + \mu_f \right) \sum_{j \in J_{ft}} w_{jt}\, q^{B}_{jt},
-\end{equation}
-where $q^{B}_{jt}$ is broker-assisted enrollment in plan $j$ and $J_{ft}$ is the set of plans offered by insurer $f$. The left-hand side is the marginal benefit of a higher commission, the additional variable profit from the broker-assisted enrollment the commission attracts, which operates through the steering coefficient $\beta^{\eta}$, together with the induced change in risk adjustment transfers. The right-hand side is the marginal cost, the additional commission outlay, scaled by a per-insurer wedge $\mu_f$ that represents the shadow value of a commission dollar. We calibrate $\mu_f$ so that the observed schedule ($k_f = 1$) satisfies Equation~\eqref{eqn:comm_foc}, which makes the observed premiums and commissions a fixed point of the joint system and reconciles the endogenous treatment here with the predetermined treatment in estimation, since the observed commissions are by construction optimal given $\mu_f$. We hold $\mu_f$ fixed across scenarios, in the same spirit as the plan-level cost residual introduced in Section~\ref{subsec:cf_computation}, and solve Equation~\eqref{eqn:comm_foc} jointly with the pricing first-order conditions in Equation~\eqref{eqn:pricing_foc}, so that premiums and the commission scales $\{k_f\}$ are determined together.
+\paragraph{Endogenous commissions.} The remaining scenarios let insurers re-optimize commissions as well as premiums, through the commission first-order condition in Equation~\eqref{eqn:comm_foc}. We hold $\mu_f$ fixed across scenarios, in the same spirit as the plan-level cost residual introduced in Section~\ref{subsec:cf_computation}, and solve Equation~\eqref{eqn:comm_foc} jointly with the pricing first-order conditions in Equation~\eqref{eqn:pricing_foc}, so that premiums and the commission scales $\{k_f\}$ are determined together.
 
 \paragraph{Navigator expansion.} We expand navigator access by converting a fraction $\tau$ of broker-assisted households to navigators while the remaining brokers continue to operate and be paid, with insurers re-optimizing commissions in response. Unlike the zero-commission scenario, the broker market is not eliminated, so this measures the effect of widening public assistance alongside a functioning private channel.
 
@@ -652,33 +654,6 @@ We close with three observations for policy. First, the case for restricting com
 }
 \end{minipage}
 \end{table}
-
-
-% TODO: Uncomment once structural pipeline produces CF figures
-% \newpage
-% \begin{figure}[htb]
-% \centering
-% \begin{minipage}[h]{6in}
-% \caption[]{\textbf{Welfare Gradient}\footnote{Consumer surplus change as a function of broker-to-navigator substitution rate ($\tau$). Each point represents the mean change in consumer surplus (relative to the observed equilibrium) across all region-year cells at a given $\tau$.}}
-% \centerline{%
-%     \includegraphics[width=5in]{results/figures/cf_welfare_gradient.png}
-% }
-% \label{fig:cf-welfare-gradient}
-% \end{minipage}
-% \end{figure}
-%
-% \newpage
-% \begin{figure}[htb]
-% \centering
-% \begin{minipage}[h]{6in}
-% \caption[]{\textbf{Average Premium Change by Counterfactual Scenario}\footnote{Bars show the share-weighted mean change in posted premiums across region-year cells. Scenarios vary the commission structure and the broker-to-navigator substitution rate.}}
-% \centerline{%
-%     \includegraphics[width=5in]{results/figures/cf_premium_change.png}
-% }
-% \label{fig:cf-premium-change}
-% \end{minipage}
-% \end{figure}
-
 
 \newpage
 \begin{figure}[htb]
