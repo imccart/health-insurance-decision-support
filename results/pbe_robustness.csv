@@ -1,0 +1,10 @@
+"term","full","no_PBE","diff"
+"premium",-0.682,-0.6731,0.0089
+"assisted_silver",1.3814,1.3711,-0.0103
+"broker_silver",1.4268,1.4305,0.0037
+"assisted_bronze",1.8122,1.7901,-0.0222
+"broker_bronze",1.9259,1.9104,-0.0156
+"assisted_premium",0.4618,0.4556,-0.0063
+"broker_premium",0.4871,0.4771,-0.01
+"commission_broker",0.0206,0.0211,4e-04
+"lambda",0.6739,0.6666,-0.0072
