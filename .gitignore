@@ -42,6 +42,7 @@ code/_archived/
 # Claude Code
 CLAUDE.md
 .claude/
+.claudeignore
 
 # OS / R session files
 .DS_Store
