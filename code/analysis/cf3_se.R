@@ -9,7 +9,7 @@
 ##                the objective band and applies the bias correction. Run after cf2,
 ##                through the driver:
 ##                  source("code/analysis/cf3_se.R")
-##                Why frozen scoring rather than a re-solve: code/docs/decisions.md.
+##                Why frozen scoring rather than a re-solve: notes/decisions.md.
 
 # Preamble and helpers come from _analysis.R; workers re-source the helpers in
 # clusterEvalQ below. MASS::mvrnorm is called qualified, never attached.

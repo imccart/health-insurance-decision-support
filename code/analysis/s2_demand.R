@@ -6,7 +6,7 @@
 ## Description:   Structural demand estimation.
 ##                Phase 1 (R): build cell CSVs from parquet partitions.
 ##                Phase 2 (R): L-BFGS-B nested logit via estimate_demand.R.
-##                See docs/optimizer.md for algorithm details.
+##                See notes/optimizer.md for algorithm details.
 
 # Dependencies: preamble + s1_inputs.R (cells, seeds, plan_choice) loaded
 # by _analysis.R before this step.
