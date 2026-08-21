@@ -90,6 +90,17 @@ We then fit our commission-in-utility model to these choices, with the full menu
 \end{minipage}
 \end{table}
 
+The baseline simulation lets the gatekept menu depend only on commissions. In practice, which plans an agent presents may be correlated with the agent or with the households the agent serves, so the menu restriction could be selected on characteristics that also shape plan choice. We extend the simulation to allow this, letting menu availability depend on an unobserved household type, the agent a household is matched to or the way households sort across agents, that also shifts utility, and we vary the strength of that selection. Table~\ref{tab:app-gatekeeper-selection} reports the fit as the selection strengthens, both when the selection is aligned with commissions, the realistic case in which agents who restrict menus also favor high-commission insurers, and when it is orthogonal to commissions, an adversarial case. Across the range the commission-in-utility model continues to reproduce the gatekeeper broker shares to within one to two percentage points, with correlations above 0.99. The equivalence is not an artifact of random menus. It survives selection of the menu on agent and household characteristics, because the plan fixed effects absorb the average tilt while the commission coefficient absorbs the part that covaries with commissions.
+
+\begin{table}[!h]
+\centering
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Menu Restriction with Agent and Household Selection}\footnote{Simulated plan choices under a gatekeeper process in which the menu is selected on an unobserved household type that also shifts utility. Selection strength zero is the random-gatekeeper baseline of Table~\ref{tab:app-menu-sim}. Aligned selection targets high-commission insurers; orthogonal selection targets a dimension uncorrelated with commissions. Each row fits the commission-in-utility model and reports the fitted commission coefficient, the maximum absolute difference between the gatekeeper and fitted broker shares, and their correlation.}}
+\label{tab:app-gatekeeper-selection}
+\centerline{\input{results/tables/gatekeeper_selection.tex}}
+\end{minipage}
+\end{table}
+
 This equivalence is a statement about the positive predictions and the demand fit, not about the counterfactuals. A menu restriction fixed by an agent's appointments would not respond to a commission change the way a utility term does, so the two models diverge once commissions are altered. We attribute the steering to the commission margin in the counterfactuals, as the body describes, and read this exercise as evidence that the simplification does not distort the estimated choice behavior.
 
 \newpage
@@ -207,6 +218,30 @@ Columns (3) and (4) differ only in the broker-density control function. Adding i
 \caption[]{\textbf{Demand Specification Sensitivity}\footnote{Four nested-logit demand specifications, each estimated on the 20\% sample and the 114 rating-region-by-year cells used in the body. Column (1) is a nested logit with plan attributes and a single premium coefficient; column (2) adds demographic heterogeneity in the price coefficient and in metal preference; column (3) adds the assistance and commission steering terms and reproduces the main-text demand estimates; column (4) adds the broker-density control function. The mean own-price elasticity is the enrollment-weighted average with respect to the net premium; the navigator and broker effects are the average marginal effect of assistance on the probability of choosing a silver plan, in percentage points. Empty cells denote terms not included in that specification.}}
 \label{tab:app-demand-spec}
 \centerline{\input{results/tables/demand_spec_sensitivity.tex}}
+\end{minipage}
+\end{table}
+
+\newpage
+
+\section{Inertia}
+\label{app:inertia}
+
+Inertia is a well-documented feature of health insurance plan choice, in employer coverage \citep{handel2013}, in Medicare Part D \citep{polyakova2016}, and in the ACA exchanges we study \citep{saltzman2025}. We do not model it, and this section explains why our estimates of decision assistance and commission steering are nonetheless reliable.
+
+The first point is empirical. New enrollees have no prior plan and so carry no inertia by construction. Table~\ref{tab:app-dominated-sample} re-estimates the design-based effect of assistance on dominated-plan choice for new enrollees alone, and the effects are the same as in the full sample for every channel, if anything larger. The steering we estimate is therefore not an artifact of inertia, since it is present, and stronger, exactly where inertia cannot operate.
+
+The second point is structural, and it is specific to a setting in which the persistent state is itself produced by steering. A household steered into a plan today tends to remain there tomorrow, so a commission has a direct effect on current choice and a further effect that compounds through the choices it produced in earlier periods. This has two implications. A static indicator for the prior-year plan is a poor control, since the prior plan lies on the causal path from past commissions to current choice, and conditioning on it removes the persistent steering rather than isolating a nuisance. And properly separating the direct and persistent channels would require a dynamic choice model, in which commissions in one period feed the inertia state in the next. That is a heavier object than the switching-cost model in \citet{saltzman2025}, which does not include commissions, because in our setting the persistent state is generated by the very mechanism we study.
+
+We do not need that decomposition, because the quantity relevant for welfare is the total steering effect, direct plus persistent, and a static commission model already captures it. We show this with a simulation. In a two-period choice, commissions steer the first-period choice, and that choice persists into the second period through an inertia term, so a commission has both a direct effect and a compounding one. We then estimate two models on the second-period choices, a dynamic model with commissions and inertia and a static model with commissions only, and compare the own-commission marginal effect on the period-two share. Table~\ref{tab:app-comm-inertia} reports the result. The dynamic model recovers the true parameters and splits the effect into a direct commission coefficient and a large inertia coefficient, and its direct piece is only about half of the effect a commission has once persistence is included. The static commission model, which does not separate the channels, recovers the full cumulative effect, matching the dynamic model's total to within a thousandth of a share point. We verify in the same exercise that this holds out of sample, so that the static model reproduces the full commission-removal counterfactual and not merely the local slope, and that it holds across inertia strengths and randomized plan attributes rather than at a single calibration.
+
+The reading is that our static specification does not miss the role of inertia. It captures the steering whole, in the commission coefficient, rather than dividing it between a commission term and an inertia term as a dynamic model would.
+
+\begin{table}[!h]
+\centering
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Static Commissions and the Cumulative Steering Effect}\footnote{Own-commission marginal effect on the period-two plan share in a two-period simulation in which commissions steer the first-period choice and that choice persists through inertia. The dynamic model includes both commissions and inertia. Its cumulative row lets both periods respond to a commission change, and its direct row holds the first-period state fixed. The static model includes commissions only. The static model's marginal effect matches the dynamic model's cumulative effect, not its direct-only effect.}}
+\label{tab:app-comm-inertia}
+\centerline{\input{results/tables/commission_inertia_sim.tex}}
 \end{minipage}
 \end{table}
 

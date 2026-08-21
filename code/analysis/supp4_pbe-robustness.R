@@ -10,7 +10,7 @@
 ##                demand specification on that same sample. No rebuild: uses the
 ##                cells s2_demand.R already produced.
 ##
-##                Standalone. Run AFTER s2_demand.R and supp2_demand-specs.R.
+##                Standalone. Run AFTER s2_demand.R and supp1_demand-specs.R.
 
 # Packages ----------------------------------------------------------------
 pacman::p_load(tidyverse, data.table)
