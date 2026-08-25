@@ -52,63 +52,8 @@ coefs_hat <- read.csv("results/choice_coefficients_structural.csv", stringsAsFac
 Vd        <- read_vcov("results/choice_coefficients_structural_vcov.csv")
 mu_d      <- setNames(coefs_hat$estimate, coefs_hat$term)[rownames(Vd)]
 
-# Headline statistics from one CF result set
-summarize_cf_headline <- function(cf) {
-  cf  <- as.data.frame(cf)
-  obs <- unique(cf[cf$scenario == "observed",
-                   c("region", "year", "cs_weighted", "cs_nocomm",
-                     "cs_welfare_nav", "cs_welfare_obj",
-                     "obj_prem", "obj_eoop", "obj_risk",
-                     "obj_insured", "share_unins", "unins_oop", "unins_mort", "unins_cat")])
-  mdelta <- function(scen, col) {                  # mean over cells of (col[scen] - col[observed])
-    s <- unique(cf[cf$scenario == scen, c("region", "year", col)])
-    s <- s[!duplicated(s[c("region", "year")]), ]
-    o <- obs[, c("region", "year", col)]; names(o)[3] <- "obsval"
-    m <- merge(s, o, by = c("region", "year"))
-    if (nrow(m) == 0) return(NA_real_)
-    mean(m[[col]] - m$obsval, na.rm = TRUE)
-  }
-  taus <- c(0, 0.25, 0.5, 0.75, 1.0)
-  grad <- vapply(taus, function(t) mdelta(sprintf("zero_tau%.2f", t), "cs_weighted"), numeric(1))
-  names(grad) <- paste0("grad_cs_tau", sprintf("%.2f", taus))
-  # Endogenous-commission scenarios (endog_tau0 = observed, not carried).
-  taus_e <- c(0.5, 1.0)
-  grad_e <- vapply(taus_e, function(t) mdelta(sprintf("endog_tau%.2f", t), "cs_weighted"), numeric(1))
-  names(grad_e) <- paste0("grad_cs_endog_tau", sprintf("%.2f", taus_e))
-  # Cost-band components per scenario (coverage share, insured composition, and the
-  # uninsured-weighted OOP / baseline mortality / catastrophic pieces). sum2 rebuilds
-  # the objective band from these.
-  comp_scen <- c("zero_tau0.00", "zero_tau1.00", "uniform", "aligned",
-                 "endog_tau1.00", "flat_mandate", "defund_1.00")
-  comp <- unlist(lapply(comp_scen, function(s)
-    setNames(c(mdelta(s, "share_unins"), mdelta(s, "obj_insured"), mdelta(s, "unins_oop"),
-               mdelta(s, "unins_mort"),  mdelta(s, "unins_cat")),
-             paste0(c("dshare_", "dobjins_", "doop_", "dmort_", "dcat_"), s))))
-  # obj decomposed into premium / expected-OOP / risk.
-  c(va_cs            = unname(grad["grad_cs_tau1.00"] - grad["grad_cs_tau0.00"]),
-    grad,
-    va_nav           = mdelta("zero_tau1.00", "cs_welfare_nav") - mdelta("zero_tau0.00", "cs_welfare_nav"),
-    va_obj           = mdelta("zero_tau1.00", "cs_welfare_obj") - mdelta("zero_tau0.00", "cs_welfare_obj"),
-    va_obj_prem      = mdelta("zero_tau1.00", "obj_prem") - mdelta("zero_tau0.00", "obj_prem"),
-    va_obj_eoop      = mdelta("zero_tau1.00", "obj_eoop") - mdelta("zero_tau0.00", "obj_eoop"),
-    va_obj_risk      = mdelta("zero_tau1.00", "obj_risk") - mdelta("zero_tau0.00", "obj_risk"),
-    grad_e,
-    va_cs_endog      = unname(grad_e["grad_cs_endog_tau1.00"]),
-    va_nav_endog     = mdelta("endog_tau1.00", "cs_welfare_nav"),
-    va_obj_endog     = mdelta("endog_tau1.00", "cs_welfare_obj"),
-    flatmand_dcs     = mdelta("flat_mandate", "cs_weighted"),
-    flatmand_obj     = mdelta("flat_mandate", "cs_welfare_obj"),
-    defund_dcs       = mdelta("defund_1.00", "cs_weighted"),
-    defund_obj       = mdelta("defund_1.00", "cs_welfare_obj"),
-    aligned_dcs      = mdelta("aligned", "cs_weighted"),
-    aligned_dcs_nc   = mdelta("aligned", "cs_nocomm"),
-    aligned_nav      = mdelta("aligned", "cs_welfare_nav"),
-    aligned_obj      = mdelta("aligned", "cs_welfare_obj"),
-    aligned_obj_prem = mdelta("aligned", "obj_prem"),
-    aligned_obj_eoop = mdelta("aligned", "obj_eoop"),
-    aligned_obj_risk = mdelta("aligned", "obj_risk"),
-    comp)
-}
+# Headline statistics from one CF result set: summarize_cf_headline() in
+# helpers/cf_headline.R (shared with cf4_se-comm).
 
 # Per-draw share worse off (money + navigator rulers) for the key scenarios, from the
 # per-household files this draw wrote. Fixed-length named vector, NA where missing.
@@ -120,8 +65,8 @@ dist_headline <- function(hh_dir) {
   if (length(files) == 0) return(out)
   d <- tryCatch(data.table::rbindlist(lapply(files, function(f) {
     h   <- data.table::fread(f)
-    obs <- h[scenario == "observed", .(region, year, household_number, o_obj = obj, o_nav = nav)]
-    m   <- merge(h[scenario != "observed"], obs, by = c("region", "year", "household_number"))
+    obs <- h[scenario == "baseline", .(region, year, household_number, o_obj = obj, o_nav = nav)]
+    m   <- merge(h[scenario != "baseline"], obs, by = c("region", "year", "household_number"))
     m[, .(scenario, w, e_obj = obj - o_obj, e_nav = nav - o_nav)]
   })), error = function(e) NULL)
   if (is.null(d) || nrow(d) == 0) return(out)
@@ -150,7 +95,7 @@ rm(hh_split); gc(verbose = FALSE)
 # per-household welfare to HH_SINK.
 run_one_boot <- function(task) {
   cfb <- cf_base[region == task$r & year == task$y,
-                 .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau)]
+                 .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau, mc)]
   if (nrow(cfb) == 0) return(NULL)
   t0  <- Sys.time()
   out <- tryCatch(score_cf_cell(task$r, task$y, cfb, HH_SINK, coefs_b, lambda_b),

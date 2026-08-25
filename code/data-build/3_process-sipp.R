@@ -203,7 +203,7 @@ sipp_pm <- rbindlist(list(
             file.path(sipp_dir, "status2015.csv"), 2015)
 ))
 
-# Person-month indicators (age uses & not |, fixing a bug in Saltzman's code)
+# Person-month indicators (age uses & not |)
 sipp_pm[, `:=`(
   on_nongroup = as.integer(jan == 1 | dec == 1),
   young       = as.integer(TAGE <= 17),

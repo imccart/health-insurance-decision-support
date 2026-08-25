@@ -22,7 +22,7 @@ estimate_ra_regressions <- function(rsdata) {
   rs_valid <- rsdata %>%
     filter(!is.na(log_risk_score), is.finite(log_risk_score), EXP_MM > 0)
 
-  # Risk score regression (Saltzman spec)
+  # Risk score regression
   # Metal tier captures adverse selection; demographics capture within-tier
   # composition effects. Demographics come from observed enrollment (merged
   # from plan_demographics.csv before calling this function).
@@ -31,8 +31,8 @@ estimate_ra_regressions <- function(rsdata) {
     # Drop rows missing demographics (unmatched plan-years). Age shares only —
     # hispanic and male are excluded: with ~116 plan-years of cost data and
     # predicted shares that barely vary across plans, those coefficients are
-    # unidentified and blow up the exponential risk score. Mirrors Saltzman's
-    # AV-dominant Eq. 16 (we keep the metal/age terms the data can support).
+    # unidentified and blow up the exponential risk score. We keep an
+    # AV-dominant spec (only the metal/age terms the data can support).
     rs_valid <- rs_valid %>%
       filter(!is.na(share_18to34), !is.na(share_35to54))
     rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum +

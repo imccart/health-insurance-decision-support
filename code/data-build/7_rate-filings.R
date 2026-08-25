@@ -177,7 +177,7 @@ cat("  Years:", paste(sort(unique(rsdata$year)), collapse = ", "), "\n")
 
 
 # Compute risk scores -----------------------------------------------------
-# Following Saltzman: risk_score = (EXP_RSK_ADJ / total_premium + s_av) / share
+# risk_score = (EXP_RSK_ADJ / total_premium + s_av) / share
 # where s_av is the AV-weighted utilization share
 
 MH_LOOKUP <- c(Bronze = 1.00, Silver = 1.03, Gold = 1.08, Platinum = 1.15)

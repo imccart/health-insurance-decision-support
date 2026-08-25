@@ -198,6 +198,15 @@ for (i in seq_len(nrow(cells))) {
   broker_elast_mat <- broker_result$broker_elast_mat
   Omega_broker <- -own_mat * t(broker_elast_mat)  # same transpose as Omega
 
+  # Commission FOC inputs for the M4 GMM moment (s4): broker enrollment qB_j and the
+  # broker commission-derivative matrix D[j,k] = dqB_j/deta_k. Both are fixed given the
+  # demand estimates (they run through beta_comm, not the cost parameters), so we
+  # precompute them here and the cost GMM evaluates the commission FOC at its own theta
+  # using these plus the cost-implied marginal cost. [D %*% w_f]_j = dqB_j/dk_f.
+  comm_deriv <- compute_commission_derivatives(cell_data, V, lambda, coefs)
+  comm_D  <- comm_deriv$D[plan_ids_cell, plan_ids_cell, drop = FALSE]
+  comm_qB <- comm_deriv$qB[plan_ids_cell]
+
   # -----------------------------------------------------------------------
   # Step 5: Risk scores and RA (needed for FOC RA derivative)
   # -----------------------------------------------------------------------
@@ -295,7 +304,9 @@ for (i in seq_len(nrow(cells))) {
     ra_foc         = ra_foc,
     elast_mat      = elast_mat,   # raw (untransposed) E, so the GMM can recompute ra_foc at its theta
     own_mat        = own_mat,
-    demo_shares    = demo_shares  # demand-model-predicted demographic shares (Saltzman Eq.16) for M1/M3
+    demo_shares    = demo_shares, # demand-model-predicted demographic shares for M1/M3
+    comm_D         = comm_D,      # broker commission-derivative matrix dqB_j/deta_k (M4 commission FOC)
+    comm_qB        = comm_qB      # broker enrollment per plan, share units (M4 commission FOC)
   ), file.path(foc_inputs_dir, paste0("foc_", r, "_", y, ".rds")))
 
   # -----------------------------------------------------------------------

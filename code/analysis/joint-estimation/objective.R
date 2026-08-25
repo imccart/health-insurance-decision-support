@@ -2,7 +2,7 @@
 #
 # theta layout: [ beta (K = length(DEMAND_COVARS)), lambda, alpha (6 risk-score),
 #                 gamma_cl (7 claims) ].  K is set by the orchestrator.
-# Moment blocks (Saltzman eq. 20):
+# Moment blocks:
 #   M0 demand score  (K+1)  — gradient of weight-normalized NLL / N_hh  (= 0 at MLE)
 #   M1 risk score    (6)    — frozen rate-filing WLS moment (warm-start age shares)
 #   M2 claims        (6)    — frozen rate-filing WLS moment

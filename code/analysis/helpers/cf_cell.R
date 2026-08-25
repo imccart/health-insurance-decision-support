@@ -3,18 +3,18 @@
 ## Author:        Ian McCarthy
 ## Description:   run_cf_cell() — solves the pricing equilibrium for one
 ##                region-year cell (endogenous MC(p): demographics -> risk scores
-##                -> claims -> RA -> MC inside each FOC evaluation, Saltzman RAND
-##                JE 2021; broker-to-navigator tau gradient). Commissions carry
+##                -> claims -> RA -> MC inside each FOC evaluation;
+##                broker-to-navigator tau gradient). Commissions carry
 ##                their own FOC (2026-07-23): each insurer scales its observed
 ##                schedule (pct schedules track candidate premiums) subject to a
-##                per-insurer wedge mu calibrated at the observed point — the
-##                commission-side parallel of the omega cost residual — and the
-##                observed scenario is the joint (p, k) fixed point. Endogenous
+##                per-insurer commission markup mu, specified as a function of
+##                insurer covariates and estimated off the commission FOC. The
+##                baseline scenario is the joint (p, k) fixed point. Endogenous
 ##                scenarios: endog_tau (expansion, brokers keep being paid),
 ##                flat_mandate (pct insurers forced flat, levels re-chosen),
 ##                defund (navigator-to-broker reverse conversion). Sourced in the
 ##                preamble; called by cf1_estimate.R (the all-cells driver) and
-##                cf3_se.R (the welfare-SE bootstrap). Relies on the structural
+##                cf4_se-comm.R (sensitivity mode). Relies on the structural
 ##                helpers the caller has already loaded (supply.R, ra.R,
 ##                choice.R, welfare_*.R).
 
@@ -26,12 +26,18 @@
 run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                         plan_choice, supply_results, coefs,
                         commission_lookup, rs_coefs, claims_coefs,
-                        reins_df, STRUCTURAL_SPEC, warm_start = NULL) {
-  # warm_start (bootstrap only): a per-scenario list keyed by scenario label, each
-  # element list(p = premiums by plan_id, k = commission scale by insurer prefix)
-  # from the baseline cf1 solution. Used only as the STARTING point of the endogenous
-  # scenario solves so each draw begins next to its answer and lands on the same
-  # spot in the (soft) commission valley as the baseline. NULL (cf1) = old behavior.
+                        reins_df, STRUCTURAL_SPEC, warm_start = NULL,
+                        commission_mu = NULL, sens = NULL) {
+  # warm_start: a per-scenario list keyed by scenario label, each element
+  # list(p = premiums by plan_id, k = commission scale by insurer prefix) from the
+  # cf1 solution. Used as the STARTING point of the endogenous scenario solves so a
+  # re-run begins next to its answer and lands on the same spot in the (soft)
+  # commission valley. NULL (cf1) = cold start.
+  # sens (cf4): list(z = matrix of the commission-FOC covariates by "firm_year" row,
+  # one column per coefficient; h_rel = relative FD step). Sensitivity mode: every
+  # scenario is evaluated at its warm_start solution with no solve, and the function
+  # returns d(premium)/d(delta) and d(commission)/d(delta) per plan and scenario by
+  # the implicit function theorem instead of the equilibrium table.
 
   TAU_GRID <- c(0, 0.25, 0.5, 0.75, 1.0)
   # Endogenous-commission scenario grids, trimmed (read 0 -> 0.5 -> 1; tau = 0
@@ -41,9 +47,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   DEFUND_GRID    <- c(0.5, 1.0)
   # Commission-level sweep: brokers stay brokers, commissions scaled down.
   SCALE_GRID <- c(0.25, 0.5, 0.75)
-  # Commission utility terms — zeroed for the non-commission welfare metric
-  # (cs_nocomm), so welfare comparisons don't rest on commission steering being a
-  # genuine preference rather than a wedge.
+  # Commission utility terms, zeroed for the non-commission welfare metric
+  # (cs_nocomm), so welfare comparisons don't treat commission-driven steering as
+  # a genuine household preference.
   COMM_TERMS <- c("commission_broker")
 
   coef_map <- setNames(coefs$estimate, coefs$term)
@@ -159,8 +165,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
   # omega cost residual ------------------------------------------------------
   # Plan-level structural cost shock (BLP/Nevo): MC(p) = compute_mc(p) + omega,
-  # held FIXED across scenarios. omega is CALIBRATED below at the observed scenario
-  # so the CF's own FOC holds exactly at observed prices (omega = -solve(Omega, f0)
+  # held FIXED across scenarios. omega is CALIBRATED below at the observed point
+  # (p_obs, k = 1) so the premium FOC holds exactly at observed prices (omega = -solve(Omega, f0)
   # with f0 = fn(p_obs) at omega = 0; equals mc_foc - mc_structural but from the CF's
   # own Omega, so it is self-consistent even though the cell is ill-conditioned). The
   # closures below read omega_vec by lexical scope, so it must exist before they run;
@@ -179,13 +185,13 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # per-$100. Single source of truth for both the FOC evaluation and the
   # post-solution outcome recompute.
   #
-  # ENDOGENOUS SUBSIDY (Saltzman RAND JE 2021, Eq. 8). The APTC moves with the
+  # ENDOGENOUS SUBSIDY. The APTC moves with the
   # benchmark (2nd-cheapest silver) premium: subsidy = max(0, premiumSLC(p) - zeta),
   # where zeta_it = SLC_contribution is the fixed income cap (carried from the data
   # build; NA for subsidy-ineligible HHs). We anchor the HH benchmark premium to its
   # data-build value premiumSLC and add the HH-scaled change in the benchmark plan's
-  # posted price, so the observed scenario reproduces the data subsidy exactly
-  # (delta = 0 -> subsidy = pmax(0, premiumSLC - zeta), the data-build formula) while
+  # posted price, so at observed prices the subsidy reproduces the data-build value
+  # exactly (delta = 0 -> subsidy = pmax(0, premiumSLC - zeta)) while
   # counterfactual benchmark moves feed through. Benchmark IDENTITY is held fixed at
   # the baseline 2nd-cheapest silver; only its price moves. This makes the level
   # consistent with the 4-case derivative already in compute_shares_and_elasticities
@@ -233,7 +239,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
   # FOC function and analytical Jacobian -------------------------------------
   # Returns list(fn, jac) sharing a cache. fn computes the FOC residual with
-  # endogenous MC(p) (Saltzman RAND JE 2021, eq. 13) and caches intermediates.
+  # endogenous MC(p) and caches intermediates.
   # jac computes the analytical J*J Jacobian using cached quantities.
   #
   # Jacobian terms:
@@ -276,7 +282,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     reins_local <- reins_vec[plan_ids_cell]
     reins_local[is.na(reins_local)] <- 0
 
-    # Demographics used in risk score regression (Saltzman Eq. 16: age, gender,
+    # Demographics used in risk score regression (age, gender,
     # income). Map each predicted share to its raw per-HH column for the Eq. 17
     # dr/dp Jacobian below (the FPL shares don't follow the share_->perc_ rule).
     demo_names <- intersect(c("share_18to34", "share_35to54", "share_male",
@@ -425,15 +431,19 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       ra_eta <- compute_ra_foc(q$rs_p, q$shares, plan_avs, q$avg_prem,
                                q$comm_D, own_mat[pn_solve, pn_solve])
       margin <- p_vec - q$mc_p - eta_cur[pn_solve]
-      resid_k <- vapply(seq_along(comm_endog$prefixes), function(fi) {
+      MB_f <- MC_f <- numeric(length(comm_endog$prefixes))
+      for (fi in seq_along(comm_endog$prefixes)) {
         ii <- idx_f[[fi]]
         w_f <- numeric(J); w_f[ii] <- w_full[ii]
         dq <- as.numeric(q$comm_D %*% w_f)
-        MB <- sum(margin[ii] * dq[ii]) + sum(w_full[ii] * ra_eta[ii])
-        MC <- sum(q$comm_qB[ii] * w_full[ii])
-        (MB - (1 + comm_endog$mu[fi]) * MC) /
-          ((1 + comm_endog$mu[fi]) * comm_endog$MC_obs[fi])
-      }, numeric(1))
+        MB_f[fi] <- sum(margin[ii] * dq[ii]) + sum(w_full[ii] * ra_eta[ii])
+        MC_f[fi] <- sum(q$comm_qB[ii] * w_full[ii])
+      }
+      resid_k <- (MB_f - (1 + comm_endog$mu) * MC_f) /
+        ((1 + comm_endog$mu) * comm_endog$MC_obs)
+      # Cached for the sensitivity mode (d resid_k / d mu needs MB at the solution)
+      cache$MB_f <- MB_f
+      cache$MC_f <- MC_f
 
       cache$iter <- cache$iter + 1L
       c(resid_p, resid_k)
@@ -677,12 +687,63 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
 
 
+  # Sensitivity of the solved equilibrium to the commission-FOC coefficients
+  # (sensitivity mode). At the saved solution x* = (p*, kappa*), the implicit
+  # function theorem gives dx*/d delta = -[dF/dx]^-1 dF/d delta. dF/dx is formed by
+  # central differences of the FOC residual; dF/d delta runs through mu_f = z_f'
+  # delta, and only insurer f's commission FOC depends on mu_f, with
+  # d resid_k_f / d mu_f = -MB_f / ((1 + mu_f)^2 MC_obs_f). The commission
+  # sensitivity follows from eta_j = k_f w_j(p). With exogenous commissions delta
+  # does not enter, so the sensitivities are zero. Expects fns$cache at x*.
+  sens_at_solution <- function(fns, x_star, comm_endog) {
+    J <- length(plan_ids_cell)
+    n <- length(x_star)
+    zero <- matrix(0, J, ncol(sens$z), dimnames = list(plan_ids_cell, colnames(sens$z)))
+    if (is.null(comm_endog)) return(list(dp = zero, deta = zero, cond = NA_real_))
+
+    MB_f <- fns$cache$MB_f
+    dF_dd <- matrix(0, n, ncol(sens$z))
+    for (fi in seq_along(comm_endog$prefixes)) {
+      key <- paste(comm_endog$prefixes[fi], y, sep = "_")
+      if (!key %in% rownames(sens$z)) next      # fallback mu, not a function of delta
+      dF_dd[J + fi, ] <- -MB_f[fi] / ((1 + comm_endog$mu[fi])^2 * comm_endog$MC_obs[fi]) *
+        sens$z[key, ]
+    }
+
+    Jx <- matrix(0, n, n)
+    hx <- sens$h_rel * pmax(abs(x_star), 1)
+    for (j in seq_len(n)) {
+      xp <- x_star; xp[j] <- xp[j] + hx[j]
+      xm <- x_star; xm[j] <- xm[j] - hx[j]
+      Jx[, j] <- (fns$fn(xp) - fns$fn(xm)) / (2 * hx[j])
+    }
+    if (any(!is.finite(Jx))) return(NULL)
+    dx <- tryCatch(-qr.solve(Jx, dF_dd), error = function(e) -MASS::ginv(Jx) %*% dF_dd)
+    sv <- svd(Jx)$d
+
+    dp <- dx[seq_len(J), , drop = FALSE]
+    dimnames(dp) <- dimnames(zero)
+    dkappa <- dx[-seq_len(J), , drop = FALSE]
+    p_star <- x_star[seq_len(J)]
+    k_star <- x_star[-seq_len(J)] / comm_endog$etabar
+    w_star <- ifelse(comm_endog$pct, comm_endog$rho * p_star, comm_endog$w_flat)
+    deta <- zero
+    for (fi in seq_along(comm_endog$prefixes)) {
+      ii <- which(plan_prefix == comm_endog$prefixes[fi])
+      dk <- dkappa[fi, ] / comm_endog$etabar[fi]
+      deta[ii, ] <- outer(w_star[ii], dk) +
+        (k_star[fi] * comm_endog$rho[ii] * comm_endog$pct[ii]) * dp[ii, , drop = FALSE]
+    }
+    list(dp = dp, deta = deta, cond = max(sv) / min(sv))
+  }
+
   # Solve pricing equilibrium ------------------------------------------------
   # comm_endog non-NULL adds the per-insurer commission FOCs to the system:
   # unknowns (p, kappa), kappa_f = k_f * etabar_f in dollars PMPM (kappa_init on
-  # that scale). Exogenous callers are unchanged (positional args).
+  # that scale). Exogenous callers are unchanged (positional args). label names
+  # the scenario (warm_start lookup in sensitivity mode).
   solve_equilibrium <- function(cd_scenario, comm_sc, p_init,
-                                comm_endog = NULL, kappa_init = NULL) {
+                                comm_endog = NULL, kappa_init = NULL, label = NULL) {
 
     fns <- build_foc_function(cd_scenario, coefs, comm_sc,
                                benchmark_plan, plan_attrs,
@@ -692,6 +753,17 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     x_init <- if (is.null(comm_endog)) p_init else
       c(p_init, setNames(kappa_init, paste0("eta_", comm_endog$prefixes)))
+
+    # Sensitivity mode: evaluate at the saved cf1 solution for this scenario.
+    if (!is.null(sens)) {
+      ws <- warm_start[[label]]
+      if (is.null(ws)) { cat("    sens: no saved solution for", label, "\n"); return(NULL) }
+      x_init <- if (is.null(comm_endog)) ws$p[plan_ids_cell] else
+        c(ws$p[plan_ids_cell],
+          setNames(ws$k[comm_endog$prefixes] * comm_endog$etabar,
+                   paste0("eta_", comm_endog$prefixes)))
+      if (anyNA(x_init)) { cat("    sens: incomplete saved solution for", label, "\n"); return(NULL) }
+    }
 
     f0 <- fns$fn(x_init)
     cat("    initial |FOC| =", round(sqrt(sum(f0^2, na.rm=TRUE)), 6),
@@ -752,7 +824,18 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     # uninformative flat direction. maxit is capped low: the residual plateaus at the
     # conditioning floor well before 150 iters, and the |f| < 0.05 acceptance below
     # catches the plateaued solutions.
-    sol <- tryCatch(
+    sol <- if (!is.null(sens)) {
+      # No solve: the sensitivities at x_init (the saved solution), then a stub
+      # solution object so the post-solve quantities below evaluate at x_init.
+      sn <- sens_at_solution(fns, x_init, comm_endog)
+      if (is.null(sn)) { cat("    sens: non-finite Jacobian for", label, "\n"); return(NULL) }
+      sens_store[[label]] <<- bind_cols(
+        tibble(region = r, year = y, scenario = label, plan_id = plan_ids_cell,
+               cond_J = sn$cond),
+        as_tibble(sn$dp)   %>% rename_with(~ paste0("dp_", .x)),
+        as_tibble(sn$deta) %>% rename_with(~ paste0("deta_", .x)))
+      list(x = x_init, fvec = f0, termcd = 1L, iter = 0L)
+    } else tryCatch(
       nleqslv(x = x_init, fn = fns$fn, method = "Broyden", global = "hook",
               control = list(maxit = 100, xtol = 1e-6, ftol = 1e-8)),
       error = function(e) { cat("    nleqslv error:", conditionMessage(e), "\n"); NULL }
@@ -957,7 +1040,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
   results_list <- list()
 
-  # Scenario 1: Observed (joint premium + commission fixed point)
+  # Scenario 1: Baseline (joint premium + commission fixed point under the
+  # estimated model; every counterfactual is differenced from it)
   comm_obs_sc <- comm_obs[plan_ids_cell]
   cd_obs <- build_scenario_data(cell_data_base, comm_obs_sc)
 
@@ -966,10 +1050,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # residual by Omega %*% omega. Uses the CF's own Omega at p_obs, so it is
   # self-consistent even in ill-conditioned cells (borrowing mc_foc from 2_pricing
   # left a ~0.05 residual that the cond~2e6 geometry amplified into large price
-  # swings). With endogenous commissions the observed scenario solves the ENDOG
-  # premium FOC, which subtracts the pct direct outlay term at k = 1, so omega is
-  # calibrated against f0 - direct_obs — that makes (p_obs, k = 1) the joint fixed
-  # point. Exogenous policy scenarios reuse this omega; their FOC carries no
+  # swings). With endogenous commissions the premium FOC subtracts the pct direct
+  # outlay term at k = 1, so omega is calibrated against f0 - direct_obs, the
+  # premium FOC at observed premiums and commissions. The baseline scenario then
+  # re-solves (p, k) jointly under the estimated commission markup mu, so baseline
+  # premiums and commissions are model-implied rather than observed.
+  # Exogenous policy scenarios reuse this omega; their FOC carries no
   # direct term because those policies fix DOLLAR schedules (severing the pct
   # premium linkage is part of the policy, not an inconsistency).
   fns_cal <- build_foc_function(cd_obs, coefs, comm_obs_sc, benchmark_plan, plan_attrs,
@@ -1010,11 +1096,13 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   om_sol[!is.finite(om_sol)] <- 0
   omega_vec <- setNames(om_sol, plan_ids_cell)
 
-  # mu wedge per endogenous insurer at (p_obs, k = 1): the per-dollar shadow cost
-  # of commission outlays that rationalizes the observed schedule (MB = (1+mu) MC,
-  # MB including the RA response), held FIXED across scenarios — exactly parallel
-  # to omega on the premium side. Margins net of the newly calibrated omega
-  # (q_cal$mc_p was evaluated at omega = 0).
+  # mu markup per endogenous insurer: the estimated commission markup
+  # mu_ft = delta' z_ft from the commission FOC (insurer size, schedule type,
+  # broker enrollment per available agent), held FIXED across scenarios, exactly
+  # parallel to omega on the premium side. When the estimate is unavailable for an
+  # insurer-year, fall back to the value that rationalizes the observed schedule
+  # (MB = (1+mu) MC, MB including the RA response). Margins net of the newly
+  # calibrated omega (q_cal$mc_p was evaluated at omega = 0).
   comm_mu <- comm_etabar <- comm_MCobs <- comm_qBsum <- setNames(numeric(0), character(0))
   if (length(endog_prefixes) > 0) {
     ra_eta_cal <- compute_ra_foc(q_cal$rs_p, q_cal$shares, plan_avs,
@@ -1028,7 +1116,10 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       MB_f <- sum(margin_cal[ii] * dq[ii]) + sum(comm_obs_sc[ii] * ra_eta_cal[ii])
       MC_f <- sum(qB_cal[ii] * comm_obs_sc[ii])
       if (is.finite(MB_f) && MC_f > 0) {
-        comm_mu[f]     <- MB_f / MC_f - 1
+        mkey   <- paste(f, y, sep = "_")
+        mu_est <- if (!is.null(commission_mu) && mkey %in% names(commission_mu))
+                    commission_mu[[mkey]] else NA_real_
+        comm_mu[f]     <- if (is.finite(mu_est)) mu_est else MB_f / MC_f - 1
         comm_etabar[f] <- MC_f / sum(qB_cal[ii])
         comm_MCobs[f]  <- MC_f
         comm_qBsum[f]  <- sum(qB_cal[ii])
@@ -1063,15 +1154,17 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     kp
   }
 
+  sens_store <- list()   # sensitivity mode: filled per scenario by solve_equilibrium
+
   ce_obs <- ce_native(endog_prefixes)
   eq_obs <- solve_equilibrium(cd_obs, comm_obs_sc, p_obs[plan_ids_cell],
-                              comm_endog = ce_obs,
+                              comm_endog = ce_obs, label = "baseline",
                               kappa_init = if (is.null(ce_obs)) NULL else
                                 unname(comm_etabar[endog_prefixes]))
 
   if (!is.null(eq_obs)) {
     results_list[[length(results_list) + 1]] <- tibble(
-      region = r, year = y, scenario = "observed", tau = NA_real_,
+      region = r, year = y, scenario = "baseline", tau = NA_real_,
       plan_id = plan_ids_cell,
       premium_obs = p_obs[plan_ids_cell],
       premium_cf = eq_obs$p[plan_ids_cell],
@@ -1086,14 +1179,14 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       nleqslv_termcd = eq_obs$sol$termcd,
       nleqslv_iter = eq_obs$sol$iter
     )
-    cat("  observed - converged (nleqslv iter =", eq_obs$sol$iter, ")\n")
+    cat("  baseline - converged (nleqslv iter =", eq_obs$sol$iter, ")\n")
     if (!is.null(eq_obs$k))
       cat("    joint fixed point: max|k - 1| =",
           signif(max(abs(eq_obs$k - 1)), 3),
           " max|p - p_obs| =", signif(max(abs(eq_obs$p - p_obs[plan_ids_cell])), 3), "\n")
     p_warm <- eq_obs$p
   } else {
-    cat("  observed - did not converge\n")
+    cat("  baseline - did not converge\n")
     p_warm <- p_obs
   }
   # The endog/defund chains warm-start from the observed solution; the zero_tau
@@ -1121,7 +1214,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     sc_label <- paste0("zero_tau", sprintf("%.2f", tau))
     cd_tau <- build_scenario_data(cell_data_base, comm_zero, tau = tau)
 
-    eq_tau <- solve_equilibrium(cd_tau, comm_zero, p_warm)
+    eq_tau <- solve_equilibrium(cd_tau, comm_zero, p_warm, label = sc_label)
 
     if (!is.null(eq_tau)) {
       results_list[[length(results_list) + 1]] <- tibble(
@@ -1151,7 +1244,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # Scenario 3: Uniform commission
   comm_uniform <- setNames(rep(mean_comm_pmpm, length(plan_ids_cell)), plan_ids_cell)
   cd_unif <- build_scenario_data(cell_data_base, comm_uniform)
-  eq_unif <- solve_equilibrium(cd_unif, comm_uniform, p_obs)
+  eq_unif <- solve_equilibrium(cd_unif, comm_uniform, p_obs, label = "uniform")
 
   if (!is.null(eq_unif)) {
     results_list[[length(results_list) + 1]] <- tibble(
@@ -1179,7 +1272,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     sc_label <- paste0("scale_", sprintf("%.2f", sc))
     comm_scaled <- setNames(comm_obs_sc * sc, plan_ids_cell)
     cd_sc <- build_scenario_data(cell_data_base, comm_scaled)
-    eq_sc <- solve_equilibrium(cd_sc, comm_scaled, p_obs)
+    eq_sc <- solve_equilibrium(cd_sc, comm_scaled, p_obs, label = sc_label)
     if (!is.null(eq_sc)) {
       results_list[[length(results_list) + 1]] <- tibble(
         region = r, year = y, scenario = sc_label, tau = NA_real_,
@@ -1223,7 +1316,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     as.numeric(if (denom > 0) w_val * (budget / denom) else comm_obs_sc),
     plan_ids_cell)
   cd_al <- build_scenario_data(cell_data_base, comm_aligned)
-  eq_al <- solve_equilibrium(cd_al, comm_aligned, p_obs)
+  eq_al <- solve_equilibrium(cd_al, comm_aligned, p_obs, label = "aligned")
   if (!is.null(eq_al)) {
     results_list[[length(results_list) + 1]] <- tibble(
       region = r, year = y, scenario = "aligned", tau = NA_real_,
@@ -1250,9 +1343,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # Same tau conversion as zero_tau but the non-switched brokers REMAIN brokers
   # and keep being paid (broker_remain = TRUE); endogenous insurers re-choose
   # their commission scale k_f on the native schedule basis subject to the
-  # calibrated wedge. Gate re-evaluated on the SCENARIO broker pool at the warm
-  # point (the pool shrinks with tau; mu-existence at observed is the
-  # precondition). tau = 0 is the observed joint fixed point (not re-run);
+  # estimated commission markup mu. Gate re-evaluated on the SCENARIO broker pool
+  # at the warm point (the pool shrinks with tau; mu-existence at the baseline is
+  # the precondition). tau = 0 is the baseline joint fixed point (not re-run);
   # endog_tau1.00 has an empty broker pool and must match zero_tau1.00.
   p_e_warm   <- p_obs_sol
   kappa_warm <- comm_etabar
@@ -1279,9 +1372,10 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     ce_e <- ce_native(endog_f)
     eq_e <- if (is.null(ce_e)) {
-      solve_equilibrium(cd_e, comm_obs_sc, ws_p(sc_label, p_e_warm))
+      solve_equilibrium(cd_e, comm_obs_sc, ws_p(sc_label, p_e_warm), label = sc_label)
     } else {
       solve_equilibrium(cd_e, comm_obs_sc, ws_p(sc_label, p_e_warm), comm_endog = ce_e,
+                        label = sc_label,
                         kappa_init = ws_kappa(sc_label, endog_f, comm_etabar,
                                               unname(kappa_warm[endog_f])))
     }
@@ -1332,7 +1426,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       MC_obs   = comm_qBsum[endog_prefixes]
     )
     eq_fm <- solve_equilibrium(cd_fm, comm_obs_sc, ws_p("flat_mandate", p_obs_sol),
-                               comm_endog = ce_fm,
+                               comm_endog = ce_fm, label = "flat_mandate",
                                kappa_init = ws_kappa("flat_mandate", endog_prefixes,
                                                      ce_fm$etabar,
                                                      unname(comm_etabar[endog_prefixes])))
@@ -1371,9 +1465,10 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     ce_d <- ce_native(endog_prefixes)
     eq_d <- if (is.null(ce_d)) {
-      solve_equilibrium(cd_d, comm_obs_sc, ws_p(sc_label, p_d_warm))
+      solve_equilibrium(cd_d, comm_obs_sc, ws_p(sc_label, p_d_warm), label = sc_label)
     } else {
       solve_equilibrium(cd_d, comm_obs_sc, ws_p(sc_label, p_d_warm), comm_endog = ce_d,
+                        label = sc_label,
                         kappa_init = ws_kappa(sc_label, endog_prefixes, comm_etabar,
                                               unname(kappa_d_warm[endog_prefixes])))
     }
@@ -1404,7 +1499,16 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     rm(cd_d); gc(verbose = FALSE)
   }
 
-  # Return results
+  # Return results (sensitivity mode returns the per-scenario sensitivities instead)
+  if (!is.null(sens)) {
+    if (length(sens_store) == 0) {
+      cat("Cell", r, y, "- no sensitivities\n")
+      return(NULL)
+    }
+    out <- bind_rows(sens_store)
+    cat("Cell", r, y, "- sensitivities for", length(sens_store), "scenarios\n")
+    return(out)
+  }
   if (length(results_list) > 0) {
     out <- bind_rows(results_list)
     cat("Cell", r, y, "- produced", nrow(out), "rows\n")

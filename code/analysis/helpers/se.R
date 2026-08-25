@@ -102,3 +102,39 @@ cost_gmm_sandwich_se <- function(theta_hat, W, gbar_fn, N_ALPHA, N_GAMMA,
   dimnames(V) <- list(param_names, param_names)
   list(se = se_df, vcov = V)
 }
+
+# --- Commission FOC: cluster-robust WLS sandwich ---------------------------
+# The commission markup mu_ft = z_ft' delta is the MC-weighted linear fit of the
+# insurer-year FOC to the insurer covariates. V = (Z'WZ)^-1 M (Z'WZ)^-1 with the
+# meat M summed over insurer clusters, since an insurer's year-specific FOCs share
+# its type and correlated residuals. CONDITIONAL on the demand and cost estimates
+# (same convention as cost_gmm_sandwich_se; full first-step propagation is in the
+# CF bootstrap). foc_df holds firm, mu_hat, MC, and the z columns.
+comm_foc_sandwich_se <- function(foc_df, z_terms = c("large", "pct", "broker_per_agent")) {
+  Z <- cbind(`(Intercept)` = 1, as.matrix(foc_df[, z_terms, drop = FALSE]))
+  w <- foc_df$MC
+  y <- foc_df$mu_hat
+  firm <- foc_df$firm
+
+  ZtWZ    <- crossprod(Z, w * Z)
+  ZtWZinv <- tryCatch(solve(ZtWZ), error = function(e) MASS::ginv(ZtWZ))
+  delta   <- as.numeric(ZtWZinv %*% crossprod(Z, w * y))
+  e       <- as.numeric(y - Z %*% delta)
+
+  meat <- matrix(0, ncol(Z), ncol(Z))                 # sum_f (Z_f' W_f e_f)(.)'
+  for (f in unique(firm)) {
+    ii <- which(firm == f)
+    sf <- crossprod(Z[ii, , drop = FALSE], w[ii] * e[ii])
+    meat <- meat + tcrossprod(sf)
+  }
+  V <- ZtWZinv %*% meat %*% ZtWZinv
+
+  d <- diag(V); d[d < 0] <- NA_real_
+  se_df <- data.frame(term = colnames(Z), estimate = delta, se = sqrt(d),
+                      stringsAsFactors = FALSE)
+  se_df$z       <- se_df$estimate / se_df$se
+  se_df$p_value <- 2 * pnorm(-abs(se_df$z))
+  rownames(se_df) <- NULL
+  dimnames(V) <- list(colnames(Z), colnames(Z))
+  list(se = se_df, vcov = V, n_clusters = length(unique(firm)))
+}

@@ -35,7 +35,7 @@ if (any(sapply(foc_cells, function(fc) is.null(fc$demo_shares)))) {
   stop("foc_inputs lack demo_shares — re-run 2_pricing.R to save predicted demographic shares")
 }
 
-# --- Predicted demographic shares (Saltzman Eq. 16): from the demand model, NOT
+# --- Predicted demographic shares: from the demand model, NOT
 #     observed enrollment (which is endogenous). Aggregate per-cell predicted
 #     shares to plan-year (enrollment-weighted) for the M1 risk-score moment;
 #     the per-cell shares feed M3 below. Built from ALL cells (pre-Omega-filter)
@@ -91,17 +91,17 @@ N_INS_COST <- length(INS_COST)
 # --- M1-M2 data matrices (rate filings) ---
 w_rf <- sqrt(rsdata$EXP_MM)  # WLS weights
 
-# M1 regressors: Saltzman Eq. 16 (AV + age/gender demographic shares) plus insurer
+# M1 regressors: AV + age/gender demographic shares, plus insurer
 # FEs, our one data-motivated deviation (the risk score has no carrier term
 # otherwise, so it over-scores low-risk carriers like Molina and drives their MC
-# negative; see ra.R). Income/FPL shares stay out. To run his exact spec, drop
+# negative; see ra.R). Income/FPL shares stay out. To run the spec without them, drop
 # all_of(INS_COST) here and from alpha_names.
 X_rs <- as.matrix(rsdata %>% select(AV, share_18to34, share_35to54, share_male,
                                      all_of(INS_COST)))
 y_rs <- rsdata$log_risk_score
 
 # M2 regressors: claims equation exogenous part (observed log_rs enters via Z_cl
-# below). AV is OMITTED (Saltzman Eq. 18) — the risk score carries generosity.
+# below). AV is OMITTED, since the risk score carries generosity.
 X_cl_exog <- as.matrix(rsdata %>% transmute(HMO, trend))
 y_cl <- rsdata$log_cost
 
@@ -143,7 +143,7 @@ for (k in seq_along(foc_cells)) {
   # Predicted demographic shares for this cell (age, gender, income), from the
   # demand model saved in the foc_inputs RDS — consistent with M1 and with the
   # application in s3_pricing/cf. The cell-mean fallback guards any plan_id absent
-  # from demo_shares. AV comes from plan_avs (Saltzman Eq. 16 dominant regressor).
+  # from demo_shares. AV comes from plan_avs (the dominant risk-score regressor).
   demo <- as.data.frame(fc$demo_shares)
   for (col in c("share_18to34", "share_35to54", "share_male")) {
     foc_cells[[k]][[col]] <- sapply(pn, function(p) {
@@ -385,7 +385,7 @@ cat("    M3 (FOC):", round(g1[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 6), "\n")
 
 cat("\n--- GMM Step 2 (optimal weighting: inverse moment covariance) ---\n")
 
-# Efficient two-step feasible GMM, matching Saltzman Eq. 20: the step-2 weight is the
+# Efficient two-step feasible GMM. The step-2 weight is the
 # inverse of the moment variance-covariance matrix S, estimated at the step-1
 # parameters. S is block-diagonal across the two independent data sources — the risk
 # and claims moments come from the rate filings (M12_mat, one row per plan-year), the
@@ -495,6 +495,85 @@ print(mc_check)
 cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
     " | risk-score AV coef:", round(alpha_gmm[2], 3),
     " age coefs:", round(alpha_gmm[3], 3), round(alpha_gmm[4], 3), "\n")
+
+# =========================================================================
+# M4: COMMISSION FOC (specification estimated off insurer-year FOCs)
+# =========================================================================
+# The insurer commission FOC is MB_ft = (1 + mu_ft) MC_ft, summed over the
+# insurer's plans within a cell and aggregated across regions to the insurer-year.
+# The markup term mu_ft is specified as mu_ft = z_ft' delta with z = (1, large,
+# pct, broker enrollment per available agent) and delta estimated off the
+# insurer-year FOCs at the estimated demand and cost parameters. A handful of
+# coefficients against many more insurer-year conditions, so mu is estimated and
+# leaves residuals. This does not identify the cost or demand parameters (those
+# come from M1-M3 and the choice model); it fits the commission side so the
+# counterfactual baseline reproduces the market.
+
+cat("\n--- M4: commission FOC specification ---\n")
+bd_comm <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
+cl_comm <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+
+comm_rows <- list()
+for (fc in foc_cells) {
+  if (is.null(fc$comm_D) || is.null(fc$comm_qB)) next
+  pn <- fc$plan_ids; J <- length(pn)
+  # mc at the GMM cost estimates (same construction as the negative-MC check)
+  plr <- alpha_gmm[1] + alpha_gmm[2]*fc$AV + alpha_gmm[3]*fc$share_18to34 +
+         alpha_gmm[4]*fc$share_35to54 + alpha_gmm[5]*fc$share_male
+  for (j in seq_len(N_INS_COST)) plr <- plr + alpha_gmm[5 + j]*fc[[INS_COST[j]]]
+  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$HMO + gamma_gmm[4]*fc$trend
+  prs <- exp(plr); pclm <- exp(pcl)
+  sh <- fc$shares; avg_p <- weighted.mean(fc$posted_premium, sh, na.rm = TRUE)
+  mh <- MH_LOOKUP[as.character(round(fc$plan_avs, 1))]; mh[is.na(mh)] <- 1
+  util <- fc$plan_avs * mh
+  ra <- (prs/sum(prs*sh, na.rm = TRUE) - util/sum(util*sh, na.rm = TRUE)) * avg_p
+  mc <- pclm*(1 - fc$reins_vec) - ra
+  ra_eta <- compute_ra_foc(setNames(prs, pn), setNames(sh, pn), fc$plan_avs,
+                           avg_p, fc$comm_D, fc$own_mat)
+  margin <- fc$posted_premium - mc - fc$comm_vec
+  pref <- sub("_.*", "", pn)
+  na_r <- bd_comm$n_agents[bd_comm$region == fc$region & bd_comm$year == fc$year][1]
+  for (f in unique(pref)) {
+    ii <- which(pref == f); if (sum(fc$comm_vec[ii]) <= 0) next
+    w_f <- numeric(J); w_f[ii] <- fc$comm_vec[ii]
+    dq <- as.numeric(fc$comm_D %*% w_f)
+    MB <- sum(margin[ii]*dq[ii]) + sum(fc$comm_vec[ii]*ra_eta[ii])
+    MC <- sum(fc$comm_qB[ii]*fc$comm_vec[ii])
+    comm_rows[[length(comm_rows) + 1]] <- data.frame(
+      firm = f, year = fc$year, MB = MB, MC = MC,
+      qB = sum(fc$comm_qB[ii]), enroll = sum(sh[ii]), n_agents = na_r)
+  }
+}
+
+comm_fy <- bind_rows(comm_rows) %>%
+  group_by(firm, year) %>%
+  summarise(MB = sum(MB), MC = sum(MC), qB = sum(qB),
+            enroll = sum(enroll), n_agents = mean(n_agents), .groups = "drop") %>%
+  mutate(large = as.integer(firm %in% c("ANT", "BS", "HN", "KA")),
+         broker_per_agent = qB / n_agents,
+         mu_hat = MB / MC - 1) %>%
+  left_join(cl_comm %>% transmute(firm = insurer_prefix, year, pct = as.integer(is_pct)),
+            by = c("firm", "year")) %>%
+  filter(is.finite(mu_hat), MC > 0, !is.na(pct), !is.na(broker_per_agent))
+
+# Estimate delta: mu_ft = delta' z_ft, delta the MC-weighted method-of-moments
+# solution to E[z (MB - (1+delta'z) MC)] = 0. SEs here are the plain WLS SEs;
+# the cluster-robust SEs are computed in s5_se (helpers/se.R).
+wls <- lm(mu_hat ~ large + pct + broker_per_agent, data = comm_fy, weights = MC)
+delta <- coef(wls)
+comm_fy$mu_fit <- as.numeric(predict(wls))
+cat("  insurer-year conditions:", nrow(comm_fy),
+    " | distinct insurers:", n_distinct(comm_fy$firm), "\n")
+cat("  R2:", round(summary(wls)$r.squared, 3),
+    " | residual sd:", round(sd(comm_fy$mu_hat - comm_fy$mu_fit), 3), "\n")
+print(round(summary(wls)$coefficients, 3))
+
+write_csv(tibble(term = names(delta), estimate = unname(delta)),
+          file.path(TEMP_DIR, "commission_foc_coefs.csv"))
+write_csv(comm_fy %>% select(firm, year, large, pct, broker_per_agent,
+                             MC, mu_hat, mu_fit),
+          file.path(TEMP_DIR, "commission_foc_fit.csv"))
+cat("  Saved commission_foc_coefs.csv and commission_foc_fit.csv\n")
 
 # =========================================================================
 # SAVE COEFFICIENTS

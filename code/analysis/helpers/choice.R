@@ -140,8 +140,8 @@ build_rf <- function(plans, hhs, sample_frac,
   #   "posted" — gross age-adjusted premium (current default)
   #   "oop"    — max(gross - subsidy, 0), keeps penalty_own separate
   #   "net"    — max(gross - subsidy, 0) - penalty/12 (penalty reduces insured cost)
-  #   "evan"   — insured: max(gross - subsidy, 0), uninsured: penalty/12
-  #              (Saltzman JHE 2019: penalty is the "price" of being uninsured)
+  #   "penalty_outside"   — insured: max(gross - subsidy, 0), uninsured: penalty/12
+  #              (penalty is the "price" of being uninsured)
   dt[, adj_subsidy := fifelse(is.na(subsidy), 0, subsidy)]
   dt[, premium_hh := (premium / RATING_FACTOR_AGE40) * rating_factor]
   if (premium_type == "posted") {
@@ -159,7 +159,7 @@ build_rf <- function(plans, hhs, sample_frac,
       issuer == "Outside_Option",  0.0,
       default = pmax(premium_hh - adj_subsidy, 0) - penalty / 12
     )]
-  } else if (premium_type == "evan") {
+  } else if (premium_type == "penalty_outside") {
     dt[, premium_oop := fcase(
       issuer == "Outside_Option",  penalty / 12,
       default = pmax(premium_hh - adj_subsidy, 0)
@@ -256,7 +256,7 @@ build_rf <- function(plans, hhs, sample_frac,
   # 8. Final variables
   dt <- dt[!is.na(premium_oop) & !is.na(plan_id)]
   dt[, `:=`(
-    # Premium in $/100/month (Saltzman's units). Reduces gradient magnitude
+    # Premium in $/100/month. Reduces gradient magnitude
     # by 100x → much better-conditioned BHHH Hessian. β estimates are now
     # directly comparable to JHE 2019 (-0.429 per $100).
     net_premium    = premium_oop / hh_size / 100,

@@ -37,6 +37,7 @@ source("code/analysis/helpers/ra.R")
 source("code/analysis/helpers/estimate_demand.R")
 source("code/analysis/helpers/se.R")
 source("code/analysis/helpers/cf_cell.R")
+source("code/analysis/helpers/cf_headline.R")
 source("code/analysis/helpers/welfare_objective.R")
 source("code/analysis/helpers/welfare_engine.R")
 
@@ -62,7 +63,8 @@ source("code/analysis/s5_se.R")
 # cf: counterfactuals -----------------------------------------------------
 source("code/analysis/cf1_estimate.R")       # solve equilibria (writes premium_cf)
 source("code/analysis/cf2_score.R")          # score welfare from the solved equilibria
-source("code/analysis/cf3_se.R")             # slow (re-runs the CF per draw); comment out to skip
+source("code/analysis/cf3_se.R")             # demand-parameter bootstrap (frozen re-score)
+source("code/analysis/cf4_se-comm.R")        # commission-FOC delta method; combines with cf3
 
 # sum: summary tables + figures -------------------------------------------
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk

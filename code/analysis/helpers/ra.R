@@ -22,9 +22,9 @@ estimate_ra_regressions <- function(rsdata) {
   rs_valid <- rsdata %>%
     filter(!is.na(log_risk_score), is.finite(log_risk_score), EXP_MM > 0)
 
-  # Risk score regression: Saltzman Eq. 16 (AV + age/gender demographic shares) PLUS
-  # insurer fixed effects, which is our one deviation from his equation. It is
-  # data-motivated and earned by a test. Under his exact Eq. 16 the low-cost carriers
+  # Risk score regression: AV + age/gender demographic shares, PLUS
+  # insurer fixed effects. The fixed effects are data-motivated and earned by a
+  # test. Without a carrier term the low-cost carriers
   # (Molina foremost) are over-scored — the equation has no carrier term, so it
   # cannot see that Molina runs a lower-risk book than its AV/demographics imply. It
   # over-predicts Molina's risk, hands it a transfer exceeding its (low) claims, and
@@ -34,8 +34,8 @@ estimate_ra_regressions <- function(rsdata) {
   # INS_COST set as the claims equation, but Kaiser folds into the baseline here (no
   # HMO term on the risk side). Income/FPL shares stay OUT — they, not the insurer
   # FEs, drove the earlier coefficient degeneracy. AV enters here and is EXCLUDED
-  # from claims; AV_METAL is renamed AV to match predict_risk_scores. To run his
-  # exact spec instead, drop the insurer terms from the formula below —
+  # from claims; AV_METAL is renamed AV to match predict_risk_scores. To run the
+  # spec without insurer terms, drop them from the formula below;
   # predict_risk_scores applies whatever terms rs_coefs holds.
   rs_valid <- rs_valid %>% mutate(AV = AV_METAL)
   demo_terms <- c("share_18to34", "share_35to54", "share_male")
@@ -55,7 +55,7 @@ estimate_ra_regressions <- function(rsdata) {
       ", demographics =", has_demo, "\n")
   cat("  R² =", round(summary(rs_reg)$r.squared, 4), "\n")
 
-  # Claims regression (Saltzman Eq. 18). Claims are regressed on the PREDICTED
+  # Claims regression. Claims are regressed on the PREDICTED
   # risk score (the fitted values from rs_reg), not the observed one, so the
   # elasticity is estimated on the same object the FOC and counterfactual apply
   # it to; on observed data the score is noisy and the pass-through attenuates
@@ -147,7 +147,7 @@ compute_demographic_shares <- function(cell_data, V, lambda) {
     ins_dt[, perc_18to34 := perc_18to25 + perc_26to34]
   }
 
-  # Predicted shares from the choice model. The risk-score spec (Saltzman Eq. 16)
+  # Predicted shares from the choice model. The risk-score spec
   # uses age and gender (share_18to34/35to54/male); income (FPL) and hispanic are
   # still emitted for other consumers but do not enter the risk-score equation.
   demo_shares <- ins_dt[, .(

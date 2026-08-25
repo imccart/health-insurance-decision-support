@@ -470,7 +470,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   # --- 5a. Counterfactual headline table: premium and all three welfare measures ---
   # Welfare is the three measures of Section 6.3 (Small-Rosen CS, the navigator-
   # rule money metric V^nav, and the objective money metric V^obj), each a change
-  # relative to the observed equilibrium, per member per year. Premium change is
+  # relative to the model baseline equilibrium, per member per year. Premium change is
   # share-weighted over plan-cells; welfare is averaged over the cell-level
   # welfare file (one row per region-year-scenario) so cells with more plans are
   # not over-weighted, and cf1's plan-level join is not used for the aggregates.
@@ -489,7 +489,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
               ins = mean(obj_insured, na.rm = TRUE), shu = mean(share_unins, na.rm = TRUE),
               oop = mean(unins_oop, na.rm = TRUE), mort = mean(unins_mort, na.rm = TRUE),
               cat = mean(unins_cat, na.rm = TRUE), .groups = "drop")
-  obs_w  <- comp_means %>% filter(scenario == "observed")
+  obs_w  <- comp_means %>% filter(scenario == "baseline")
   obs_ob <- sapply(c("low", "central", "high"), function(cs) obj_band(obs_w, cs))
 
   welf_summary <- comp_means %>%
@@ -515,13 +515,13 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
   # Readable labels + display order. Every scenario the pipeline solves appears
   # here; add a row when a new scenario family is introduced in cf1_estimate.R.
-  scen_levels <- c("observed",
+  scen_levels <- c("baseline",
                    "zero_tau0.00", "zero_tau0.25", "zero_tau0.50", "zero_tau0.75", "zero_tau1.00",
                    "uniform", "aligned",
                    "scale_0.25", "scale_0.50", "scale_0.75",
                    "endog_tau0.50", "endog_tau1.00",
                    "flat_mandate", "defund_0.50", "defund_1.00")
-  scen_labels <- c(observed = "Observed",
+  scen_labels <- c(baseline = "Baseline",
                    zero_tau0.00 = "Zero commission", zero_tau0.25 = "Zero commission",
                    zero_tau0.50 = "Zero commission", zero_tau0.75 = "Zero commission",
                    zero_tau1.00 = "Zero commission",
@@ -628,13 +628,24 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   writeLines(fisc_lines, "results/tables/counterfactual_fiscal.tex")
   cat("  Wrote results/tables/counterfactual_fiscal.tex\n")
 
-  # --- 5a2. Welfare effects with bootstrap SEs (from cf3) ---
+  # --- 5a2. Welfare effects with SEs (cf3 demand bootstrap + cf4 commission delta method) ---
   # Reconstruct each draw's coverage effect and central objective from the component
-  # columns in cf_bootstrap_draws.csv, pair with the cf2 point estimate. Skips until
-  # cf3 has run.
+  # columns in cf_bootstrap_draws.csv, pair with the cf2 point estimate. The
+  # commission-FOC channel adds a' V_comm a for the same linear combination of
+  # headline statistics, with V_comm from cf4 (cf_delta_vcov.csv); the two stages
+  # are independent, so the variances add. Skips until cf3 has run.
   draws <- tryCatch(read_csv("results/cf_bootstrap_draws.csv", show_col_types = FALSE),
                     error = function(e) NULL)
+  V_comm <- tryCatch({
+    d <- read.csv("results/cf_delta_vcov.csv", check.names = FALSE, stringsAsFactors = FALSE)
+    M <- as.matrix(d[, -1]); dimnames(M) <- list(d[[1]], d[[1]]); M
+  }, error = function(e) NULL)
+  comm_var <- function(a) {
+    if (is.null(V_comm) || !all(names(a) %in% rownames(V_comm))) return(0)
+    as.numeric(t(a) %*% V_comm[names(a), names(a)] %*% a)
+  }
   if (!is.null(draws) && nrow(draws) > 1) {
+    if (is.null(V_comm)) cat("  cf_delta_vcov.csv not found -- welfare SEs carry the demand channel only\n")
     RPc <- UNINS_RISK_PROT[["central"]]; MRc <- UNINS_MORT_REDUX[["central"]]
     VSLc <- UNINS_VSL[["central"]]
     se_scen <- c(zero_tau0.00  = "Remove assistance ($\\tau$=0)",
@@ -657,13 +668,18 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       pr <- welf_summary[welf_summary$scenario == s, ]
       cov_pt <- if (nrow(pr)) 100 * pr$d_shu else mean(cov_d, na.rm = TRUE)
       obj_pt <- if (nrow(pr)) pr$d_obj else mean(obj_d, na.rm = TRUE)
+      # Same linear combinations over the cf4 headline statistics
+      a_cov <- setNames(100, paste0("dshare_", s))
+      a_obj <- setNames(c(1, -1, -RPc, -MRc * VSLc, -DISTRESS_COST),
+                        paste0(c("dobjins", "doop", "dshare", "dmort", "dcat"), "_", s))
+      se_cov <- sqrt(var(cov_d, na.rm = TRUE) + comm_var(a_cov))
+      se_obj <- sqrt(var(obj_d, na.rm = TRUE) + comm_var(a_obj))
       wl <- c(wl, sprintf("%s & %s (%s) & %s (%s) \\\\",
-        se_scen[[s]], fmt(cov_pt, 1), sefmt(sd(cov_d, na.rm = TRUE)),
-        fmt(obj_pt, 0), sefmt(sd(obj_d, na.rm = TRUE))))
+        se_scen[[s]], fmt(cov_pt, 1), sefmt(se_cov), fmt(obj_pt, 0), sefmt(se_obj)))
     }
     wl <- c(wl, "\\hline\\hline", "\\end{tabular}")
     writeLines(wl, "results/tables/counterfactual_welfare_se.tex")
-    cat("  Wrote results/tables/counterfactual_welfare_se.tex (point est with bootstrap SE)\n")
+    cat("  Wrote results/tables/counterfactual_welfare_se.tex (point est with SE: demand bootstrap + commission delta method)\n")
   } else {
     cat("  cf_bootstrap_draws.csv not found -- run cf3 to populate welfare SEs\n")
   }
@@ -678,9 +694,9 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       .groups = "drop"
     )
 
-  # Get observed CS for reference line
+  # Baseline CS for the reference line
   obs_cs <- cf_results %>%
-    filter(scenario == "observed") %>%
+    filter(scenario == "baseline") %>%
     summarize(cs = mean(cs_weighted, na.rm = TRUE)) %>%
     pull(cs)
 
@@ -705,11 +721,11 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
   # --- 5c. Premium change by scenario figure ---
   cf_by_scenario <- cf_results %>%
-    filter(scenario %in% c("observed", "uniform") |
+    filter(scenario %in% c("baseline", "uniform") |
              scenario %in% c("zero_tau0.00", "zero_tau0.50", "zero_tau1.00")) %>%
     mutate(
       scenario_label = case_when(
-        scenario == "observed"      ~ "Observed",
+        scenario == "baseline"      ~ "Baseline",
         scenario == "uniform"       ~ "Uniform commission",
         scenario == "zero_tau0.00"  ~ "Zero comm (tau=0)",
         scenario == "zero_tau0.50"  ~ "Zero comm (tau=0.5)",
@@ -724,12 +740,12 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     )
 
   if (nrow(cf_by_scenario) > 1) {
-    p_prem <- ggplot(cf_by_scenario %>% filter(scenario_label != "Observed"),
+    p_prem <- ggplot(cf_by_scenario %>% filter(scenario_label != "Baseline"),
                       aes(x = reorder(scenario_label, mean_chg), y = mean_chg)) +
       geom_col(fill = "#2C3E50", width = 0.6) +
       geom_hline(yintercept = 0, linetype = "dashed") +
       coord_flip() +
-      labs(x = NULL, y = "Change in premium ($/member/month, relative to observed)") +
+      labs(x = NULL, y = "Change in premium ($/member/month, relative to baseline)") +
       theme_minimal(base_size = 12)
 
     ggsave("results/figures/cf_premium_change.png", p_prem, width = 7, height = 4)

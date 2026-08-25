@@ -20,7 +20,7 @@ claims:
     artifact_key: "\\nHHfull"
     expected_value: 7825143
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -32,7 +32,7 @@ claims:
     artifact_key: "\\nHHins"
     expected_value: 5396359
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -44,7 +44,7 @@ claims:
     artifact_key: "\\pctNewEnrollee"
     expected_value: 43.9
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -56,7 +56,7 @@ claims:
     artifact_key: "\\pctAssisted"
     expected_value: 64.4
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -68,7 +68,7 @@ claims:
     artifact_key: "\\pctBroker"
     expected_value: 45.3
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -80,7 +80,7 @@ claims:
     artifact_key: "\\pctNavigator"
     expected_value: 19.1
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -92,7 +92,7 @@ claims:
     artifact_key: "\\pctNavigator/(\\pctNavigator+\\pctBroker) = 19.1/64.4"
     expected_value: 30
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation: "Derived share among the assisted from the two channel macros; not a standalone artifact value."
     last_verified: 2026-08-17
 
@@ -104,7 +104,7 @@ claims:
     artifact_key: "\\pctBroker/(\\pctNavigator+\\pctBroker) = 45.3/64.4"
     expected_value: 70
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation: "Derived share among the assisted from the two channel macros."
     last_verified: 2026-08-17
 
@@ -652,7 +652,7 @@ claims:
     artifact_key: "row=lambda (nesting parameter),col=Estimate"
     expected_value: 0.6739
     tolerance: 0.01
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -664,7 +664,7 @@ claims:
     artifact_key: "row=Premium,col=Estimate"
     expected_value: -0.6820
     tolerance: 0.01
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -676,7 +676,7 @@ claims:
     artifact_key: "row=Navigator x premium,col=Estimate"
     expected_value: 0.4618
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -688,7 +688,7 @@ claims:
     artifact_key: "row=Broker x premium,col=Estimate"
     expected_value: 0.4871
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -700,7 +700,7 @@ claims:
     artifact_key: "row=Commission x broker,col=Estimate"
     expected_value: 0.0206
     tolerance: 0.001
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -712,7 +712,7 @@ claims:
     artifact_key: "row=Silver,col=Estimate"
     expected_value: 0.4846
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -724,7 +724,7 @@ claims:
     artifact_key: "row=Bronze,col=Estimate"
     expected_value: -1.6773
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -736,7 +736,7 @@ claims:
     artifact_key: "row=HMO,col=Estimate"
     expected_value: -0.4982
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -748,7 +748,7 @@ claims:
     artifact_key: "row=HSA,col=Estimate"
     expected_value: -0.7514
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -760,7 +760,7 @@ claims:
     artifact_key: "row=Anthem,col=Estimate"
     expected_value: 0.1876
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -772,7 +772,7 @@ claims:
     artifact_key: "row=Blue Shield,col=Estimate"
     expected_value: 0.3362
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -784,7 +784,7 @@ claims:
     artifact_key: "row=Kaiser,col=Estimate"
     expected_value: 0.7137
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -796,7 +796,7 @@ claims:
     artifact_key: "row=Health Net,col=Estimate"
     expected_value: 0.1573
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -808,7 +808,7 @@ claims:
     artifact_key: "row=HH size x premium,col=Estimate"
     expected_value: -0.0290
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -820,7 +820,7 @@ claims:
     artifact_key: "row=Age 0-17 x premium,col=Estimate"
     expected_value: 0.2380
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -832,7 +832,7 @@ claims:
     artifact_key: "row=Age 18-34 x premium,col=Estimate"
     expected_value: -0.3601
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -844,7 +844,7 @@ claims:
     artifact_key: "row=Age 35-54 x premium,col=Estimate"
     expected_value: -0.2724
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -856,7 +856,7 @@ claims:
     artifact_key: "row=Male x premium,col=Estimate"
     expected_value: -0.0239
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -868,7 +868,7 @@ claims:
     artifact_key: "row=Black x premium,col=Estimate"
     expected_value: -0.1777
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -880,7 +880,7 @@ claims:
     artifact_key: "row=Hispanic x premium,col=Estimate"
     expected_value: -0.3577
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -892,7 +892,7 @@ claims:
     artifact_key: "row=Asian x premium,col=Estimate"
     expected_value: -0.3026
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -904,7 +904,7 @@ claims:
     artifact_key: "row=Other race x premium,col=Estimate"
     expected_value: -0.2271
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -916,7 +916,7 @@ claims:
     artifact_key: "row=FPL 250-400% x premium,col=Estimate"
     expected_value: 0.0911
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -928,7 +928,7 @@ claims:
     artifact_key: "row=FPL 400+% x premium,col=Estimate"
     expected_value: 0.5189
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -940,7 +940,7 @@ claims:
     artifact_key: "row=Age 0-17 x Silver,col=Estimate"
     expected_value: -1.0225
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -952,7 +952,7 @@ claims:
     artifact_key: "row=Age 0-17 x Bronze,col=Estimate"
     expected_value: 1.0931
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -964,7 +964,7 @@ claims:
     artifact_key: "row=Age 18-34 x Silver,col=Estimate"
     expected_value: 0.2731
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -976,7 +976,7 @@ claims:
     artifact_key: "row=Age 18-34 x Bronze,col=Estimate"
     expected_value: 0.6170
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -988,7 +988,7 @@ claims:
     artifact_key: "row=Age 35-54 x Silver,col=Estimate"
     expected_value: 0.0465
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1000,7 +1000,7 @@ claims:
     artifact_key: "row=Age 35-54 x Bronze,col=Estimate"
     expected_value: 0.0076
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1012,7 +1012,7 @@ claims:
     artifact_key: "row=Male x Silver,col=Estimate"
     expected_value: -0.1082
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1024,7 +1024,7 @@ claims:
     artifact_key: "row=Male x Bronze,col=Estimate"
     expected_value: 0.1065
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1036,7 +1036,7 @@ claims:
     artifact_key: "row=Navigator x Silver,col=Estimate"
     expected_value: 1.3814
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1048,7 +1048,7 @@ claims:
     artifact_key: "row=Navigator x Bronze,col=Estimate"
     expected_value: 1.8099
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1060,7 +1060,7 @@ claims:
     artifact_key: "row=Broker x Silver,col=Estimate"
     expected_value: 1.4268
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1072,7 +1072,7 @@ claims:
     artifact_key: "row=Broker x Bronze,col=Estimate"
     expected_value: 1.9259
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1087,7 +1087,7 @@ claims:
     artifact_key: "risk score, row=Constant"
     expected_value: -1.4194
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1099,7 +1099,7 @@ claims:
     artifact_key: "risk score, row=Actuarial value"
     expected_value: 3.8294
     tolerance: 0.01
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1111,7 +1111,7 @@ claims:
     artifact_key: "risk score, row=Share age 18-34"
     expected_value: -1.1665
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1123,7 +1123,7 @@ claims:
     artifact_key: "risk score, row=Share age 35-54"
     expected_value: -2.0236
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1135,7 +1135,7 @@ claims:
     artifact_key: "risk score, row=Share male"
     expected_value: -0.5139
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1147,7 +1147,7 @@ claims:
     artifact_key: "risk score, row=Molina"
     expected_value: -0.4041
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1159,7 +1159,7 @@ claims:
     artifact_key: "risk score, row=L.A. Care"
     expected_value: -0.1689
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1171,7 +1171,7 @@ claims:
     artifact_key: "risk score, row=Chinese Community"
     expected_value: -0.4374
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1183,7 +1183,7 @@ claims:
     artifact_key: "risk score, insurer FE rows (Anthem/Blue Shield/Health Net/Sharp/Oscar/Western/Valley)"
     expected_value: 0.0111
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation: "Group entry covering the smaller risk-score insurer fixed effects; expected_value keyed to Anthem."
     last_verified: 2026-08-17
 
@@ -1195,7 +1195,7 @@ claims:
     artifact_key: "claims, row=Constant"
     expected_value: 5.5924
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1207,7 +1207,7 @@ claims:
     artifact_key: "claims, row=Log predicted risk score"
     expected_value: 1.1937
     tolerance: 0.01
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1219,7 +1219,7 @@ claims:
     artifact_key: "claims, row=HMO"
     expected_value: -0.1955
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1231,7 +1231,7 @@ claims:
     artifact_key: "claims, row=Linear trend"
     expected_value: 0.0773
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1246,7 +1246,7 @@ claims:
     artifact_key: "row=Bronze,col=Markup"
     expected_value: 57.24
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1258,7 +1258,7 @@ claims:
     artifact_key: "row=Silver,col=Markup"
     expected_value: 98.26
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1270,7 +1270,7 @@ claims:
     artifact_key: "row=Gold,col=Markup"
     expected_value: 125.13
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1282,7 +1282,7 @@ claims:
     artifact_key: "row=Platinum,col=Markup"
     expected_value: 138.93
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1294,7 +1294,7 @@ claims:
     artifact_key: "row=Bronze,col=Lerner"
     expected_value: 0.198
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1306,7 +1306,7 @@ claims:
     artifact_key: "row=Silver,col=Lerner"
     expected_value: 0.262
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1318,7 +1318,7 @@ claims:
     artifact_key: "row=Gold,col=Lerner"
     expected_value: 0.300
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1330,7 +1330,7 @@ claims:
     artifact_key: "row=Platinum,col=Lerner"
     expected_value: 0.282
     tolerance: 0.005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1342,7 +1342,7 @@ claims:
     artifact_key: "cor(mc_foc, mc_structural) over plan-cells above share floor"
     expected_value: 0.50
     tolerance: 0.02
-    status: PASS
+    status: STALE
     explanation: "Computed in sum2 from supply_results.csv columns mc_foc and mc_structural; not stored as a standalone scalar artifact."
     last_verified: 2026-08-17
 
@@ -1354,7 +1354,7 @@ claims:
     artifact_key: "count of plan-cells with share >= SHARE_FLOOR_FOC (0.002)"
     expected_value: 2344
     tolerance: 5
-    status: PASS
+    status: STALE
     explanation: "Count derived from supply_results.csv; not a standalone scalar artifact."
     last_verified: 2026-08-17
 
@@ -1366,7 +1366,7 @@ claims:
     artifact_key: "count of plan-cells with mc_foc < 0 among those above the share floor"
     expected_value: 72
     tolerance: 3
-    status: PASS
+    status: STALE
     explanation: "Count derived from supply_results.csv; not a standalone scalar artifact."
     last_verified: 2026-08-17
 
@@ -1381,7 +1381,7 @@ claims:
     artifact_key: "col=dollar_equiv (3.29)"
     expected_value: 3.29
     tolerance: 0.05
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1393,7 +1393,7 @@ claims:
     artifact_key: "col=elast_ratio (0.4221)"
     expected_value: 0.40
     tolerance: 0.02
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1405,7 +1405,7 @@ claims:
     artifact_key: "col=mean_commission (10.938)"
     expected_value: 11
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1417,7 +1417,7 @@ claims:
     artifact_key: "col=mean_net_premium (90.878)"
     expected_value: 91
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1429,7 +1429,7 @@ claims:
     artifact_key: "mean_commission x 12 = 10.938 x 12"
     expected_value: 130
     tolerance: 5
-    status: PASS
+    status: STALE
     explanation: "Annualized from the monthly mean commission in commission_equivalence.csv."
     last_verified: 2026-08-17
 
@@ -1444,7 +1444,7 @@ claims:
     artifact_key: "row=Zero commission tau=0.00,col=Delta Uninsured (pp)"
     expected_value: 7.7
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1456,7 +1456,7 @@ claims:
     artifact_key: "row=Zero commission tau=0.00,col=Delta Premium"
     expected_value: -144.32
     tolerance: 0.5
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1468,7 +1468,7 @@ claims:
     artifact_key: "row=Zero commission tau=0.00,col=Delta CS"
     expected_value: -529.67
     tolerance: 0.5
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1480,7 +1480,7 @@ claims:
     artifact_key: "row=Zero commission tau=0.00,col=Delta V^nav"
     expected_value: -881
     tolerance: 2
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1492,7 +1492,7 @@ claims:
     artifact_key: "row=Zero commission tau=0.00,col=Delta V^obj"
     expected_value: -393
     tolerance: 2
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1504,7 +1504,7 @@ claims:
     artifact_key: "row=tau=0.00,col=low"
     expected_value: 117
     tolerance: 2
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1516,7 +1516,7 @@ claims:
     artifact_key: "row=tau=0.00,col=high"
     expected_value: -681
     tolerance: 2
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1528,7 +1528,7 @@ claims:
     artifact_key: "objective welfare valuing the uninsured option at OOP only (below the band's 'low' column)"
     expected_value: 350
     tolerance: 10
-    status: PASS
+    status: STALE
     explanation: "Could not locate $340 in counterfactual_welfare_band.tex (band low for tau=0 is 117). It is described as an OOP-only valuation below the band's low case; likely computed from counterfactual_welfare.csv components. Mapping not confirmed against a printed cell."
     last_verified: 2026-08-17
 
@@ -1540,7 +1540,7 @@ claims:
     artifact_key: "row=Zero commission tau=1.00,col=Delta Uninsured (pp)"
     expected_value: 0.9
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1552,7 +1552,7 @@ claims:
     artifact_key: "row=Zero commission tau=1.00,col=Delta V^obj"
     expected_value: -103
     tolerance: 2
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1564,7 +1564,7 @@ claims:
     artifact_key: "row=Uniform commission,col=Delta V^obj"
     expected_value: 8
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1576,7 +1576,7 @@ claims:
     artifact_key: "row=Aligned commissions,col=Delta V^obj"
     expected_value: 16
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1588,7 +1588,7 @@ claims:
     artifact_key: "row=Flat-fee mandate,col=Delta V^obj"
     expected_value: 8
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1600,7 +1600,7 @@ claims:
     artifact_key: "row=Navigator expansion tau=1.00,col=Delta V^obj"
     expected_value: -53
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1612,7 +1612,7 @@ claims:
     artifact_key: "row=Navigator expansion tau=1.00,col=Delta Uninsured (pp)"
     expected_value: 0.8
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1624,7 +1624,7 @@ claims:
     artifact_key: "row=Navigator defunding (100%),col=Delta Uninsured (pp)"
     expected_value: -1.1
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1636,7 +1636,7 @@ claims:
     artifact_key: "row=Navigator defunding (100%),col=Delta V^obj"
     expected_value: 60
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1649,7 +1649,7 @@ claims:
     artifact_key: "row=Navigator defunding (100%),col=Delta Gov. subsidy"
     expected_value: 147
     tolerance: 2
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -1661,7 +1661,7 @@ claims:
     artifact_key: "row=Zero commission tau=0.00,col=Delta Producer surplus (-196) / Delta Gov. subsidy (-451)"
     expected_value: -196
     tolerance: 2
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 

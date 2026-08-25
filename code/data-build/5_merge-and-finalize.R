@@ -69,7 +69,7 @@ rm(plan_data, cheapest_br, slc)
 
 # Formula subsidy (ACA) for everyone --------------------------------------
 # premiumSLC - SLC_contribution, floored at 0, for 138% <= FPL <= 400% HHs.
-# Matches Saltzman's JHE Eq. 3 / old-repo prepare.demand.data.R:732-734.
+# Matches the old-repo prepare.demand.data.R:732-734 construction.
 cat("  Computing formula subsidy...\n")
 fpl_lb_lookup <- setNames(FPL_BRACKETS$fpl_LB, FPL_BRACKETS$bracket)
 fpl_ub_lookup <- setNames(FPL_BRACKETS$fpl_UB, FPL_BRACKETS$bracket)

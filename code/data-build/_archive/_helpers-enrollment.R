@@ -37,7 +37,7 @@ standardize_insurer <- function(x) {
 # so inverting requires the quadratic formula. The 300-400% bracket is a
 # special case: contribution percentage is constant, so it's linear.
 #
-# FPL convention (consistent with Saltzman JHE 2019): FPL is expressed as a
+# FPL convention: FPL is expressed as a
 # ratio (e.g., 1.5 = 150% of poverty line), NOT a percentage (150).
 #
 # Args (all vectors, same length):
@@ -72,7 +72,7 @@ invert_aca_subsidy <- function(slc_contribution, perc_LB, perc_UB,
 # Given a known FPL (as a ratio, e.g., 1.5 = 150% of poverty), compute the
 # monthly contribution toward SLC. Forward direction of the inversion above.
 #
-# Matches Saltzman JHE 2019 formula (prepare.demand.data.R line 618-627 of
+# Matches the old-repo formula (prepare.demand.data.R line 618-627 of
 # old-repo): FPL is in ratio form, not percentage.
 
 calculate_aca_contribution <- function(fpl, perc_LB, perc_UB,

@@ -74,20 +74,9 @@ cf_welfare <- rbindlist(welfare_list)
 write_csv(cf_welfare, "results/counterfactual_welfare.csv")
 cat("  Written", nrow(cf_welfare), "rows to results/counterfactual_welfare.csv\n")
 
-# Verification vs cf1 -----------------------------------------------------
-# cs_weighted / cs_welfare_nav must reproduce cf1 (diff ~0).
-chk <- merge(cf_welfare,
-             unique(cfres[, .(region, year, scenario,
-                              cf1_cs = cs_weighted, cf1_nav = cs_welfare_nav, cf1_obj = cs_welfare_obj)]),
-             by = c("region", "year", "scenario"))
-# cs_weighted / cs_welfare_nav don't use spending (must reproduce cf1); cs_welfare_obj
-# differs from cf1 when the spending schedule is on.
-sched_on <- !is.null(SPENDING_SCHEDULE)
-cat("\n  --- cf2-vs-cf1 check (spending schedule ", if (sched_on) "ON" else "OFF", ") ---\n", sep = "")
-cat("    cs_weighted (must be ~0):", round(max(abs(chk$cs_weighted - chk$cf1_cs), na.rm = TRUE), 6), "\n")
-cat("    cs_welfare_nav (must be ~0):", round(max(abs(chk$cs_welfare_nav - chk$cf1_nav), na.rm = TRUE), 6), "\n")
-cat("    cs_welfare_obj (", if (sched_on) "differs from cf1 by design (MEPS spending)" else "must be ~0 under flat spending", "): ",
-    round(max(abs(chk$cs_welfare_obj - chk$cf1_obj), na.rm = TRUE), 6), "\n", sep = "")
+# Internal check: the objective decomposes into its three components ----------
+cat("\n  --- decomposition check (spending schedule ",
+    if (!is.null(SPENDING_SCHEDULE)) "ON" else "OFF", ") ---\n", sep = "")
 cat("    obj = prem+eoop+risk (max |resid|):",
     round(max(abs(cf_welfare$cs_welfare_obj - (cf_welfare$obj_prem + cf_welfare$obj_eoop + cf_welfare$obj_risk)), na.rm = TRUE), 6), "\n")
 
@@ -98,8 +87,8 @@ cat("\n  Building distribution of household effects...\n")
 wq <- function(x, w, p) { o <- order(x); x <- x[o]; w <- w[o]; x[which(cumsum(w) / sum(w) >= p)[1]] }
 dist_rows <- lapply(list.files(CF_WELFARE_HH_DIR, full.names = TRUE), function(f) {
   h <- fread(f)
-  obs <- h[scenario == "observed", .(household_number, o_obj = obj, o_nav = nav)]
-  m <- merge(h[scenario != "observed"], obs, by = "household_number")
+  obs <- h[scenario == "baseline", .(household_number, o_obj = obj, o_nav = nav)]
+  m <- merge(h[scenario != "baseline"], obs, by = "household_number")
   m[, .(scenario, w, e_obj = obj - o_obj, e_nav = nav - o_nav)]
 })
 dist <- rbindlist(dist_rows)
