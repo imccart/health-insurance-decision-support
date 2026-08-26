@@ -53,14 +53,15 @@ cat(sprintf("PBE households in 20%% cells: %s of %s (%.3f%%)\n",
 # Estimate the body spec on the full and the PBE-excluded samples ----------
 fit_nested <- function(dir, covars) {
   cells <- normalize_weights(load_all_cells(dir, covars, filter_assisted = -1L)$cells)
+  excl_idx <- match(extensive_exclude_terms(covars), covars)   # two-part nested logit, as in s2_demand
+  for (ci in seq_along(cells)) cells[[ci]]$excl_idx <- excl_idx
   setNames(bfgs_bhhh(c(rep(0, length(covars)), 1.0), cells), c(covars, "lambda"))
 }
 cat("\n=== full sample (body spec) ===\n");     full  <- fit_nested(CELL_DIR, body_covars)
 cat("\n=== PBE-excluded (body spec) ===\n");     noPBE <- fit_nested(FILT_DIR, body_covars)
 
 # Compare the price, steering, and nesting parameters ----------------------
-key <- c("premium", "assisted_silver", "broker_silver", "assisted_bronze",
-         "broker_bronze", "assisted_premium", "broker_premium",
+key <- c("premium", "av", "assisted_av", "broker_av", "assisted_premium", "broker_premium",
          "commission_broker", "lambda")
 comp <- data.frame(term = key,
                    full = unname(full[key]),
@@ -72,10 +73,9 @@ cat("\n  -> results/pbe_robustness.csv\n")
 
 # Bare tabular for the appendix -------------------------------------------
 lab <- c(premium = "Premium",
-         assisted_silver = "Navigator $\\times$ silver",
-         broker_silver = "Broker $\\times$ silver",
-         assisted_bronze = "Navigator $\\times$ bronze",
-         broker_bronze = "Broker $\\times$ bronze",
+         av = "Actuarial value (AV)",
+         assisted_av = "Navigator $\\times$ AV",
+         broker_av = "Broker $\\times$ AV",
          assisted_premium = "Navigator $\\times$ premium",
          broker_premium = "Broker $\\times$ premium",
          commission_broker = "Commission $\\times$ broker",

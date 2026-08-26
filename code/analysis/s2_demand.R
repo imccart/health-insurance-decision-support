@@ -5,7 +5,7 @@
 ## Date Edited:   2026-03-24
 ## Description:   Structural demand estimation.
 ##                Phase 1 (R): build cell CSVs from parquet partitions.
-##                Phase 2 (R): L-BFGS-B nested logit via estimate_demand.R.
+##                Phase 2 (R): two-part nested logit via estimate_demand.R.
 ##                See notes/optimizer.md for algorithm details.
 
 # Dependencies: preamble + s1_inputs.R (cells, seeds, plan_choice) loaded
@@ -15,28 +15,31 @@
 
 STRUCTURAL_SPEC <- c(
   "premium",
-  "silver", "bronze", "hmo", "hsa",
+  # Coverage generosity: the household-specific actuarial value of the plan
+  # (CSR-aware for silver), continuous, in place of metal-tier dummies.
+  "av", "hmo",
   # Big-four brand dummies only; the seven regionals carry no brand fixed effect
   # (their commission/cost key off the plan_id prefix).
   "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+  # Demographics x premium and the same demographics x AV (built in build_structural).
   "hh_size_prem", "perc_0to17_prem", "perc_18to34_prem", "perc_35to54_prem",
   "perc_male_prem", "perc_black_prem", "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
   "FPL_250to400_prem", "FPL_400plus_prem",
-  # Age x metal (premium-independent; built in build_structural).
-  "perc_0to17_silver", "perc_0to17_bronze",
-  "perc_18to34_silver", "perc_18to34_bronze",
-  "perc_35to54_silver", "perc_35to54_bronze",
-  # Gender x metal (premium-independent).
-  "perc_male_silver", "perc_male_bronze"
+  "hh_size_av", "perc_0to17_av", "perc_18to34_av", "perc_35to54_av",
+  "perc_male_av", "perc_black_av", "perc_hispanic_av", "perc_asian_av", "perc_other_av",
+  "FPL_250to400_av", "FPL_400plus_av"
 )
 
+# Assistance terms. These enter plan choice within the insured nest only: the
+# enrollment decision uses the inclusive value without them (two-part nested
+# logit, estimate_demand.R), since assistance is observed only conditional on
+# enrolling and its effect on enrollment is not identified.
 STRUCTURAL_ASST <- c(
-  "assisted_silver", "assisted_bronze",
-  # Broker metal steering (brokers also carry commission_broker; navigators do not).
-  "broker_silver", "broker_bronze",
+  # Channel x generosity steering (navigator, broker).
+  "assisted_av", "broker_av",
   # Channel-specific price response (raw_demo = nonbroker / broker).
   "assisted_premium", "broker_premium",
-  # Commission steering, level term.
+  # Commission steering, level term (brokers only).
   "commission_broker"
 )
 
@@ -109,7 +112,8 @@ estimate_demand(
   spec_path       = file.path(TEMP_DIR, "demand_spec.csv"),
   out_path        = "results/choice_coefficients_structural.csv",
   filter_assisted = -1L,  # all HH for structural
-  temp_dir        = TEMP_DIR  # cache MNL starting values
+  temp_dir        = TEMP_DIR,
+  ext_exclude     = STRUCTURAL_ASST   # excluded from the enrollment inclusive value
 )
 
 
@@ -132,8 +136,7 @@ if (file.exists(coefs_path)) {
   if (length(beta_p) == 1 && length(beta_c) == 1 && abs(beta_p) > 1e-10) {
     cat(sprintf("\n  beta_commission / |beta_premium| = %.4f\n", beta_c / abs(beta_p)))
   }
-  for (m in c("assisted_silver", "assisted_bronze", "assisted_gold", "assisted_plat",
-              "broker_silver", "broker_bronze", "assisted_premium", "broker_premium")) {
+  for (m in c("av", "assisted_av", "broker_av", "assisted_premium", "broker_premium")) {
     b <- coefs_structural$estimate[coefs_structural$term == m]
     if (length(b) == 1) cat(sprintf("  %s = %.6f\n", m, b))
   }

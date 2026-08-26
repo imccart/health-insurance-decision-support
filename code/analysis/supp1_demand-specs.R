@@ -38,18 +38,17 @@ stopifnot("choice_cells not found — run s2_demand.R first" = dir.exists(CELL_D
 
 # Specification sequence --------------------------------------------------
 price     <- "premium"
-plan_attr <- c("silver", "bronze", "hmo", "hsa",
+plan_attr <- c("av", "hmo",
                "Anthem", "Blue_Shield", "Kaiser", "Health_Net")
 demo_het  <- c("hh_size_prem", "perc_0to17_prem", "perc_18to34_prem",
                "perc_35to54_prem", "perc_male_prem", "perc_black_prem",
                "perc_hispanic_prem", "perc_asian_prem", "perc_other_prem",
                "FPL_250to400_prem", "FPL_400plus_prem",
-               "perc_0to17_silver", "perc_0to17_bronze",
-               "perc_18to34_silver", "perc_18to34_bronze",
-               "perc_35to54_silver", "perc_35to54_bronze",
-               "perc_male_silver", "perc_male_bronze")
-steering  <- c("assisted_silver", "assisted_bronze", "broker_silver",
-               "broker_bronze", "assisted_premium", "broker_premium",
+               "hh_size_av", "perc_0to17_av", "perc_18to34_av",
+               "perc_35to54_av", "perc_male_av", "perc_black_av",
+               "perc_hispanic_av", "perc_asian_av", "perc_other_av",
+               "FPL_250to400_av", "FPL_400plus_av")
+steering  <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
                "commission_broker")
 cfun      <- "cf_resid"
 
@@ -61,6 +60,8 @@ spec4 <- c(spec3, cfun)
 # Fitter ------------------------------------------------------------------
 fit_nested <- function(covars) {
   cells <- normalize_weights(load_all_cells(CELL_DIR, covars, filter_assisted = -1L)$cells)
+  excl_idx <- match(extensive_exclude_terms(covars), covars)   # two-part nested logit, as in s2_demand
+  for (ci in seq_along(cells)) cells[[ci]]$excl_idx <- excl_idx
   theta <- bfgs_bhhh(c(rep(0, length(covars)), 1.0), cells)
   setNames(theta, c(covars, "lambda"))
 }
@@ -90,12 +91,12 @@ cat(sprintf("\n  Col (3) vs body demand estimates: max abs diff = %.6f\n",
 prem_map <- get_prem_interactions(spec4)
 raw_demo <- unique(unlist(prem_map))
 need <- unique(c("region", "year", "household_number", "plan_id", "choice",
-                 "hh_weight", "premium", "silver", "bronze", "comm_pmpm",
+                 "hh_weight", "hh_size", "premium", "silver", "bronze", "av", "comm_pmpm",
                  spec4, raw_demo))
 dat <- rbindlist(lapply(list.files(CELL_DIR, full.names = TRUE), function(f) {
   d <- fread(f); d[, intersect(need, names(d)), with = FALSE]
 })) %>% as_tibble()
-feat <- intersect(unique(c(spec4, raw_demo, "premium", "silver", "bronze", "comm_pmpm")),
+feat <- intersect(unique(c(spec4, raw_demo, "premium", "silver", "bronze", "av", "comm_pmpm")),
                   names(dat))
 dat <- dat %>% mutate(across(all_of(feat), ~ replace_na(as.numeric(.), 0)))
 
@@ -111,38 +112,39 @@ silver_share <- function(V, lambda) {
 
 # Mean price coefficient and mean own-price elasticity.
 price_and_elast <- function(fit) {
-  covars  <- setdiff(names(fit), "lambda")
-  lambda  <- fit[["lambda"]]
-  present <- intersect(covars, names(dat))
-  V     <- as.numeric(as.matrix(dat[, present]) %*% fit[present])
-  alpha <- rep(fit[["premium"]], nrow(dat))
-  for (nm in intersect(names(prem_map), covars)) {
-    rc <- prem_map[[nm]]
-    if (rc %in% names(dat)) alpha <- alpha + fit[[nm]] * dat[[rc]]
+  covars <- setdiff(names(fit), "lambda")
+  lambda <- fit[["lambda"]]
+  coefs_fit <- data.frame(term = names(fit), estimate = as.numeric(fit), stringsAsFactors = FALSE)
+  u <- compute_utility(dat, coefs_fit)
+  # Price slope in utils per $100 of net premium: full (with channel slopes) and
+  # base (without), per row
+  slope <- function(base) {
+    a <- fit[["premium"]]
+    pm <- prem_map
+    if (base) pm <- pm[setdiff(names(pm), extensive_exclude_terms(names(pm)))]
+    for (nm in names(pm)) {
+      if (!nm %in% names(fit)) next
+      rc <- pm[[nm]]
+      if (rc %in% names(dat)) a <- a + fit[[nm]] * dat[[rc]]
+    }
+    a
   }
-  d <- dat %>% mutate(V = V, alpha = alpha, is_ins = plan_id != "Uninsured")
-  v0 <- d %>% filter(!is_ins) %>%
-    distinct(region, year, household_number, .keep_all = TRUE) %>%
-    select(region, year, household_number, V0 = V)
-  ins <- d %>% filter(is_ins) %>%
-    group_by(region, year, household_number) %>%
-    mutate(m = max(V), eV = exp((V - m) / lambda), Dsum = sum(eV),
-           s_j = eV / Dsum, IV = m / lambda + log(Dsum)) %>%
-    ungroup() %>%
-    left_join(v0, by = c("region", "year", "household_number")) %>%
-    mutate(P_ins = 1 / (1 + exp(V0 - lambda * IV)),
-           q     = s_j * P_ins,
-           elast = alpha * premium * (1 / lambda + (lambda - 1) / lambda * s_j - q))
-  hh <- d %>% distinct(region, year, household_number, .keep_all = TRUE)
-  c(price = weighted.mean(hh$alpha, hh$hh_weight, na.rm = TRUE),
-    elast = weighted.mean(ins$elast, ins$q * ins$hh_weight, na.rm = TRUE))
+  d <- as.data.table(dat)
+  d[, `:=`(alpha_f = slope(FALSE), alpha_b = slope(TRUE), cellkey = paste(region, year))]
+  d[, household_number := paste(cellkey, household_number)]   # unique across cells
+  ins <- nest_inside_rows(d, u$V, u$V_base, lambda)
+  # Two-part own-price semi-elasticity: d log q_j / d premium_j =
+  #   alpha_f (1 - s_jg)/lambda + alpha_b (1 - s_g) s_jg_b, times the premium
+  ins[, elast := premium * (alpha_f * (1 - s_jg) / lambda_i + alpha_b * (1 - s_g) * s_jg_b)]
+  hh <- d[, .SD[1], by = household_number]
+  c(price = weighted.mean(hh$alpha_f, hh$hh_weight, na.rm = TRUE),
+    elast = weighted.mean(ins$elast, ins$q_j * ins$hh_weight, na.rm = TRUE))
 }
 
 # Average marginal effect of assistance on the silver metal share (pp). Assign
 # every household to unassisted / navigator / broker, recompute the within-nest
 # silver share, and difference vs unassisted. NA for specs without steering.
-assist_cols <- c("assisted_silver", "assisted_bronze", "broker_silver",
-                 "broker_bronze", "assisted_premium", "broker_premium",
+assist_cols <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
                  "commission_broker")
 assist_mfx <- function(fit) {
   covars <- setdiff(names(fit), "lambda")
@@ -151,9 +153,8 @@ assist_mfx <- function(fit) {
   nonass <- intersect(setdiff(covars, assist_cols), names(dat))
   Vbase  <- as.numeric(as.matrix(dat[, nonass]) %*% fit[nonass])
   b <- function(nm) if (nm %in% names(fit)) fit[[nm]] else 0
-  V_nav <- Vbase + b("assisted_silver") * dat$silver + b("assisted_bronze") * dat$bronze +
-           b("assisted_premium") * dat$premium
-  V_brk <- Vbase + b("broker_silver") * dat$silver + b("broker_bronze") * dat$bronze +
+  V_nav <- Vbase + b("assisted_av") * dat$av + b("assisted_premium") * dat$premium
+  V_brk <- Vbase + b("broker_av") * dat$av +
            b("broker_premium") * dat$premium + b("commission_broker") * dat$comm_pmpm
   s_un  <- silver_share(Vbase, lambda)
   s_nav <- silver_share(V_nav, lambda)
@@ -176,10 +177,10 @@ getp <- function(f, t) if (t %in% names(f)) unname(f[t]) else NA_real_
 csv <- data.frame(
   parameter = c("mean_own_price_elasticity", "mean_price_coefficient", "lambda",
                 "navigator_silver_pp", "broker_silver_pp",
-                "assisted_silver_logodds", "broker_silver_logodds", "commission_broker"),
+                "assisted_av", "broker_av", "commission_broker"),
   t(sapply(seq_along(fits), function(i) c(
     avg_elast[i], avg_price[i], fits[[i]][["lambda"]], nav_mfx[i], brk_mfx[i],
-    getp(fits[[i]], "assisted_silver"), getp(fits[[i]], "broker_silver"),
+    getp(fits[[i]], "assisted_av"), getp(fits[[i]], "broker_av"),
     getp(fits[[i]], "commission_broker")))) %>% t()
 )
 names(csv)[-1] <- paste0("col", seq_along(fits))

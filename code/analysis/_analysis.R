@@ -9,12 +9,12 @@
 ##                  rf*     reduced-form (decision-support) analysis
 ##                  s*      structural demand + supply estimation
 ##                  cf*     counterfactuals
-##                  paper*  paper-facing tables and figures
+##                  sum*    summary tables and figures
 ##                Convention: _name.R = a driver you run directly; family+N =
 ##                step N of that family (sourced here in order); helpers/ =
 ##                shared function libraries. Steps assume this preamble has
 ##                loaded (run it first to run any single step on its own).
-##                supp1_/supp2_ are standalone supplementary analyses and are
+##                supp1-supp6 are standalone supplementary analyses and are
 ##                NOT part of this driver.
 
 # Parameters --------------------------------------------------------------
@@ -69,4 +69,4 @@ source("code/analysis/cf4_se-comm.R")        # commission-FOC delta method; comb
 # sum: summary tables + figures -------------------------------------------
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk
 source("code/analysis/sum2_results.R")
-source("code/analysis/sum3_ext-margin.R")    # coverage decomposition + sensitivity
+source("code/analysis/sum3_retention.R")     # channel persistence + retention by channel

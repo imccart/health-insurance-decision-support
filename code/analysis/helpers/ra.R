@@ -100,41 +100,13 @@ estimate_ra_regressions <- function(rsdata) {
 #' @return Tibble: plan_id, share_18to34, share_35to54, share_male,
 #'   share_fpl250to400, share_fpl400plus, share_hispanic, demand
 
-compute_demographic_shares <- function(cell_data, V, lambda) {
+compute_demographic_shares <- function(cell_data, V, lambda, V_base = NULL) {
 
-  dt <- as.data.table(cell_data)
-  dt[, V := V]
-
-  # Nested logit choice probabilities (same formula as compute_shares_and_elasticities)
-  ins_dt <- dt[plan_id != "Uninsured"]
-  out_dt <- dt[plan_id == "Uninsured"]
-
-  # Within-nest: exp(V_j / lambda)
-  ins_dt[, V_scaled := V / lambda]
-  ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
-  ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
-  ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
-
-  # Log inclusive value
-  ins_dt[, log_IV := max_V_scaled + log(sum_exp_V)]
-
-  # Outside option utility
-  out_dt[, V_out := V]
-  hh_V_out <- out_dt[, .(V_out = first(V_out)), by = household_number]
-  ins_dt <- merge(ins_dt, hh_V_out, by = "household_number", all.x = TRUE)
-  ins_dt[is.na(V_out), V_out := 0]
-
-  # P(insured) = exp(lambda * log_IV) / (exp(V_out) + exp(lambda * log_IV))
-  ins_dt[, log_num_ins := lambda * log_IV]
-  ins_dt[, max_top := pmax(V_out, log_num_ins)]
-  ins_dt[, P_ins := exp(log_num_ins - max_top) /
-           (exp(V_out - max_top) + exp(log_num_ins - max_top))]
-
-  # P(j | insured) = exp(V_j/lambda) / sum(exp(V_k/lambda))
-  ins_dt[, P_j_ins := exp_V / sum_exp_V]
-
-  # P(j) = P(insured) * P(j | insured)
-  ins_dt[, prob := P_ins * P_j_ins]
+  # Two-part nested-logit choice probabilities (same kernel as
+  # compute_shares_and_elasticities): P(insured) from the base inclusive value,
+  # P(j | insured) from the full utility.
+  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda)
+  ins_dt[, prob := q_j]
 
   # HH-level weight (hh_size from the choice-data builder)
   w <- if ("hh_weight" %in% names(ins_dt)) ins_dt$hh_weight else rep(1, nrow(ins_dt))

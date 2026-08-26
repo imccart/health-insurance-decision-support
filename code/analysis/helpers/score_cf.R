@@ -86,9 +86,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       cd[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
       cd[, broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
     } else { cd[, nonbroker := assisted]; cd[, broker := 0L] }
-    cd[, `:=`(assisted_silver = nonbroker*silver, assisted_bronze = nonbroker*bronze,
-              assisted_gold = nonbroker*gold, assisted_plat = nonbroker*platinum,
-              broker_silver = broker*silver, broker_bronze = broker*bronze,
+    cd[, `:=`(assisted_av = nonbroker*av, broker_av = broker*av,
               assisted_premium = nonbroker*premium, broker_premium = broker*premium)]
     cd
   }
@@ -96,26 +94,28 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   compute_consumer_surplus <- function(cell_data, coefs_cell, welfare_drop = character()) {
     lambda_cs <- setNames(coefs_cell$estimate, coefs_cell$term)[["lambda"]]
     if (length(welfare_drop) > 0) { cell_data <- as.data.table(copy(cell_data)); for (cn in intersect(welfare_drop, names(cell_data))) cell_data[[cn]] <- 0 }
-    V <- compute_utility(cell_data, coefs_cell)$V
-    dt <- as.data.table(cell_data); dt[, V := V]
+    # Two-part nested logit: the enrollment log-sum uses the base inclusive value
+    # I_base (assistance terms excluded); the within-nest gain from assistance,
+    # lambda (I_full - I_base), is added back so the inclusive-value surplus is
+    #   CS = (1/alpha) [ lambda (I_full - I_base) + log(exp(V_0) + exp(lambda I_base)) ],
+    # which is the ordinary log-sum when I_full = I_base.
+    util <- compute_utility(cell_data, coefs_cell)
+    dt <- as.data.table(cell_data); dt[, V := util$V]; dt[, V_base := util$V_base]
     V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V[1]), by = household_number]
     ins_dt <- dt[plan_id != "Uninsured"]
-    ins_dt[, V_scaled := V / lambda_cs]; ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
-    ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]; ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
-    ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]; ins_dt[, log_D_lam := lambda_cs * log_D]
-    # Utils-to-dollars denominator: common alpha (mean base price sensitivity).
-    base_dt <- copy(ins_dt)
-    if ("nonbroker" %in% names(base_dt)) base_dt[, nonbroker := 0]
-    if ("broker"    %in% names(base_dt)) base_dt[, broker    := 0]
-    base_dt[, alpha_base := compute_alpha_i(base_dt, coefs_cell, STRUCTURAL_SPEC)]
-    hh_a      <- base_dt[, .(alpha_base = first(alpha_base), hh_weight = first(hh_weight)), by = household_number]
-    alpha_bar <- sum(hh_a$hh_weight * abs(hh_a$alpha_base)) / sum(hh_a$hh_weight)
-    ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE); ins_dt[is.na(V_0), V_0 := 0]
-    hh_cs <- ins_dt[, .(log_D_lam = first(log_D_lam), V_0 = first(V_0),
+    lse <- function(v) { m <- max(v); m + log(sum(exp(v - m))) }
+    hh_iv <- ins_dt[, .(I_full = lse(V / lambda_cs), I_base = lse(V_base / lambda_cs),
                         hh_weight = first(hh_weight), hh_size = first(hh_size)), by = household_number]
+    # Utils-to-dollars denominator: common alpha (mean base price sensitivity).
+    ins_dt[, alpha_base := compute_alpha_i(ins_dt, coefs_cell, STRUCTURAL_SPEC, base = TRUE)]
+    hh_a      <- ins_dt[, .(alpha_base = first(alpha_base), hh_weight = first(hh_weight)), by = household_number]
+    alpha_bar <- sum(hh_a$hh_weight * abs(hh_a$alpha_base)) / sum(hh_a$hh_weight)
+    hh_cs <- merge(hh_iv, V0_by_hh, by = "household_number", all.x = TRUE); hh_cs[is.na(V_0), V_0 := 0]
+    hh_cs[, log_D_lam := lambda_cs * I_base]
     hh_cs[, mx := pmax(V_0, log_D_lam)]
     # per member per year (matches the objective): / hh_size, x 12 (premium is monthly)
-    hh_cs[, cs := (1 / alpha_bar) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
+    hh_cs[, cs := (1 / alpha_bar) * (lambda_cs * (I_full - I_base) +
+                                     mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
     sum(hh_cs$hh_weight * hh_cs$cs) / sum(hh_cs$hh_weight)
   }
 

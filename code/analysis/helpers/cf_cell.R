@@ -302,9 +302,10 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     eval_foc_quantities <- function(dt, p_vec) {
       util <- compute_utility(dt, coefs_cell)
       V <- util$V
+      V_base <- util$V_base
       se <- tryCatch(
         compute_shares_and_elasticities(dt, V, lambda, benchmark_plan, plans_cell,
-                                         coefs_cell, spec = STRUCTURAL_SPEC),
+                                         coefs_cell, spec = STRUCTURAL_SPEC, V_base = V_base),
         error = function(e) NULL
       )
       if (is.null(se)) return(NULL)
@@ -313,7 +314,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       elast <- se$elast_mat[pn, pn]
       # Enrollment-weighted statewide average premium (ACA RA scale), not a plan mean.
       avg_p <- weighted.mean(p_vec, shares, na.rm = TRUE)
-      demo <- tryCatch(compute_demographic_shares(dt, V, lambda), error = function(e) NULL)
+      demo <- tryCatch(compute_demographic_shares(dt, V, lambda, V_base = V_base), error = function(e) NULL)
       if (is.null(demo)) return(NULL)
       mc_res <- compute_mc(rs_coefs, claims_coefs, plan_chars_cell,
                             demo, shares, avg_p, plan_avs, reins_local)
@@ -322,17 +323,17 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                                 elast, own_mat[pn, pn])
       br <- tryCatch(
         compute_broker_shares_and_elasticities(dt, V, lambda, benchmark_plan, plans_cell,
-                                                coefs_cell, spec = STRUCTURAL_SPEC),
+                                                coefs_cell, spec = STRUCTURAL_SPEC, V_base = V_base),
         error = function(e) NULL
       )
       br_elast <- if (!is.null(br)) br$broker_elast_mat[pn, pn] else NULL
       # Commission derivatives (endogenous-commission mode only): D = dqB/deta
       # over broker HHs, qB = broker enrollment, both in total-weight share units
       ck <- if (!is.null(comm_endog)) tryCatch(
-        compute_commission_derivatives(dt, V, lambda, coefs_cell),
+        compute_commission_derivatives(dt, V, lambda, coefs_cell, V_base = V_base),
         error = function(e) NULL
       ) else NULL
-      list(V = V, shares = shares, elast_mat = elast, mc_result = mc_res,
+      list(V = V, V_base = V_base, shares = shares, elast_mat = elast, mc_result = mc_res,
            mc_p = mc_res$mc[pn] + omega_vec[pn], rs_p = rs, ra_foc_p = ra_foc,
            demo_shares = demo, avg_prem = avg_p, broker_elast = br_elast,
            comm_D = if (!is.null(ck)) ck$D[pn, pn] else NULL,
@@ -917,13 +918,13 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     se_sol <- tryCatch(
       compute_shares_and_elasticities(dt_sol, util_sol$V, lambda,
                                        benchmark_plan, plan_attrs, coefs,
-                                       spec = STRUCTURAL_SPEC),
+                                       spec = STRUCTURAL_SPEC, V_base = util_sol$V_base),
       error = function(e) NULL
     )
     shares_sol <- if (!is.null(se_sol)) se_sol$shares[plan_ids_cell] else setNames(rep(NA_real_, length(plan_ids_cell)), plan_ids_cell)
 
     demo_sol <- tryCatch(
-      compute_demographic_shares(dt_sol, util_sol$V, lambda),
+      compute_demographic_shares(dt_sol, util_sol$V, lambda, V_base = util_sol$V_base),
       error = function(e) NULL
     )
     mc_sol <- compute_mc(rs_coefs, claims_coefs, plan_chars_cell,
@@ -1019,12 +1020,8 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       cd[, broker    := 0L]
     }
     cd[, `:=`(
-      assisted_silver  = nonbroker * silver,
-      assisted_bronze  = nonbroker * bronze,
-      assisted_gold    = nonbroker * gold,
-      assisted_plat    = nonbroker * platinum,
-      broker_silver    = broker * silver,
-      broker_bronze    = broker * bronze,
+      assisted_av      = nonbroker * av,
+      broker_av        = broker * av,
       assisted_premium = nonbroker * premium,
       broker_premium   = broker * premium
     )]
@@ -1068,7 +1065,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # the observed point. Gate: positive observed commissions and a broker pool at
   # or above the existing share floor (corner / degenerate FOCs held at observed).
   ck_cal <- if (!any(is.na(f0))) tryCatch(
-    compute_commission_derivatives(fns_cal$cache$dt, q_cal$V, lambda, coefs),
+    compute_commission_derivatives(fns_cal$cache$dt, q_cal$V, lambda, coefs, V_base = q_cal$V_base),
     error = function(e) NULL
   ) else NULL
   qB_cal <- if (!is.null(ck_cal)) ck_cal$qB[plan_ids_cell] else
@@ -1357,8 +1354,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     endog_f <- character(0)
     if (length(endog_prefixes) > 0) {
       dt0 <- update_premiums(as.data.table(copy(cd_e)), p_e_warm)
+      util0 <- compute_utility(dt0, coefs)
       ck0 <- tryCatch(
-        compute_commission_derivatives(dt0, compute_utility(dt0, coefs)$V, lambda, coefs),
+        compute_commission_derivatives(dt0, util0$V, lambda, coefs, V_base = util0$V_base),
         error = function(e) NULL
       )
       if (!is.null(ck0)) {

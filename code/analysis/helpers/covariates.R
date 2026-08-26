@@ -116,20 +116,24 @@ get_covariate_menu <- function() {
     FPL_250to400_prem  = list(type = "price_interaction", raw_demo = "FPL_250to400"),
     FPL_400plus_prem   = list(type = "price_interaction", raw_demo = "FPL_400plus"),
 
-    # --- Age x metal interactions (demographic sorting across tiers) ---
-    # age share x metal dummy, so the metal preference varies by household age mix
-    # and the young tilt into bronze beyond the common price effect (fixes the
-    # inverted age-by-metal sorting). Premium-INDEPENDENT, so plain covariates: no
-    # compute_alpha_i contribution and no premium recompute. Built in
-    # build_structural from the age and metal columns.
-    perc_0to17_silver  = list(type = "demo_metal"),
-    perc_0to17_bronze  = list(type = "demo_metal"),
-    perc_18to34_silver = list(type = "demo_metal"),
-    perc_18to34_bronze = list(type = "demo_metal"),
-    perc_35to54_silver = list(type = "demo_metal"),
-    perc_35to54_bronze = list(type = "demo_metal"),
-    perc_male_silver   = list(type = "demo_metal"),
-    perc_male_bronze   = list(type = "demo_metal"),
+    # --- Demographic x AV interactions (demographic sorting across generosity) ---
+    # Convention: {raw_demo}_av = raw_demo * av, with av the household-specific
+    # actuarial value of the plan (CSR-aware for silver). The same demographic set
+    # as the premium interactions, so age, gender, race, income, and household size
+    # tilt the valuation of coverage generosity. Premium-INDEPENDENT: plain
+    # covariates, no compute_alpha_i contribution and no premium recompute. Built
+    # in build_structural.
+    hh_size_av       = list(type = "demo_av"),
+    perc_0to17_av    = list(type = "demo_av"),
+    perc_18to34_av   = list(type = "demo_av"),
+    perc_35to54_av   = list(type = "demo_av"),
+    perc_male_av     = list(type = "demo_av"),
+    perc_black_av    = list(type = "demo_av"),
+    perc_hispanic_av = list(type = "demo_av"),
+    perc_asian_av    = list(type = "demo_av"),
+    perc_other_av    = list(type = "demo_av"),
+    FPL_250to400_av  = list(type = "demo_av"),
+    FPL_400plus_av   = list(type = "demo_av"),
 
     # --- Demographic x insured interactions ---
     # Convention: {raw_demo}_insured = raw_demo * I(insured)
@@ -146,17 +150,18 @@ get_covariate_menu <- function() {
     FPL_250to400_insured  = list(type = "insured_interaction", raw_demo = "FPL_250to400"),
     FPL_400plus_insured   = list(type = "insured_interaction", raw_demo = "FPL_400plus"),
 
-    # --- Assisted x metal interactions ---
-    # Navigator (non-broker) metal steering.
+    # --- Channel x AV (generosity steering) ---
+    # Navigator (non-broker) and broker steering across coverage generosity, one
+    # term each: {channel}_av = channel indicator * av. Brokers additionally carry
+    # the commission terms below; navigators are not commissioned.
+    assisted_av     = list(type = "assisted"),
+    broker_av       = list(type = "assisted"),
+
+    # --- Assisted x metal interactions (reduced-form spec, rf2) ---
     assisted_silver = list(type = "assisted"),
     assisted_bronze = list(type = "assisted"),
     assisted_gold   = list(type = "assisted"),
     assisted_plat   = list(type = "assisted"),
-
-    # --- Broker x metal interactions ---
-    # Broker metal steering, estimated rather than assumed zero (symmetric with
-    # the navigator assisted_* terms). Brokers additionally carry the commission
-    # terms below; navigators are not commissioned.
     broker_silver   = list(type = "assisted"),
     broker_bronze   = list(type = "assisted"),
 
@@ -224,6 +229,25 @@ get_prem_interactions <- function(spec) {
     if (nm %in% names(menu) && identical(menu[[nm]]$type, "price_interaction")) {
       out[[nm]] <- menu[[nm]]$raw_demo
     }
+  }
+  out
+}
+
+# Terms excluded from the enrollment (extensive-margin) inclusive value.
+# Assistance is observed only conditional on enrolling, so the channel terms
+# (channel x AV, channel x premium, and the commission term) enter plan choice
+# within the insured nest only. The enrollment decision uses the inclusive value
+# computed from the remaining terms. Everything of menu type "assisted" or
+# "commission", plus price interactions whose raw_demo is a channel indicator.
+extensive_exclude_terms <- function(terms) {
+  menu <- get_covariate_menu()
+  out <- character(0)
+  for (nm in terms) {
+    if (!nm %in% names(menu)) next
+    ty <- menu[[nm]]$type
+    if (ty %in% c("assisted", "commission")) out <- c(out, nm)
+    if (identical(ty, "price_interaction") &&
+        menu[[nm]]$raw_demo %in% c("nonbroker", "broker")) out <- c(out, nm)
   }
   out
 }

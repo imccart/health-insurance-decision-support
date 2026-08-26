@@ -112,21 +112,16 @@ for (i in seq_len(nrow(cells))) {
   plan_attrs <- build_result$plan_attrs
   rm(build_result)
 
-  # Assisted x metal interactions (if not already present). Navigator (non-broker)
-  # and broker metal steering kept separate, matching build_structural.
-  if (!"assisted_silver" %in% names(cell_data)) {
+  # Channel steering terms (if not already present), matching build_structural.
+  if (!"assisted_av" %in% names(cell_data)) {
     if ("any_agent" %in% names(cell_data)) {
       nb <- cell_data$assisted * ifelse(is.na(cell_data$any_agent) | cell_data$any_agent != 1L, 1L, 0L)
       br <- cell_data$assisted * ifelse(!is.na(cell_data$any_agent) & cell_data$any_agent == 1L, 1L, 0L)
     } else {
       nb <- cell_data$assisted; br <- 0L
     }
-    cell_data$assisted_silver  <- nb * cell_data$silver
-    cell_data$assisted_bronze  <- nb * cell_data$bronze
-    cell_data$assisted_gold    <- nb * cell_data$gold
-    cell_data$assisted_plat    <- nb * cell_data$platinum
-    cell_data$broker_silver    <- br * cell_data$silver
-    cell_data$broker_bronze    <- br * cell_data$bronze
+    cell_data$assisted_av      <- nb * cell_data$av
+    cell_data$broker_av        <- br * cell_data$av
     cell_data$assisted_premium <- nb * cell_data$premium
     cell_data$broker_premium   <- br * cell_data$premium
     cell_data$nonbroker        <- nb   # raw_demo for the premium interactions
@@ -166,13 +161,14 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   util_result <- compute_utility(cell_data, coefs)
   V <- util_result$V
+  V_base <- util_result$V_base
 
   # -----------------------------------------------------------------------
   # Step 2: Compute shares and elasticities (all HH)
   # -----------------------------------------------------------------------
   se_result <- compute_shares_and_elasticities(
     cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
-    spec = STRUCTURAL_SPEC
+    spec = STRUCTURAL_SPEC, V_base = V_base
   )
   shares    <- se_result$shares
   elast_mat <- se_result$elast_mat
@@ -193,7 +189,7 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   broker_result <- compute_broker_shares_and_elasticities(
     cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
-    spec = STRUCTURAL_SPEC
+    spec = STRUCTURAL_SPEC, V_base = V_base
   )
   broker_elast_mat <- broker_result$broker_elast_mat
   Omega_broker <- -own_mat * t(broker_elast_mat)  # same transpose as Omega
@@ -203,7 +199,7 @@ for (i in seq_len(nrow(cells))) {
   # demand estimates (they run through beta_comm, not the cost parameters), so we
   # precompute them here and the cost GMM evaluates the commission FOC at its own theta
   # using these plus the cost-implied marginal cost. [D %*% w_f]_j = dqB_j/dk_f.
-  comm_deriv <- compute_commission_derivatives(cell_data, V, lambda, coefs)
+  comm_deriv <- compute_commission_derivatives(cell_data, V, lambda, coefs, V_base = V_base)
   comm_D  <- comm_deriv$D[plan_ids_cell, plan_ids_cell, drop = FALSE]
   comm_qB <- comm_deriv$qB[plan_ids_cell]
 
@@ -232,7 +228,7 @@ for (i in seq_len(nrow(cells))) {
   )
 
   demo_shares <- tryCatch(
-    compute_demographic_shares(cell_data, V, lambda),
+    compute_demographic_shares(cell_data, V, lambda, V_base = V_base),
     error = function(e) NULL
   )
 

@@ -3,7 +3,7 @@
 ## Author:        Ian McCarthy
 ## Date Created:  2026-03-06
 ## Description:   Helper functions for supply-side estimation (markup recovery,
-##                commission FOC evaluation). Used by 7_supply-simple.R.
+##                commission FOC evaluation, two-part nested-logit kernels).
 
 
 # build_structural --------------------------------------------------------
@@ -290,17 +290,23 @@ build_structural <- function(plans, hhs, sample_frac,
     FPL_400plus_prem   = FPL_400plus * net_premium
   )]
 
-  # Age/gender x metal interactions: let metal preference vary by household age and
-  # gender mix. Age x metal fixes the inverted age-by-metal sorting (young now tilt
-  # into bronze). Gender x metal mirrors it so plans sort on gender the way they sort
-  # on age; without it the demand model touches gender only through premium, the
-  # predicted male share comes out near-constant, and the risk-score male coefficient
-  # cannot identify. Premium-independent — plain covariates, no alpha_i / recompute.
+  # Demographic x AV interactions: the same demographic set as the premium
+  # interactions, so the valuation of coverage generosity varies with household
+  # age, gender, race, income, and size (age and gender sorting across tiers is
+  # what identifies the demographic terms in the risk-score equation).
+  # Premium-independent: plain covariates, no alpha_i / recompute.
   dt[, `:=`(
-    perc_0to17_silver  = perc_0to17  * silver, perc_0to17_bronze  = perc_0to17  * bronze,
-    perc_18to34_silver = perc_18to34 * silver, perc_18to34_bronze = perc_18to34 * bronze,
-    perc_35to54_silver = perc_35to54 * silver, perc_35to54_bronze = perc_35to54 * bronze,
-    perc_male_silver   = perc_male   * silver, perc_male_bronze   = perc_male   * bronze
+    hh_size_av       = hh_size       * av,
+    perc_0to17_av    = perc_0to17    * av,
+    perc_18to34_av   = perc_18to34   * av,
+    perc_35to54_av   = perc_35to54   * av,
+    perc_male_av     = perc_male     * av,
+    perc_black_av    = perc_black    * av,
+    perc_hispanic_av = perc_hispanic * av,
+    perc_asian_av    = perc_asian    * av,
+    perc_other_av    = perc_other    * av,
+    FPL_250to400_av  = FPL_250to400  * av,
+    FPL_400plus_av   = FPL_400plus   * av
   )]
 
   # Demographic x insured interactions (cross-nest margin shifters)
@@ -369,13 +375,12 @@ build_structural <- function(plans, hhs, sample_frac,
   dt[, assisted := fifelse(channel != "Unassisted", 1L, 0L)]
   # assisted_* interactions are built from nonbroker (= navigator), not `assisted`; broker_* = broker.
 
-  # Assistance / commission interaction terms (structural). Defined identically
-  # to the demand path. Both channels carry their own metal-steering terms
-  # (assisted_* for navigators, broker_* for brokers) so the broker metal effect
-  # is estimated rather than assumed zero; brokers additionally carry
+  # Assistance / commission interaction terms (structural). Both channels carry
+  # their own generosity-steering term (assisted_av for navigators, broker_av for
+  # brokers) and their own premium slope; brokers additionally carry
   # commission_broker (navigators are not commissioned). NA any_agent ->
-  # non-broker; v_hat (NA on uninsured rows) coalesced to 0 so it doesn't poison
-  # all-HH shares.
+  # non-broker. All of these enter plan choice within the insured nest only (see
+  # extensive_exclude_terms in covariates.R).
   if ("comm_pmpm" %in% names(dt)) {
     if ("any_agent" %in% names(dt)) {
       dt[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
@@ -387,12 +392,8 @@ build_structural <- function(plans, hhs, sample_frac,
       dt[, commission_broker := comm_pmpm * assisted]
     }
     dt[, `:=`(
-      assisted_silver  = nonbroker * silver,
-      assisted_bronze  = nonbroker * bronze,
-      assisted_gold    = nonbroker * gold,
-      assisted_plat    = nonbroker * platinum,
-      broker_silver    = broker * silver,
-      broker_bronze    = broker * bronze,
+      assisted_av      = nonbroker * av,
+      broker_av        = broker * av,
       assisted_premium = nonbroker * premium,
       broker_premium   = broker * premium
     )]
@@ -417,22 +418,30 @@ build_structural <- function(plans, hhs, sample_frac,
 #
 # Compute V_ij for each HH-plan pair using estimated demand coefficients.
 # Handles adaptive covariates (checks which terms exist in coefs_cell).
+# Returns the full utility V and the base utility V_base, which omits the
+# assistance terms (extensive_exclude_terms): V_base drives the enrollment
+# decision, V the plan choice within the insured nest.
 
 compute_utility <- function(cell_data, coefs_cell) {
 
   coef_map <- setNames(coefs_cell$estimate, coefs_cell$term)
   lambda <- coef_map[["lambda"]]
+  excl <- extensive_exclude_terms(names(coef_map))
 
   V <- rep(0, nrow(cell_data))
+  V_excl <- rep(0, nrow(cell_data))
 
   # Apply all coefficients that have matching columns in the data
   for (v in names(coef_map)) {
     if (v == "lambda") next
-    if (v %in% names(cell_data))
-      V <- V + coef_map[[v]] * cell_data[[v]]
+    if (v %in% names(cell_data)) {
+      contrib <- coef_map[[v]] * cell_data[[v]]
+      V <- V + contrib
+      if (v %in% excl) V_excl <- V_excl + contrib
+    }
   }
 
-  list(V = V, lambda = lambda)
+  list(V = V, V_base = V - V_excl, lambda = lambda)
 }
 
 
@@ -440,15 +449,17 @@ compute_utility <- function(cell_data, coefs_cell) {
 #
 # Compute heterogeneous price sensitivity alpha_i for each row.
 # alpha_i = (beta_p + beta_h * hh_size + ...) / hh_size
-# Used by compute_shares_and_elasticities and by 2_supply.R for two-stage demand.
+# Used by compute_shares_and_elasticities and the counterfactual solver.
 
 # Generic: uses get_prem_interactions() from covariates.R to detect which
 # demographic x premium terms are in the spec. Adding/removing a _prem
 # variable in the spec automatically updates this derivative.
 #
 # Falls back to detecting _prem terms from coef_map if spec is NULL.
+# base = TRUE returns the enrollment-margin slope, which omits the channel
+# premium interactions (assisted_premium, broker_premium).
 
-compute_alpha_i <- function(cell_data, coefs, spec = NULL) {
+compute_alpha_i <- function(cell_data, coefs, spec = NULL, base = FALSE) {
   coef_map <- setNames(coefs$estimate, coefs$term)
   get_coef <- function(name) if (name %in% names(coef_map)) coef_map[[name]] else 0
 
@@ -465,6 +476,7 @@ compute_alpha_i <- function(cell_data, coefs, spec = NULL) {
       prem_names
     )
   }
+  if (base) prem_ints <- prem_ints[setdiff(names(prem_ints), extensive_exclude_terms(names(prem_ints)))]
 
   for (nm in names(prem_ints)) {
     raw_col <- prem_ints[[nm]]
@@ -479,166 +491,149 @@ compute_alpha_i <- function(cell_data, coefs, spec = NULL) {
 }
 
 
-# compute_shares_and_elasticities -----------------------------------------
+# add_nest_probs -----------------------------------------------------------
 #
-# Compute market shares and J x J derivative matrix dshare_j/dposted_l.
-# Uses vectorized data.table operations for non-benchmark columns.
-# Benchmark column uses closed-form expressions for subsidized HH.
-#
-# If cell_data contains pre-computed columns `alpha_i` and `lambda_i`,
-# those are used directly (two-stage demand with group-specific parameters).
-# Otherwise, alpha_i is computed from coefs_cell and scalar lambda is used.
-#
-# Nested logit derivative (j, l both in insured nest):
-#   dq_ij/dV_il = q_ij * [I(j==l)/lambda + ((lambda-1)/lambda)*s_{il|g} - q_il]
-#
-# Chain rule from V to posted premium (raw $/month, the insurer's choice variable):
-#   dV_il/d(posted_l) = alpha_i * rf_i, where alpha_i (from compute_alpha_i) is
-#   (dV/d net_premium)/hh_size/100 — it carries the /hh_size AND the $100->$1
-#   conversion, since net_premium is in $100/member — and rf_i =
-#   rating_factor/RATING_FACTOR_AGE40 is the age-rating pass-through. For the
-#   benchmark column of a subsidized HH the 4-case rule replaces this (the subsidy
-#   absorbs the own-price change and shifts every other plan's net premium).
-#
-# For non-benchmark l:
-#   Only V_il changes: dq_ij/d(posted_l) = dq_ij/dV_il * alpha_i * rf_i
-#
-# For benchmark l, subsidized HH:
-#   V_il unchanged (subsidy absorbs). All other V_ik (k != l) change.
-#   Closed-form sum (derived by direct algebra):
-#     j != l: alpha * (-rf) * q_j * [1/lambda + (1 - s_lg) * ((lambda-1)/lambda - s_g)]
-#     j == l: alpha * (-rf) * q_l * [(1 - s_lg) * ((lambda-1)/lambda - s_g)]
+# Nested-logit probabilities for one cell, two-part form. Expects a data.table
+# of INSIDE rows with columns V (full utility), V_base (utility without the
+# assistance terms), V_0 (the household's outside-option utility), lambda_i, and
+# household_number. Adds in place:
+#   s_jg    conditional share within the insured nest, from V
+#   s_jg_b  conditional share from V_base (the enrollment-margin weights)
+#   s_g     P(insured) = exp(lambda I_base) / (exp(lambda I_base) + exp(V_0)),
+#           with I_base the inclusive value of V_base
+#   q_j     s_jg * s_g
+# With V_base == V this is the ordinary nested logit.
 
-compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan,
-                                             plans_cell, coefs_cell, spec = NULL) {
-
-  dt <- as.data.table(cell_data)
-  dt[, V := V]
-
-  plan_ids <- sort(unique(dt$plan_id[dt$plan_id != "Uninsured"]))
-  J <- length(plan_ids)
-
-  # V_0 = β'X_0 for each HH (NOT zero)
-  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
-
-  # --- Step 1: Choice probabilities per HH-plan ---
-  ins_dt <- dt[plan_id != "Uninsured"]
-  ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
-
-  # Use per-row lambda if pre-computed, else scalar
-  has_lambda_i <- "lambda_i" %in% names(ins_dt)
-  if (!has_lambda_i) ins_dt[, lambda_i := lambda]
-
-  # Numerically stable log-sum-exp per HH
+add_nest_probs <- function(ins_dt) {
   ins_dt[, V_scaled := V / lambda_i]
   ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
   ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
   ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
-  ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
-
-  # Conditional share within insured nest: s_{j|g}
   ins_dt[, s_jg := exp_V / sum_exp_V]
 
-  # Nest probability: s_g = exp(λI) / (exp(λI) + exp(V_0))
+  ins_dt[, Vb_scaled := V_base / lambda_i]
+  ins_dt[, max_Vb_scaled := max(Vb_scaled), by = household_number]
+  ins_dt[, exp_Vb := exp(Vb_scaled - max_Vb_scaled)]
+  ins_dt[, sum_exp_Vb := sum(exp_Vb), by = household_number]
+  ins_dt[, s_jg_b := exp_Vb / sum_exp_Vb]
+  ins_dt[, log_D := max_Vb_scaled + log(sum_exp_Vb)]
+
   ins_dt[, log_D_lam := lambda_i * log_D]
   ins_dt[, mx := pmax(log_D_lam, V_0)]
   ins_dt[, s_g := exp(log_D_lam - mx) / (exp(log_D_lam - mx) + exp(V_0 - mx))]
-
-  # Choice probability: q_j = s_{j|g} * s_g
   ins_dt[, q_j := s_jg * s_g]
+  ins_dt[, c("V_scaled", "max_V_scaled", "exp_V", "sum_exp_V",
+             "Vb_scaled", "max_Vb_scaled", "exp_Vb", "sum_exp_Vb",
+             "log_D", "log_D_lam", "mx") := NULL]
+  invisible(ins_dt)
+}
 
-  # HH-level price sensitivity: use pre-computed if available, else derive from coefs_cell
+# Inside rows with V, V_base, V_0, lambda_i attached (shared setup for the kernels)
+nest_inside_rows <- function(cell_data, V, V_base, lambda) {
+  dt <- as.data.table(cell_data)
+  dt[, V := V]
+  dt[, V_base := if (is.null(V_base)) V else V_base]
+  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
+  ins_dt <- dt[plan_id != "Uninsured"]
+  ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
+  ins_dt[is.na(V_0), V_0 := 0]
+  if (!("lambda_i" %in% names(ins_dt))) ins_dt[, lambda_i := lambda]
+  add_nest_probs(ins_dt)
+  ins_dt
+}
+
+
+# compute_shares_and_elasticities -----------------------------------------
+#
+# Compute market shares and J x J derivative matrix dshare_j/dposted_l.
+#
+# Two-part nested logit: q_j = s_jg * s_g with s_jg from the full utility and
+# s_g from the base inclusive value (add_nest_probs). A posted-premium change
+# on plan l moves both utilities, through alpha_i (full slope, with the channel
+# premium interactions) on the within-nest part and alpha_b (base slope) on the
+# enrollment part:
+#
+#   dq_j/dV_l = q_j [ alpha_i (1{j=l} - s_lg)/lambda + alpha_b (1 - s_g) s_lg_b ]
+#
+# which collapses to the ordinary q_j [1{j=l}/lambda + ((lambda-1)/lambda) s_lg
+# - q_l] alpha when V_base = V. Chain rule from V to the posted premium (raw
+# $/month): alpha (from compute_alpha_i) carries the /hh_size and $100->$1
+# conversion, rf_i = rating_factor/RATING_FACTOR_AGE40 is the age-rating
+# pass-through. For the benchmark column of a subsidized HH the subsidy absorbs
+# the own-price change and every other plan's net premium falls by rf_i:
+#
+#   dq_j/d(posted_l) = -rf q_j [ alpha_i (s_lg - 1{j=l})/lambda
+#                                + alpha_b (1 - s_g)(1 - s_lg_b) ]
+#
+# If cell_data contains pre-computed columns `alpha_i` and `lambda_i`, those are
+# used directly (alpha_b then defaults to alpha_i).
+
+compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan,
+                                             plans_cell, coefs_cell, spec = NULL,
+                                             V_base = NULL, channel_filter = NULL) {
+
+  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda)
+  plan_ids <- sort(unique(ins_dt$plan_id))
+  J <- length(plan_ids)
+
+  # HH-level price sensitivity: full slope and enrollment-margin (base) slope
   if (!("alpha_i" %in% names(ins_dt))) {
-    alpha_vec <- compute_alpha_i(ins_dt, coefs_cell, spec)
-    ins_dt[, alpha_i := alpha_vec]
+    ins_dt[, alpha_i := compute_alpha_i(ins_dt, coefs_cell, spec)]
+    ins_dt[, alpha_b := compute_alpha_i(ins_dt, coefs_cell, spec, base = TRUE)]
+  } else if (!("alpha_b" %in% names(ins_dt))) {
+    ins_dt[, alpha_b := alpha_i]
   }
   ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
 
-  # --- Step 2: Weighted market shares ---
+  # Total weight over ALL households (the normalization every FOC term uses),
+  # computed BEFORE any channel filter
   total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
 
+  # Optional channel filter (broker-channel households for the commission terms)
+  if (!is.null(channel_filter)) {
+    ins_dt <- ins_dt[get(channel_filter) == 1L]
+    if (nrow(ins_dt) == 0) {
+      return(list(shares = setNames(rep(0, J), plan_ids),
+                  elast_mat = matrix(0, J, J, dimnames = list(plan_ids, plan_ids)),
+                  plan_ids = plan_ids))
+    }
+  }
+
+  # --- Weighted market shares ---
   shares_dt <- ins_dt[, .(share = sum(hh_weight * q_j) / total_weight), by = plan_id]
   shares <- setNames(shares_dt$share, shares_dt$plan_id)
   shares <- shares[plan_ids]
+  shares[is.na(shares)] <- 0
 
-  # --- Step 3: Elasticity matrix (J x J) ---
+  # --- Derivative matrix (J x J), rows respond, columns move ---
   elast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_ids, plan_ids))
 
   for (l_idx in seq_along(plan_ids)) {
     l <- plan_ids[l_idx]
     is_benchmark <- (!is.na(benchmark_plan) && l == benchmark_plan)
 
-    # Get s_{l|g} and q_l for each HH
-    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, q_l = q_j)]
+    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, s_lg_b = s_jg_b)]
     merged <- merge(ins_dt, l_info, by = "household_number", all.x = TRUE)
     merged[is.na(s_lg), s_lg := 0]
-    merged[is.na(q_l), q_l := 0]
+    merged[is.na(s_lg_b), s_lg_b := 0]
 
-    if (!is_benchmark) {
-      # Non-benchmark: only V_l changes when posted_l changes
-      # dq_j/d(posted_l) = dq_j/dV_l * alpha * rf
-      # dq_j/dV_l = q_j * [I(j==l)/lambda_i + ((lambda_i-1)/lambda_i)*s_lg - q_l]
-      merged[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
-                                       ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
-                                alpha_i * rf_i]
-
-      contrib <- merged[plan_id %in% plan_ids,
-                          .(elast = sum(hh_weight * dq_dposted) / total_weight),
-                          by = plan_id]
-      for (j_idx in seq_along(plan_ids)) {
-        val <- contrib[plan_id == plan_ids[j_idx], elast]
-        if (length(val) > 0) elast_mat[j_idx, l_idx] <- val
-      }
-      rm(merged, l_info, contrib)
-
-    } else {
-      # Benchmark column: split by subsidized status
-      #
-      # Unsubsidized HH: same as non-benchmark (subsidy doesn't apply)
-      # Subsidized HH (closed-form):
-      #   j != l: alpha*(-rf)*q_j * [1/lambda_i + (1-s_lg)*((lambda_i-1)/lambda_i - s_g)]
-      #   j == l: alpha*(-rf)*q_l * [(1-s_lg)*((lambda_i-1)/lambda_i - s_g)]
-
-      # Unsubsidized contribution
-      unsub <- merged[subsidized == 0L]
-      if (nrow(unsub) > 0) {
-        unsub[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
-                                        ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
-                                 alpha_i * rf_i]
-        contrib_unsub <- unsub[plan_id %in% plan_ids,
-                                 .(elast = sum(hh_weight * dq_dposted) / total_weight),
-                                 by = plan_id]
-      } else {
-        contrib_unsub <- data.table(plan_id = character(0), elast = numeric(0))
-      }
-
-      # Subsidized contribution (closed-form)
-      sub <- merged[subsidized == 1L]
-      if (nrow(sub) > 0) {
-        sub[, common_factor := (1 - s_lg) * ((lambda_i - 1) / lambda_i - s_g)]
-        sub[, dq_dposted := fifelse(
-          plan_id == l,
-          alpha_i * (-rf_i) * q_j * common_factor,
-          alpha_i * (-rf_i) * q_j * (1 / lambda_i + common_factor)
-        )]
-        contrib_sub <- sub[plan_id %in% plan_ids,
-                             .(elast = sum(hh_weight * dq_dposted) / total_weight),
-                             by = plan_id]
-      } else {
-        contrib_sub <- data.table(plan_id = character(0), elast = numeric(0))
-      }
-
-      # Combine
-      for (j_idx in seq_along(plan_ids)) {
-        j <- plan_ids[j_idx]
-        val_unsub <- contrib_unsub[plan_id == j, elast]
-        val_sub   <- contrib_sub[plan_id == j, elast]
-        total <- (if (length(val_unsub) > 0) val_unsub else 0) +
-                 (if (length(val_sub) > 0) val_sub else 0)
-        elast_mat[j_idx, l_idx] <- total
-      }
-      rm(merged, l_info, unsub, sub, contrib_unsub, contrib_sub)
+    merged[, own_l := as.numeric(plan_id == l)]
+    # Non-benchmark (and unsubsidized households in the benchmark column): only
+    # V_l moves.
+    merged[, dq_dposted := q_j * rf_i *
+             (alpha_i * (own_l - s_lg) / lambda_i + alpha_b * (1 - s_g) * s_lg_b)]
+    if (is_benchmark) {
+      # Subsidized households: V_l fixed, every other V_k falls by rf_i
+      merged[subsidized == 1L,
+             dq_dposted := -q_j * rf_i *
+               (alpha_i * (s_lg - own_l) / lambda_i + alpha_b * (1 - s_g) * (1 - s_lg_b))]
     }
+
+    contrib <- merged[, .(elast = sum(hh_weight * dq_dposted) / total_weight), by = plan_id]
+    vals <- setNames(contrib$elast, contrib$plan_id)[plan_ids]
+    vals[is.na(vals)] <- 0
+    elast_mat[, l_idx] <- vals
+    rm(merged, l_info, contrib)
   }
 
   list(shares = shares, elast_mat = elast_mat, plan_ids = plan_ids)
@@ -648,141 +643,21 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 # compute_broker_shares_and_elasticities -----------------------------------
 #
 # Like compute_shares_and_elasticities() but aggregates only over
-# broker-channel (broker == 1, i.e. assisted x any_agent) households — the
+# broker-channel (broker == 1, i.e. assisted x any_agent) households, the
 # households commissions are paid on. Shares and derivatives are normalized by
 # TOTAL cell weight (all households), matching the all-HH kernel, so the
 # commission-outlay term Omega_broker %*% comm_vec is in the same share units
-# as the rest of the FOC. (Fixed 2026-07-23: previously filtered assisted == 1
-# — navigators included — and normalized by assisted-only weight, inflating the
-# term ~3x. Cells with navigators but no brokers now correctly return zeros.)
+# as the rest of the FOC. Cells with navigators but no brokers return zeros.
 # Returns broker-specific market shares and J x J derivative matrix.
 
 compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
                                                     benchmark_plan, plans_cell,
-                                                    coefs_cell, spec = NULL) {
-
-  dt <- as.data.table(cell_data)
-  dt[, V := V]
-
-  plan_ids <- sort(unique(dt$plan_id[dt$plan_id != "Uninsured"]))
-  J <- length(plan_ids)
-
-  # V_0 = β'X_0 for each HH (NOT zero)
-  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
-
-  # Choice probabilities per HH-plan (all HH, same as full model)
-  ins_dt <- dt[plan_id != "Uninsured"]
-  ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
-
-  # Use per-row lambda if pre-computed, else scalar
-  if (!("lambda_i" %in% names(ins_dt))) ins_dt[, lambda_i := lambda]
-
-  ins_dt[, V_scaled := V / lambda_i]
-  ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
-  ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
-  ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
-  ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
-  ins_dt[, s_jg := exp_V / sum_exp_V]
-  ins_dt[, log_D_lam := lambda_i * log_D]
-  ins_dt[, mx := pmax(log_D_lam, V_0)]
-  ins_dt[, s_g := exp(log_D_lam - mx) / (exp(log_D_lam - mx) + exp(V_0 - mx))]
-  ins_dt[, q_j := s_jg * s_g]
-
-  # HH-level price sensitivity: use pre-computed if available
-  if (!("alpha_i" %in% names(ins_dt))) {
-    alpha_vec <- compute_alpha_i(ins_dt, coefs_cell, spec)
-    ins_dt[, alpha_i := alpha_vec]
-  }
-  ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
-
-  # Total weight over ALL households — the normalization every other FOC term
-  # uses — computed BEFORE the channel filter
-  total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
-
-  # Filter to broker-channel HH only (commissions are paid on these households)
-  ins_dt <- ins_dt[broker == 1L]
-
-  if (nrow(ins_dt) == 0) {
-    return(list(
-      broker_shares = setNames(rep(0, J), plan_ids),
-      broker_elast_mat = matrix(0, J, J, dimnames = list(plan_ids, plan_ids)),
-      plan_ids = plan_ids
-    ))
-  }
-
-  shares_dt <- ins_dt[, .(share = sum(hh_weight * q_j) / total_weight), by = plan_id]
-  broker_shares <- setNames(shares_dt$share, shares_dt$plan_id)
-  broker_shares <- broker_shares[plan_ids]
-  broker_shares[is.na(broker_shares)] <- 0
-
-  # Elasticity matrix (same derivative formulas, broker HH only)
-  elast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_ids, plan_ids))
-
-  for (l_idx in seq_along(plan_ids)) {
-    l <- plan_ids[l_idx]
-    is_benchmark <- (!is.na(benchmark_plan) && l == benchmark_plan)
-
-    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, q_l = q_j)]
-    merged <- merge(ins_dt, l_info, by = "household_number", all.x = TRUE)
-    merged[is.na(s_lg), s_lg := 0]
-    merged[is.na(q_l), q_l := 0]
-
-    if (!is_benchmark) {
-      merged[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
-                                       ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
-                                alpha_i * rf_i]
-
-      contrib <- merged[plan_id %in% plan_ids,
-                          .(elast = sum(hh_weight * dq_dposted) / total_weight),
-                          by = plan_id]
-      for (j_idx in seq_along(plan_ids)) {
-        val <- contrib[plan_id == plan_ids[j_idx], elast]
-        if (length(val) > 0) elast_mat[j_idx, l_idx] <- val
-      }
-      rm(merged, l_info, contrib)
-
-    } else {
-      # Benchmark: split by subsidized
-      unsub <- merged[subsidized == 0L]
-      if (nrow(unsub) > 0) {
-        unsub[, dq_dposted := q_j * (as.numeric(plan_id == l) / lambda_i +
-                                        ((lambda_i - 1) / lambda_i) * s_lg - q_l) *
-                                 alpha_i * rf_i]
-        contrib_unsub <- unsub[plan_id %in% plan_ids,
-                                 .(elast = sum(hh_weight * dq_dposted) / total_weight),
-                                 by = plan_id]
-      } else {
-        contrib_unsub <- data.table(plan_id = character(0), elast = numeric(0))
-      }
-
-      sub <- merged[subsidized == 1L]
-      if (nrow(sub) > 0) {
-        sub[, common_factor := (1 - s_lg) * ((lambda_i - 1) / lambda_i - s_g)]
-        sub[, dq_dposted := fifelse(
-          plan_id == l,
-          alpha_i * (-rf_i) * q_j * common_factor,
-          alpha_i * (-rf_i) * q_j * (1 / lambda_i + common_factor)
-        )]
-        contrib_sub <- sub[plan_id %in% plan_ids,
-                             .(elast = sum(hh_weight * dq_dposted) / total_weight),
-                             by = plan_id]
-      } else {
-        contrib_sub <- data.table(plan_id = character(0), elast = numeric(0))
-      }
-
-      for (j_idx in seq_along(plan_ids)) {
-        j <- plan_ids[j_idx]
-        val_unsub <- contrib_unsub[plan_id == j, elast]
-        val_sub   <- contrib_sub[plan_id == j, elast]
-        total <- (if (length(val_unsub) > 0) val_unsub else 0) +
-                 (if (length(val_sub) > 0) val_sub else 0)
-        elast_mat[j_idx, l_idx] <- total
-      }
-      rm(merged, l_info, unsub, sub, contrib_unsub, contrib_sub)
-    }
-  }
-
-  list(broker_shares = broker_shares, broker_elast_mat = elast_mat, plan_ids = plan_ids)
+                                                    coefs_cell, spec = NULL,
+                                                    V_base = NULL) {
+  res <- compute_shares_and_elasticities(cell_data, V, lambda, benchmark_plan,
+                                         plans_cell, coefs_cell, spec = spec,
+                                         V_base = V_base, channel_filter = "broker")
+  list(broker_shares = res$shares, broker_elast_mat = res$elast_mat, plan_ids = res$plan_ids)
 }
 
 
@@ -790,48 +665,24 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
 #
 # D[j,k] = d qB_j / d eta_k over broker-channel households (share units per $
 # of commission PMPM, normalized by TOTAL cell weight); qB = broker enrollment
-# in the same share units. Same nested-logit derivative as the premium kernels
-# but with beta_comm as the utility slope: no alpha_i, no rating factor, and no
-# benchmark 4-case logic (commissions do not touch the subsidy):
+# in the same share units. The commission term enters the within-nest utility
+# only (it is excluded from the enrollment inclusive value), so the derivative
+# has no extensive-margin part:
 #
-#   D[j,k] = beta_comm * sum_{i in broker} w_i q_ij (1{j=k}/lambda_i
-#            + ((lambda_i-1)/lambda_i) s_ik|g - q_ik) / W_total
+#   D[j,k] = beta_comm * sum_{i in broker} w_i q_ij (1{j=k} - s_ik|g) / lambda_i / W_total
 #
-# Wide-matrix crossprod form validated in scratch/check_commission_foc.R
-# (reproduces pipeline shares to machine precision); generalized here to the
-# per-row lambda_i the sibling kernels support (constant within household).
-# Used by the CF commission FOC (helpers/cf_cell.R): [D %*% w_f]_j is
-# d qB_j / d k_f with NO transpose — rows respond, columns move.
+# No alpha_i, no rating factor, and no benchmark 4-case logic (commissions do
+# not touch the subsidy). Used by the CF commission FOC (helpers/cf_cell.R):
+# [D %*% w_f]_j is d qB_j / d k_f with NO transpose, rows respond, columns move.
 
-compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell) {
+compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell, V_base = NULL) {
 
-  dt <- as.data.table(cell_data)
-  dt[, V := V]
-
-  plan_ids <- sort(unique(dt$plan_id[dt$plan_id != "Uninsured"]))
+  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda)
+  plan_ids <- sort(unique(ins_dt$plan_id))
   J <- length(plan_ids)
 
   coef_map <- setNames(coefs_cell$estimate, coefs_cell$term)
   beta_comm <- if ("commission_broker" %in% names(coef_map)) coef_map[["commission_broker"]] else 0
-
-  # V_0 = β'X_0 for each HH (NOT zero)
-  V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
-
-  ins_dt <- dt[plan_id != "Uninsured"]
-  ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
-
-  if (!("lambda_i" %in% names(ins_dt))) ins_dt[, lambda_i := lambda]
-
-  ins_dt[, V_scaled := V / lambda_i]
-  ins_dt[, max_V_scaled := max(V_scaled), by = household_number]
-  ins_dt[, exp_V := exp(V_scaled - max_V_scaled)]
-  ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
-  ins_dt[, log_D := max_V_scaled + log(sum_exp_V)]
-  ins_dt[, s_jg := exp_V / sum_exp_V]
-  ins_dt[, log_D_lam := lambda_i * log_D]
-  ins_dt[, mx := pmax(log_D_lam, V_0)]
-  ins_dt[, s_g := exp(log_D_lam - mx) / (exp(log_D_lam - mx) + exp(V_0 - mx))]
-  ins_dt[, q_j := s_jg * s_g]
 
   # Total weight over ALL households, before the channel filter
   total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
@@ -850,12 +701,9 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell) {
                           value.var = "wq", fill = 0)[, ..plan_ids])
   Sm_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
                           value.var = "s_jg", fill = 0)[, ..plan_ids])
-  Qm_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
-                          value.var = "q_j", fill = 0)[, ..plan_ids])
   lam <- ins_dt[, .(lam = first(lambda_i)), by = household_number][order(household_number), lam]
 
-  D <- beta_comm * (crossprod(Wq_m, ((lam - 1) / lam) * Sm_m - Qm_m) +
-                      diag(colSums(Wq_m / lam), nrow = J)) / total_weight
+  D <- beta_comm * (diag(colSums(Wq_m / lam), nrow = J) - crossprod(Wq_m / lam, Sm_m)) / total_weight
   dimnames(D) <- list(plan_ids, plan_ids)
 
   qB <- setNames(colSums(Wq_m) / total_weight, plan_ids)

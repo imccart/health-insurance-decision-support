@@ -24,52 +24,36 @@ MEAN_SPENDING <- 6000
 
 # --- Per-row nested-logit choice probabilities (inside plans + outside) --------
 choice_probs <- function(cell_data, coefs, lambda) {
-  V <- compute_utility(cell_data, coefs)$V
+  # Two-part nested logit (supply.R kernels): P(insured) from the base
+  # inclusive value, P(j | insured) from the full utility.
+  util <- compute_utility(cell_data, coefs)
   dt <- as.data.table(cell_data)
-  dt[, `:=`(.V = V, .rid = .I, .is_out = (plan_id == "Uninsured"))]
-
-  ins <- dt[.is_out == FALSE]
-  ins[, vs := .V / lambda]
-  ins[, mx := max(vs), by = household_number]
-  ins[, p_in_nest := exp(vs - mx) / sum(exp(vs - mx)), by = household_number]
-  ins[, logD := first(mx + log(sum(exp(vs - mx)))), by = household_number]
-
-  hh <- ins[, .(logD = first(logD)), by = household_number]
-  v0 <- dt[.is_out == TRUE, .(household_number, V0 = .V)]
-  hh <- merge(hh, v0, by = "household_number", all.x = TRUE)
-  hh[is.na(V0), V0 := 0]
-  hh[, mxt := pmax(V0, lambda * logD)]
-  hh[, p_inside := exp(lambda * logD - mxt) /
-        (exp(V0 - mxt) + exp(lambda * logD - mxt))]
-
-  ins <- merge(ins, hh[, .(household_number, p_inside)], by = "household_number")
-  ins[, p := p_inside * p_in_nest]
-  out <- merge(dt[.is_out == TRUE], hh[, .(household_number, p_inside)],
-               by = "household_number")
+  dt[, .rid := .I]
+  ins <- nest_inside_rows(dt, util$V, util$V_base, lambda)
+  hh <- ins[, .(p_inside = first(s_g)), by = household_number]
+  out <- merge(dt[plan_id == "Uninsured", .(.rid, household_number)], hh,
+               by = "household_number", all.x = TRUE)
+  out[is.na(p_inside), p_inside := 0]
   out[, p := 1 - p_inside]
-
-  probs <- rbind(ins[, .(.rid, p)], out[, .(.rid, p)])
+  probs <- rbind(ins[, .(.rid, p = q_j)], out[, .(.rid, p)])
   setorder(probs, .rid)
   probs$p
 }
 
 # --- Navigator (informed-rule) normative utility, in utils --------------------
 # Imposes the navigator (informed) decision rule on everyone: the navigator's price
-# slope and metal valuations are folded onto the base
-# variables, and the broker / commission distortions are dropped. The age x metal
-# terms are base demographic preferences, not a channel distortion, so they pass
-# through unchanged. Experienced welfare = these coefficients applied to the plan
-# the household actually (steered) ends up in.
+# slope and generosity (AV) valuation are folded onto the base variables, and the
+# broker / commission distortions are dropped. The demographic x AV terms are base
+# preferences, not a channel distortion, so they pass through unchanged.
+# Experienced welfare = these coefficients applied to the plan the household
+# actually (steered) ends up in.
 vN_navigator_coefs <- function(coefs) {
   cm <- setNames(coefs$estimate, coefs$term)
   g  <- function(n) if (n %in% names(cm)) cm[[n]] else 0
   if ("premium" %in% names(cm)) cm["premium"] <- g("premium") + g("assisted_premium")
-  if ("silver"  %in% names(cm)) cm["silver"]  <- g("silver")  + g("assisted_silver")
-  if ("bronze"  %in% names(cm)) cm["bronze"]  <- g("bronze")  + g("assisted_bronze")
-  for (z in c("assisted_premium", "assisted_silver", "assisted_bronze",
-              "assisted_gold", "assisted_plat", "broker_premium",
-              "broker_silver", "broker_bronze",
-              "commission_broker", "v_hat_commission"))
+  if ("av"      %in% names(cm)) cm["av"]      <- g("av")      + g("assisted_av")
+  for (z in c("assisted_premium", "assisted_av", "broker_premium", "broker_av",
+              "commission_broker"))
     if (z %in% names(cm)) cm[z] <- 0
   data.frame(term = names(cm), estimate = as.numeric(cm), stringsAsFactors = FALSE)
 }
