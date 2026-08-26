@@ -35,12 +35,16 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
       sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
       dt[, subsidy_cf := fifelse(subsidized == 1L, sub_endog, adj_subsidy)]
-    } else dt[, subsidy_cf := adj_subsidy]
+      dt[, sub_interior := as.numeric(subsidized == 1L & (premiumSLC_cf - SLC_contribution) > 0)]
+    } else { dt[, subsidy_cf := adj_subsidy]; dt[, sub_interior := 0] }
+    dt[, kink_m := 1]
     for (pn in names(p_vec)) {
       idx <- which(dt$plan_id == pn); if (length(idx) == 0) next
       premium_hh <- (p_vec[pn] / RATING_FACTOR_AGE40) * dt$rating_factor[idx]
-      oop <- pmax(premium_hh - dt$subsidy_cf[idx], 0) - dt$penalty[idx] / 12
+      gap <- premium_hh - dt$subsidy_cf[idx]
+      oop <- pmax(gap, 0) - dt$penalty[idx] / 12
       set(dt, i = idx, j = "premium", value = oop / dt$hh_size[idx] / 100)
+      set(dt, i = idx, j = "kink_m", value = as.numeric(gap > 0))
     }
     recompute_prem_interactions(dt, STRUCTURAL_SPEC)
   }

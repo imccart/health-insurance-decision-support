@@ -207,16 +207,24 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       # the level and the derivative apply to the identical household set. subsidized==1L
       # now implies finite SLC_contribution, so sub_endog is finite where it's used.
       dt[, subsidy_cf := fifelse(subsidized == 1L, sub_endog, adj_subsidy)]
+      # Interior subsidy (the derivative of the pmax above): the kernel's benchmark
+      # column applies the subsidy chain only to these households
+      dt[, sub_interior := as.numeric(subsidized == 1L & (premiumSLC_cf - SLC_contribution) > 0)]
     } else {
       dt[, subsidy_cf := adj_subsidy]   # no benchmark silver -> fall back to baseline
+      dt[, sub_interior := 0]
     }
 
+    # Floor indicator per row (the derivative of the pmax below), read by the kernel
+    dt[, kink_m := 1]
     for (pn in names(p_vec)) {
       idx <- which(dt$plan_id == pn)
       if (length(idx) == 0) next
       premium_hh <- (p_vec[pn] / RATING_FACTOR_AGE40) * dt$rating_factor[idx]
-      oop <- pmax(premium_hh - dt$subsidy_cf[idx], 0) - dt$penalty[idx] / 12
+      gap <- premium_hh - dt$subsidy_cf[idx]
+      oop <- pmax(gap, 0) - dt$penalty[idx] / 12
       set(dt, i = idx, j = "premium", value = oop / dt$hh_size[idx] / 100)
+      set(dt, i = idx, j = "kink_m", value = as.numeric(gap > 0))
     }
     recompute_prem_interactions(dt, STRUCTURAL_SPEC)
   }

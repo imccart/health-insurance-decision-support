@@ -559,11 +559,26 @@ nest_inside_rows <- function(cell_data, V, V_base, lambda) {
 # - q_l] alpha when V_base = V. Chain rule from V to the posted premium (raw
 # $/month): alpha (from compute_alpha_i) carries the /hh_size and $100->$1
 # conversion, rf_i = rating_factor/RATING_FACTOR_AGE40 is the age-rating
-# pass-through. For the benchmark column of a subsidized HH the subsidy absorbs
-# the own-price change and every other plan's net premium falls by rf_i:
+# pass-through.
 #
-#   dq_j/d(posted_l) = -rf q_j [ alpha_i (s_lg - 1{j=l})/lambda
-#                                + alpha_b (1 - s_g)(1 - s_lg_b) ]
+# Net premium is floored at zero (premium less subsidy, never negative), so a
+# household whose subsidy covers the plan does not respond to a small premium
+# change. kink_m = 1{premium_hh > subsidy} per row multiplies the pass-through.
+# For the benchmark column of a subsidized HH with an interior subsidy
+# (sub_interior = 1: benchmark premium above the contribution cap), the subsidy
+# absorbs the own-price change and every other plan's net premium falls by rf_i
+# on the rows not at the floor. With S_f = sum_{k != l} kink_m_k s_kg and S_b
+# the same sum with base shares:
+#
+#   dq_j/d(posted_l) = -rf q_j [ alpha_i (kink_m_j 1{j != l} - S_f)/lambda
+#                                + alpha_b (1 - s_g) S_b ]
+#
+# which is the closed form -rf q_j [alpha_i (s_lg - 1{j=l})/lambda + alpha_b
+# (1 - s_g)(1 - s_lg_b)] when no row is at the floor. A subsidized HH whose
+# subsidy is clipped at zero responds to the benchmark like any other plan.
+# kink_m and sub_interior are read from cell_data when present (the CF's
+# update_premiums writes them at the candidate premiums) and otherwise computed
+# from the observed premiums and subsidies on the rows.
 #
 # If cell_data contains pre-computed columns `alpha_i` and `lambda_i`, those are
 # used directly (alpha_b then defaults to alpha_i).
@@ -584,6 +599,15 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
     ins_dt[, alpha_b := alpha_i]
   }
   ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
+
+  # Floor indicators (see header): at observed premiums unless the caller wrote them
+  if (!("kink_m" %in% names(ins_dt)))
+    ins_dt[, kink_m := as.numeric((premium_posted / RATING_FACTOR_AGE40) * rating_factor - adj_subsidy > 0)]
+  if (!("sub_interior" %in% names(ins_dt)))
+    ins_dt[, sub_interior := as.numeric(subsidized == 1L & is.finite(SLC_contribution) &
+                                          (premiumSLC - SLC_contribution) > 0)]
+  ins_dt[is.na(kink_m), kink_m := 1]
+  ins_dt[is.na(sub_interior), sub_interior := 0]
 
   # Total weight over ALL households (the normalization every FOC term uses),
   # computed BEFORE any channel filter
@@ -612,21 +636,26 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
     l <- plan_ids[l_idx]
     is_benchmark <- (!is.na(benchmark_plan) && l == benchmark_plan)
 
-    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, s_lg_b = s_jg_b)]
+    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, s_lg_b = s_jg_b, m_l = kink_m)]
     merged <- merge(ins_dt, l_info, by = "household_number", all.x = TRUE)
     merged[is.na(s_lg), s_lg := 0]
     merged[is.na(s_lg_b), s_lg_b := 0]
+    merged[is.na(m_l), m_l := 0]
 
     merged[, own_l := as.numeric(plan_id == l)]
-    # Non-benchmark (and unsubsidized households in the benchmark column): only
-    # V_l moves.
-    merged[, dq_dposted := q_j * rf_i *
+    # Non-benchmark (and, in the benchmark column, unsubsidized households and
+    # households whose subsidy is clipped at zero): only V_l moves, and only on
+    # rows not at the floor.
+    merged[, dq_dposted := q_j * rf_i * m_l *
              (alpha_i * (own_l - s_lg) / lambda_i + alpha_b * (1 - s_g) * s_lg_b)]
     if (is_benchmark) {
-      # Subsidized households: V_l fixed, every other V_k falls by rf_i
-      merged[subsidized == 1L,
+      # Subsidized households with an interior subsidy: V_l fixed, every other
+      # V_k not at the floor falls by rf_i
+      merged[, `:=`(S_f = sum(kink_m * s_jg * (1 - own_l)),
+                    S_b = sum(kink_m * s_jg_b * (1 - own_l))), by = household_number]
+      merged[subsidized == 1L & sub_interior == 1,
              dq_dposted := -q_j * rf_i *
-               (alpha_i * (s_lg - own_l) / lambda_i + alpha_b * (1 - s_g) * (1 - s_lg_b))]
+               (alpha_i * (kink_m * (1 - own_l) - S_f) / lambda_i + alpha_b * (1 - s_g) * S_b)]
     }
 
     contrib <- merged[, .(elast = sum(hh_weight * dq_dposted) / total_weight), by = plan_id]
