@@ -233,7 +233,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   if (nrow(cells_dt) > 0) {
     rs_base <- cells_dt[scenario == "baseline", rs_unins]
     rs_base <- if (length(rs_base) == 1 && is.finite(rs_base)) rs_base else NA_real_
-    cells_dt[, gov_uc := gov_uc_raw * fifelse(is.finite(rs_base), rs_unins / rs_base, 1)]
+    cells_dt[, gov_uc := gov_uc_raw * (if (is.finite(rs_base)) rs_unins / rs_base else 1)]
     cells_dt[, gov_total := gov_subsidy + gov_csr + gov_uc - gov_penalty]
     for (i in seq_along(per)) if (!is.null(per[[i]])) {
       per[[i]]$cell <- cells_dt[scenario == per[[i]]$cell$scenario[1]]
