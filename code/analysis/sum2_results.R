@@ -654,7 +654,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   # --- 5a2. Welfare effects with SEs (cf3 demand bootstrap + cf4 commission delta method) ---
   # Reconstruct each draw's coverage effect and central objective from the component
   # columns in cf_bootstrap_draws.csv, pair with the cf2 point estimate. The
-  # commission-FOC channel adds a' V_comm a for the same linear combination of
+  # cost-parameter channel adds a' V_comm a for the same linear combination of
   # headline statistics, with V_comm from cf4 (cf_delta_vcov.csv); the two stages
   # are independent, so the variances add. Skips until cf3 has run.
   draws <- tryCatch(read_csv("results/cf_bootstrap_draws.csv", show_col_types = FALSE),

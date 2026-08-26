@@ -64,7 +64,7 @@ source("code/analysis/s5_se.R")
 source("code/analysis/cf1_estimate.R")       # solve equilibria (writes premium_cf)
 source("code/analysis/cf2_score.R")          # score welfare from the solved equilibria
 source("code/analysis/cf3_se.R")             # demand-parameter bootstrap (frozen re-score)
-source("code/analysis/cf4_se-comm.R")        # commission-FOC delta method; combines with cf3
+source("code/analysis/cf4_se-cost.R")        # cost-parameter delta method; combines with cf3
 
 # sum: summary tables + figures -------------------------------------------
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk

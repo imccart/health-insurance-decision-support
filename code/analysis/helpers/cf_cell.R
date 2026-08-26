@@ -14,7 +14,7 @@
 ##                flat_mandate (pct insurers forced flat, levels re-chosen),
 ##                defund (navigator-to-broker reverse conversion). Sourced in the
 ##                preamble; called by cf1_estimate.R (the all-cells driver) and
-##                cf4_se-comm.R (sensitivity mode). Relies on the structural
+##                cf4_se-cost.R (sensitivity mode). Relies on the structural
 ##                helpers the caller has already loaded (supply.R, ra.R,
 ##                choice.R, welfare_*.R).
 
@@ -33,11 +33,13 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   # cf1 solution. Used as the STARTING point of the endogenous scenario solves so a
   # re-run begins next to its answer and lands on the same spot in the (soft)
   # commission valley. NULL (cf1) = cold start.
-  # sens (cf4): list(z = matrix of the commission-FOC covariates by "firm_year" row,
-  # one column per coefficient; h_rel = relative FD step). Sensitivity mode: every
-  # scenario is evaluated at its warm_start solution with no solve, and the function
-  # returns d(premium)/d(delta) and d(commission)/d(delta) per plan and scenario by
-  # the implicit function theorem instead of the equilibrium table.
+  # sens (cf4): list(rs = risk-score coefficients, cl = claims coefficients (the
+  # cost parameters theta, in the order of the cost GMM), h_rel = relative FD step
+  # for the FOC Jacobian in (p, kappa), h_theta = relative FD step in theta).
+  # Sensitivity mode: every scenario is evaluated at its warm_start solution with
+  # no solve, and the function returns d(premium)/d(theta) and d(commission)/
+  # d(theta) per plan and scenario by the implicit function theorem instead of
+  # the equilibrium table. theta enters both FOCs through marginal cost.
 
   TAU_GRID <- c(0, 0.25, 0.5, 0.75, 1.0)
   # Endogenous-commission scenario grids, trimmed (read 0 -> 0.5 -> 1; tau = 0
@@ -691,28 +693,31 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
 
 
-  # Sensitivity of the solved equilibrium to the commission-FOC coefficients
-  # (sensitivity mode). At the saved solution x* = (p*, kappa*), the implicit
-  # function theorem gives dx*/d delta = -[dF/dx]^-1 dF/d delta. dF/dx is formed by
-  # central differences of the FOC residual; dF/d delta runs through mu_f = z_f'
-  # delta, and only insurer f's commission FOC depends on mu_f, with
-  # d resid_k_f / d mu_f = -MB_f / ((1 + mu_f)^2 MC_obs_f). The commission
-  # sensitivity follows from eta_j = k_f w_j(p). With exogenous commissions delta
-  # does not enter, so the sensitivities are zero. Expects fns$cache at x*.
-  sens_at_solution <- function(fns, x_star, comm_endog) {
+  # Sensitivity of the solved equilibrium to the cost parameters theta
+  # (sensitivity mode). At the saved solution x* = (p*, kappa*), dx*/dtheta =
+  # -[dF/dx]^-1 dF/dtheta, both Jacobians by central differences: dF/dx in
+  # (p, kappa) at fixed theta, dF/dtheta by rebuilding the FOC with each cost
+  # coefficient perturbed and evaluating it at x*. The commission sensitivity
+  # follows from eta_j = k_f w_j(p); with exogenous commissions it is zero.
+  sens_at_solution <- function(fns, x_star, comm_endog, fn_at_theta) {
     J <- length(plan_ids_cell)
     n <- length(x_star)
-    zero <- matrix(0, J, ncol(sens$z), dimnames = list(plan_ids_cell, colnames(sens$z)))
-    if (is.null(comm_endog)) return(list(dp = zero, deta = zero, cond = NA_real_))
+    K <- length(sens$rs) + length(sens$cl)
+    dnames <- paste0("d", seq_len(K))
+    zero <- matrix(0, J, K, dimnames = list(plan_ids_cell, dnames))
 
-    MB_f <- fns$cache$MB_f
-    dF_dd <- matrix(0, n, ncol(sens$z))
-    for (fi in seq_along(comm_endog$prefixes)) {
-      key <- paste(comm_endog$prefixes[fi], y, sep = "_")
-      if (!key %in% rownames(sens$z)) next      # fallback mu, not a function of delta
-      dF_dd[J + fi, ] <- -MB_f[fi] / ((1 + comm_endog$mu[fi])^2 * comm_endog$MC_obs[fi]) *
-        sens$z[key, ]
+    dF_dd <- matrix(0, n, K)
+    theta <- c(sens$rs, sens$cl)
+    n_rs <- length(sens$rs)
+    for (j in seq_len(K)) {
+      h <- sens$h_theta * max(abs(theta[j]), 1)
+      tp <- theta; tp[j] <- tp[j] + h
+      tm <- theta; tm[j] <- tm[j] - h
+      fp <- fn_at_theta(tp[seq_len(n_rs)], tp[-seq_len(n_rs)])(x_star)
+      fm <- fn_at_theta(tm[seq_len(n_rs)], tm[-seq_len(n_rs)])(x_star)
+      dF_dd[, j] <- (fp - fm) / (2 * h)
     }
+    if (any(!is.finite(dF_dd))) return(NULL)
 
     Jx <- matrix(0, n, n)
     hx <- sens$h_rel * pmax(abs(x_star), 1)
@@ -727,6 +732,7 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
 
     dp <- dx[seq_len(J), , drop = FALSE]
     dimnames(dp) <- dimnames(zero)
+    if (is.null(comm_endog)) return(list(dp = dp, deta = zero, cond = max(sv) / min(sv)))
     dkappa <- dx[-seq_len(J), , drop = FALSE]
     p_star <- x_star[seq_len(J)]
     k_star <- x_star[-seq_len(J)] / comm_endog$etabar
@@ -831,7 +837,13 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     sol <- if (!is.null(sens)) {
       # No solve: the sensitivities at x_init (the saved solution), then a stub
       # solution object so the post-solve quantities below evaluate at x_init.
-      sn <- sens_at_solution(fns, x_init, comm_endog)
+      fn_at_theta <- function(rs_p, cl_p) {
+        names(rs_p) <- names(rs_coefs); names(cl_p) <- names(claims_coefs)
+        build_foc_function(cd_scenario, coefs, comm_sc, benchmark_plan, plan_attrs,
+                           rs_p, cl_p, plan_chars_cell, plan_avs, reins_vec, lambda,
+                           plan_ids_cell, comm_endog = comm_endog)$fn
+      }
+      sn <- sens_at_solution(fns, x_init, comm_endog, fn_at_theta)
       if (is.null(sn)) { cat("    sens: non-finite Jacobian for", label, "\n"); return(NULL) }
       sens_store[[label]] <<- bind_cols(
         tibble(region = r, year = y, scenario = label, plan_id = plan_ids_cell,
