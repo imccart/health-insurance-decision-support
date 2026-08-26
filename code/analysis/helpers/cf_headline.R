@@ -3,7 +3,8 @@
 # summarize_cf_headline(cf) takes a welfare table with one row per (region, year,
 # scenario) carrying the cf2 welfare columns and returns the named vector of
 # headline statistics the paper reports: each is a mean over cells of a scenario's
-# welfare column minus the model-baseline value. Shared by cf3_se (bootstrap
+# welfare column minus the model-baseline value. Revealed-preference CS is the
+# no-commission measure (cs_nocomm) throughout. Shared by cf3_se (bootstrap
 # draws) and cf4_se-comm (delta-method gradients), so both difference exactly the
 # statistics sum2 reports.
 
@@ -23,11 +24,11 @@ summarize_cf_headline <- function(cf) {
     mean(m[[col]] - m$obsval, na.rm = TRUE)
   }
   taus <- c(0, 0.25, 0.5, 0.75, 1.0)
-  grad <- vapply(taus, function(t) mdelta(sprintf("zero_tau%.2f", t), "cs_weighted"), numeric(1))
+  grad <- vapply(taus, function(t) mdelta(sprintf("zero_tau%.2f", t), "cs_nocomm"), numeric(1))
   names(grad) <- paste0("grad_cs_tau", sprintf("%.2f", taus))
   # Endogenous-commission scenarios (endog_tau0 = baseline, not carried).
   taus_e <- c(0.5, 1.0)
-  grad_e <- vapply(taus_e, function(t) mdelta(sprintf("endog_tau%.2f", t), "cs_weighted"), numeric(1))
+  grad_e <- vapply(taus_e, function(t) mdelta(sprintf("endog_tau%.2f", t), "cs_nocomm"), numeric(1))
   names(grad_e) <- paste0("grad_cs_endog_tau", sprintf("%.2f", taus_e))
   # Cost-band components per scenario (coverage share, insured composition, and the
   # uninsured-weighted OOP / baseline mortality / catastrophic pieces). sum2 rebuilds
@@ -50,12 +51,12 @@ summarize_cf_headline <- function(cf) {
     va_cs_endog      = unname(grad_e["grad_cs_endog_tau1.00"]),
     va_nav_endog     = mdelta("endog_tau1.00", "cs_welfare_nav"),
     va_obj_endog     = mdelta("endog_tau1.00", "cs_welfare_obj"),
-    flatmand_dcs     = mdelta("flat_mandate", "cs_weighted"),
+    flatmand_dcs     = mdelta("flat_mandate", "cs_nocomm"),
     flatmand_obj     = mdelta("flat_mandate", "cs_welfare_obj"),
-    defund_dcs       = mdelta("defund_1.00", "cs_weighted"),
+    defund_dcs       = mdelta("defund_1.00", "cs_nocomm"),
     defund_obj       = mdelta("defund_1.00", "cs_welfare_obj"),
-    aligned_dcs      = mdelta("aligned", "cs_weighted"),
-    aligned_dcs_nc   = mdelta("aligned", "cs_nocomm"),
+    aligned_dcs      = mdelta("aligned", "cs_nocomm"),
+    aligned_dcs_comm = mdelta("aligned", "cs_weighted"),
     aligned_nav      = mdelta("aligned", "cs_welfare_nav"),
     aligned_obj      = mdelta("aligned", "cs_welfare_obj"),
     aligned_obj_prem = mdelta("aligned", "obj_prem"),

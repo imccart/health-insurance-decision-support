@@ -502,7 +502,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
   comp_means <- cf_welf %>%
     group_by(scenario) %>%
-    summarize(cs = mean(cs_weighted, na.rm = TRUE), nav = mean(cs_welfare_nav, na.rm = TRUE),
+    summarize(cs = mean(cs_nocomm, na.rm = TRUE), nav = mean(cs_welfare_nav, na.rm = TRUE),
               ps = mean(producer_surplus, na.rm = TRUE), gov = mean(gov_total, na.rm = TRUE),
               gov_sub = mean(gov_subsidy, na.rm = TRUE), gov_csr = mean(gov_csr, na.rm = TRUE),
               gov_uc = mean(gov_uc, na.rm = TRUE), gov_pen = mean(gov_penalty, na.rm = TRUE),
@@ -712,7 +712,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     filter(str_detect(scenario, "^zero_tau")) %>%
     group_by(tau) %>%
     summarize(
-      mean_cs = mean(cs_weighted, na.rm = TRUE),
+      mean_cs = mean(cs_nocomm, na.rm = TRUE),
       mean_premium_chg = weighted.mean(premium_change, share_obs, na.rm = TRUE),
       .groups = "drop"
     )
@@ -720,7 +720,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   # Baseline CS for the reference line
   obs_cs <- cf_results %>%
     filter(scenario == "baseline") %>%
-    summarize(cs = mean(cs_weighted, na.rm = TRUE)) %>%
+    summarize(cs = mean(cs_nocomm, na.rm = TRUE)) %>%
     pull(cs)
 
   if (nrow(tau_results) > 1) {

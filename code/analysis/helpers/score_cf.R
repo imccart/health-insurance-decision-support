@@ -195,9 +195,11 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
            pen = pen_month / M * 12, uc = uc_month / M * 12, rs_unins = rs_unins)
     }, error = function(e) list(ps = NA_real_, gov = NA_real_, csr = NA_real_, pen = NA_real_, uc = NA_real_, rs_unins = NA_real_))
 
+    # Revealed-preference CS with the commission term in the inclusive value
+    # (cs_weighted) and without it (cs_nocomm, the reported measure: the
+    # commission is the broker's incentive, not a household valuation).
     cs    <- tryCatch(compute_consumer_surplus(dt, coefs), error = function(e) NA_real_)
-    cs_nc <- if (!grepl("^zero_tau", lab) && lab != "uniform")
-               tryCatch(compute_consumer_surplus(dt, coefs, welfare_drop = COMM_TERMS), error = function(e) NA_real_) else NA_real_
+    cs_nc <- tryCatch(compute_consumer_surplus(dt, coefs, welfare_drop = COMM_TERMS), error = function(e) NA_real_)
     # per_hh = TRUE returns per-household nav / obj / components; agg() below is the
     # household-weighted mean.
     whh <- tryCatch(scenario_welfare(dt, coefs, lambda, y, CS_TABLE, mean_spending = espend, per_hh = TRUE,
