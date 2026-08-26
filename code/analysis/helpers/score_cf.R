@@ -110,16 +110,18 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     lse <- function(v) { m <- max(v); m + log(sum(exp(v - m))) }
     hh_iv <- ins_dt[, .(I_full = lse(V / lambda_cs), I_base = lse(V_base / lambda_cs),
                         hh_weight = first(hh_weight), hh_size = first(hh_size)), by = household_number]
-    # Utils-to-dollars denominator: common alpha (mean base price sensitivity).
+    # Utils-to-dollars denominator: each household's own base price sensitivity
+    # (per raw household dollar; the channel premium slopes excluded). Fixed across
+    # scenarios, since it does not depend on premiums or on the household's channel.
     ins_dt[, alpha_base := compute_alpha_i(ins_dt, coefs_cell, STRUCTURAL_SPEC, base = TRUE)]
-    hh_a      <- ins_dt[, .(alpha_base = first(alpha_base), hh_weight = first(hh_weight)), by = household_number]
-    alpha_bar <- sum(hh_a$hh_weight * abs(hh_a$alpha_base)) / sum(hh_a$hh_weight)
+    hh_a  <- ins_dt[, .(alpha_base = first(alpha_base)), by = household_number]
     hh_cs <- merge(hh_iv, V0_by_hh, by = "household_number", all.x = TRUE); hh_cs[is.na(V_0), V_0 := 0]
+    hh_cs <- merge(hh_cs, hh_a, by = "household_number", all.x = TRUE)
     hh_cs[, log_D_lam := lambda_cs * I_base]
     hh_cs[, mx := pmax(V_0, log_D_lam)]
     # per member per year (matches the objective): / hh_size, x 12 (premium is monthly)
-    hh_cs[, cs := (1 / alpha_bar) * (lambda_cs * (I_full - I_base) +
-                                     mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
+    hh_cs[, cs := (1 / abs(alpha_base)) * (lambda_cs * (I_full - I_base) +
+                                           mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
     sum(hh_cs$hh_weight * hh_cs$cs) / sum(hh_cs$hh_weight)
   }
 
