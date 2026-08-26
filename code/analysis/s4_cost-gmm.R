@@ -538,9 +538,9 @@ mc_check <- bind_rows(mc_rows) %>%
   summarise(n = n(), negative = sum(mc < 0), pct_neg = round(100*mean(mc < 0), 1), .groups = "drop")
 print(mc_check)
 cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
-    " | risk-score metal effects:", round(alpha_gmm[2:4], 3), " demographic shares:", round(alpha_gmm[5:7], 3), "
+    " | risk-score metal effects:", round(alpha_gmm[2:4], 3),
+    " demographic shares:", round(alpha_gmm[5:7], 3), "
 ")
-    " age coefs:", round(alpha_gmm[3], 3), round(alpha_gmm[4], 3), "\n")
 
 # =========================================================================
 # M4 DIAGNOSTIC: commission FOC residuals at the GMM solution
