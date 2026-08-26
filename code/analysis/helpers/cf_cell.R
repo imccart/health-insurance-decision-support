@@ -163,15 +163,10 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     mean(rf, na.rm = TRUE)
   })
 
-  # omega cost residual ------------------------------------------------------
-  # Plan-level structural cost shock (BLP/Nevo): MC(p) = compute_mc(p) + omega,
-  # held FIXED across scenarios. omega is CALIBRATED below at the observed point
-  # (p_obs, k = 1) so the premium FOC holds exactly at observed prices (omega = -solve(Omega, f0)
-  # with f0 = fn(p_obs) at omega = 0; equals mc_foc - mc_structural but from the CF's
-  # own Omega, so it is self-consistent even though the cell is ill-conditioned). The
-  # closures below read omega_vec by lexical scope, so it must exist before they run;
-  # it is overwritten in the observed-scenario block. Counterfactual responses come
-  # only from how the risk pool moves the compute_mc(p) part.
+  # Marginal cost is the structural cost model, compute_mc(p), with no plan-level
+  # residual: the baseline scenario is the model's own equilibrium, and every
+  # scenario is differenced from it. omega_vec is kept as an all-zero vector so
+  # the closures below share one MC expression.
   omega_vec <- setNames(rep(0, length(plan_ids_cell)), plan_ids_cell)
 
   # Mean observed commission for uniform scenario
@@ -939,7 +934,6 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
                           demo_sol, shares_sol,
                           weighted.mean(p_sol, shares_sol, na.rm = TRUE),
                           plan_avs, reins_vec)
-    # Same omega cost residual carried into the reported MC (see run_cf_cell head).
     mc_eff <- mc_sol$mc + omega_vec[names(mc_sol$mc)]
 
     list(sol = sol, p = p_sol, mc = mc_eff, shares = shares_sol,
@@ -1050,19 +1044,12 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   comm_obs_sc <- comm_obs[plan_ids_cell]
   cd_obs <- build_scenario_data(cell_data_base, comm_obs_sc)
 
-  # Calibrate omega so the CF's own FOC holds exactly at observed prices. With
-  # omega = 0, f0 = fn(p_obs); the FOC is linear in MC, so adding omega shifts the
-  # residual by Omega %*% omega. Uses the CF's own Omega at p_obs, so it is
-  # self-consistent even in ill-conditioned cells (borrowing mc_foc from 2_pricing
-  # left a ~0.05 residual that the cond~2e6 geometry amplified into large price
-  # swings). With endogenous commissions the premium FOC subtracts the pct direct
-  # outlay term at k = 1, so omega is calibrated against f0 - direct_obs, the
-  # premium FOC at observed premiums and commissions. The baseline scenario then
-  # re-solves (p, k) jointly under the estimated commission markup mu, so baseline
-  # premiums and commissions are model-implied rather than observed.
-  # Exogenous policy scenarios reuse this omega; their FOC carries no
-  # direct term because those policies fix DOLLAR schedules (severing the pct
-  # premium linkage is part of the policy, not an inconsistency).
+  # Evaluate the FOC at the observed point (p_obs, k = 1) to set up the commission
+  # side: broker enrollment, the commission derivatives, and the endogenous-insurer
+  # set. The baseline scenario then solves (p, k) jointly from the model's own cost
+  # and the commission FOC MB = MC, so baseline premiums and commissions are
+  # model-implied rather than observed. Exogenous policy scenarios fix DOLLAR
+  # commission schedules, so their premium FOC carries no pct direct term.
   fns_cal <- build_foc_function(cd_obs, coefs, comm_obs_sc, benchmark_plan, plan_attrs,
                                 rs_coefs, claims_coefs, plan_chars_cell, plan_avs,
                                 reins_vec, lambda, plan_ids_cell)
@@ -1096,18 +1083,14 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     direct_obs[ii] <- ifelse(pct_plan[ii], rho_obs[ii] * qB_cal[ii], 0)
   }
 
-  om_sol <- tryCatch(as.numeric(-solve(fns_cal$cache$Omega, f0 - direct_obs)),
-                     error = function(e) rep(0, length(plan_ids_cell)))
-  om_sol[!is.finite(om_sol)] <- 0
-  omega_vec <- setNames(om_sol, plan_ids_cell)
+  # Premium FOC residual at the observed point (diagnostic only; the residual is
+  # not absorbed into marginal cost)
+  f_obs_norm <- sqrt(sum((f0 - direct_obs)^2, na.rm = TRUE))
 
-  # mu markup per endogenous insurer: the estimated commission markup
-  # mu_ft = delta' z_ft from the commission FOC (insurer size, schedule type,
-  # broker enrollment per available agent), held FIXED across scenarios, exactly
-  # parallel to omega on the premium side. When the estimate is unavailable for an
-  # insurer-year, fall back to the value that rationalizes the observed schedule
-  # (MB = (1+mu) MC, MB including the RA response). Margins net of the newly
-  # calibrated omega (q_cal$mc_p was evaluated at omega = 0).
+  # Commission FOC per endogenous insurer: MB = (1 + mu) MC with mu = 0 (the FOC
+  # entered the cost GMM as a plain moment; commission_foc_fit.csv carries
+  # mu_fit = 0). When no entry exists for an insurer-year, fall back to the value
+  # that rationalizes the observed schedule.
   comm_mu <- comm_etabar <- comm_MCobs <- comm_qBsum <- setNames(numeric(0), character(0))
   if (length(endog_prefixes) > 0) {
     ra_eta_cal <- compute_ra_foc(q_cal$rs_p, q_cal$shares, plan_avs,
@@ -1142,7 +1125,9 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
   } else {
     cat("  commission FOC: no endogenous insurers (gate/calibration)\n")
   }
-  rm(fns_cal, f0, om_sol, q_cal, ck_cal)
+  cat("  premium FOC residual at observed premiums (|f|):", signif(f_obs_norm, 3), "
+")
+  rm(fns_cal, f0, q_cal, ck_cal)
 
   # comm_endog spec with the insurers' native schedule basis (flat level or pct
   # rate x current premium); shared by the observed / endog_tau / defund solves
