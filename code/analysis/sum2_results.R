@@ -503,7 +503,9 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   comp_means <- cf_welf %>%
     group_by(scenario) %>%
     summarize(cs = mean(cs_weighted, na.rm = TRUE), nav = mean(cs_welfare_nav, na.rm = TRUE),
-              ps = mean(producer_surplus, na.rm = TRUE), gov = mean(gov_subsidy, na.rm = TRUE),
+              ps = mean(producer_surplus, na.rm = TRUE), gov = mean(gov_total, na.rm = TRUE),
+              gov_sub = mean(gov_subsidy, na.rm = TRUE), gov_csr = mean(gov_csr, na.rm = TRUE),
+              gov_uc = mean(gov_uc, na.rm = TRUE), gov_pen = mean(gov_penalty, na.rm = TRUE),
               ins = mean(obj_insured, na.rm = TRUE), shu = mean(share_unins, na.rm = TRUE),
               oop = mean(unins_oop, na.rm = TRUE), mort = mean(unins_mort, na.rm = TRUE),
               cat = mean(unins_cat, na.rm = TRUE), .groups = "drop")
@@ -516,6 +518,8 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       d_nav  = nav - obs_w$nav,
       d_ps   = ps  - obs_w$ps,
       d_gov  = gov - obs_w$gov,
+      d_gov_sub = gov_sub - obs_w$gov_sub, d_gov_csr = gov_csr - obs_w$gov_csr,
+      d_gov_uc = gov_uc - obs_w$gov_uc, d_gov_pen = gov_pen - obs_w$gov_pen,
       d_shu  = shu - obs_w$shu,                                 # coverage effect (share pt)
       d_obj_low = obj_band(., "low")     - obs_ob[["low"]],
       d_obj    = obj_band(., "central")  - obs_ob[["central"]],  # central objective
@@ -631,16 +635,17 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
   # --- 5a1b. Producer surplus and government cost, per member per year ---
   fisc_lines <- c(
-    "\\begin{tabular}{llrr}",
+    "\\begin{tabular}{llrrrrrr}",
     "\\hline\\hline",
-    "Scenario & $\\tau$ & $\\Delta$ Producer surplus & $\\Delta$ Gov.\\ subsidy \\\\",
+    "Scenario & $\\tau$ & $\\Delta$ Producer surplus & $\\Delta$ Subsidies & $\\Delta$ CSR & $\\Delta$ Uncomp.\\ care & $\\Delta$ Penalties & $\\Delta$ Gov.\\ cost \\\\",
     "\\hline"
   )
   for (i in seq_len(nrow(cf_summary))) {
     r <- cf_summary[i, ]
     tau_str <- if (is.na(r$tau)) "--" else fmt(r$tau)
-    fisc_lines <- c(fisc_lines, sprintf("%s & %s & %s & %s \\\\",
-      r$label, tau_str, fmt(r$d_ps, 0), fmt(r$d_gov, 0)))
+    fisc_lines <- c(fisc_lines, sprintf("%s & %s & %s & %s & %s & %s & %s & %s \\\\",
+      r$label, tau_str, fmt(r$d_ps, 0), fmt(r$d_gov_sub, 0), fmt(r$d_gov_csr, 0),
+      fmt(r$d_gov_uc, 0), fmt(r$d_gov_pen, 0), fmt(r$d_gov, 0)))
   }
   fisc_lines <- c(fisc_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(fisc_lines, "results/tables/counterfactual_fiscal.tex")

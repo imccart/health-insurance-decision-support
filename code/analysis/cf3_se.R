@@ -95,7 +95,7 @@ rm(hh_split); gc(verbose = FALSE)
 # per-household welfare to HH_SINK.
 run_one_boot <- function(task) {
   cfb <- cf_base[region == task$r & year == task$y,
-                 .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau, mc)]
+                 .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau, mc, claims)]
   if (nrow(cfb) == 0) return(NULL)
   t0  <- Sys.time()
   out <- tryCatch(score_cf_cell(task$r, task$y, cfb, HH_SINK, coefs_b, lambda_b),

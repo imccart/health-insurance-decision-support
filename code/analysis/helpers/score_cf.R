@@ -146,9 +146,16 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     dt <- update_premiums(as.data.table(copy(cd)), p_vec)
     espend <- household_spending(dt, SPENDING_SCHEDULE)   # per-row expected spending
 
-    # Producer surplus (insurer margin net of commissions) and government subsidy (APTC paid, capped at premium), per member per year.
+    # Producer surplus (insurer margin net of commissions) and government cost, per
+    # member per year. Government cost = premium subsidies (APTC paid, capped at
+    # the premium) + cost-sharing reductions (government share of predicted claims
+    # for CSR enrollees, CSR_GOV_SHARE) + uncompensated care for the uninsured
+    # (UC_PER_UNINSURED per uninsured member, scaled below by the uninsured pool's
+    # predicted risk score relative to the baseline scenario) - mandate penalty
+    # revenue from the uninsured.
     psg <- tryCatch({
       mc_vec <- setNames(rows$mc, rows$plan_id)[plan_ids_cell]
+      cl_vec <- if ("claims" %in% names(rows)) setNames(rows$claims, rows$plan_id)[plan_ids_cell] else setNames(rep(NA_real_, length(plan_ids_cell)), plan_ids_cell)
       pr <- choice_probs(dt, coefs, lambda)
       dd <- as.data.table(copy(dt)); dd[, p_ch := pr]
       M  <- dd[, .(w = first(hh_weight)), by = household_number][, sum(w)]
@@ -162,8 +169,31 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       ins[, sub_paid := pmin((p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor, subsidy_cf)]
       ins[is.na(sub_paid), sub_paid := 0]
       gov_month <- ins[, sum(p_ch * sub_paid, na.rm = TRUE)]
-      list(ps = ps_month / M * 12, gov = gov_month / M * 12)
-    }, error = function(e) list(ps = NA_real_, gov = NA_real_))
+      # CSR: silver rows of CSR-eligible households, government share by variant
+      ins[, csr_var := fifelse(csr94_elig == 1L, "94",
+                        fifelse(csr87_elig == 1L, "87",
+                         fifelse(FPL > 2 & FPL <= 2.5 & fcoalesce(as.numeric(subsidized_members), 0) > 0, "73", "")))]
+      ins[, csr_share := fifelse(silver == 1L & csr_var != "", CSR_GOV_SHARE[csr_var], 0)]
+      ins[is.na(csr_share), csr_share := 0]
+      csr_month <- ins[, sum(mem * csr_share * cl_vec[plan_id], na.rm = TRUE)]
+      # Uninsured: penalty revenue (annual household penalty) and uncompensated care
+      out <- dd[plan_id == "Uninsured"]
+      pen_month <- out[, sum(p_ch * fcoalesce(penalty, 0) / 12, na.rm = TRUE)]
+      unins_mem <- out[, sum(p_ch * hh_weight)]
+      uc_rate <- if (exists("UC_PER_UNINSURED") && as.character(y) %in% names(UC_PER_UNINSURED)) UC_PER_UNINSURED[[as.character(y)]] else NA_real_
+      uc_month <- unins_mem * uc_rate / 12
+      # Predicted risk score of the uninsured pool (risk-score equation at the
+      # pool's demographic shares, bronze base), for the cross-scenario scaling
+      rsg <- if (exists("RS_COEFS_GOV")) RS_COEFS_GOV else {
+        rc <- read.csv(file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"), stringsAsFactors = FALSE); setNames(rc$estimate, rc$term) }
+      g <- function(n) if (n %in% names(rsg)) rsg[[n]] else 0
+      pool <- out[, .(s1834 = sum(p_ch * hh_weight * perc_18to34) / sum(p_ch * hh_weight),
+                      s3554 = sum(p_ch * hh_weight * perc_35to54) / sum(p_ch * hh_weight),
+                      shisp = sum(p_ch * hh_weight * perc_hispanic) / sum(p_ch * hh_weight))]
+      rs_unins <- exp(g("(Intercept)") + g("share_18to34") * pool$s1834 + g("share_35to54") * pool$s3554 + g("share_hispanic") * pool$shisp)
+      list(ps = ps_month / M * 12, gov = gov_month / M * 12, csr = csr_month / M * 12,
+           pen = pen_month / M * 12, uc = uc_month / M * 12, rs_unins = rs_unins)
+    }, error = function(e) list(ps = NA_real_, gov = NA_real_, csr = NA_real_, pen = NA_real_, uc = NA_real_, rs_unins = NA_real_))
 
     cs    <- tryCatch(compute_consumer_surplus(dt, coefs), error = function(e) NA_real_)
     cs_nc <- if (!grepl("^zero_tau", lab) && lab != "uniform")
@@ -178,7 +208,8 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
                          obj_prem = NA_real_, obj_eoop = NA_real_, obj_risk = NA_real_,
                          obj_insured = NA_real_, share_unins = NA_real_,
                          unins_oop = NA_real_, unins_mort = NA_real_, unins_cat = NA_real_,
-                         producer_surplus = psg$ps, gov_subsidy = psg$gov)
+                         producer_surplus = psg$ps, gov_subsidy = psg$gov, gov_csr = psg$csr,
+                         gov_penalty = psg$pen, gov_uc_raw = psg$uc, rs_unins = psg$rs_unins)
       return(list(cell = cell, hh = NULL))
     }
     W <- sum(whh$w); agg <- function(x) sum(x * whh$w) / W
@@ -189,9 +220,23 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
                        obj_prem = agg(whh$obj_prem), obj_eoop = agg(whh$obj_eoop), obj_risk = agg(whh$obj_risk),
                        obj_insured = agg(whh$obj_insured), share_unins = agg(whh$share_unins),
                        unins_oop = agg(whh$unins_oop), unins_mort = agg(whh$unins_mort), unins_cat = agg(whh$unins_cat),
-                       producer_surplus = psg$ps, gov_subsidy = psg$gov)
+                       producer_surplus = psg$ps, gov_subsidy = psg$gov, gov_csr = psg$csr,
+                       gov_penalty = psg$pen, gov_uc_raw = psg$uc, rs_unins = psg$rs_unins)
     list(cell = cell, hh = data.table(region = r, year = y, scenario = lab, whh))
   })
+  # Uncompensated care scaled by the uninsured pool's risk score relative to the
+  # baseline scenario; government cost total = subsidies + CSR + uncompensated care
+  # - penalty revenue.
+  cells_dt <- rbindlist(lapply(per, function(x) if (is.null(x)) NULL else x$cell))
+  if (nrow(cells_dt) > 0) {
+    rs_base <- cells_dt[scenario == "baseline", rs_unins]
+    rs_base <- if (length(rs_base) == 1 && is.finite(rs_base)) rs_base else NA_real_
+    cells_dt[, gov_uc := gov_uc_raw * fifelse(is.finite(rs_base), rs_unins / rs_base, 1)]
+    cells_dt[, gov_total := gov_subsidy + gov_csr + gov_uc - gov_penalty]
+    for (i in seq_along(per)) if (!is.null(per[[i]])) {
+      per[[i]]$cell <- cells_dt[scenario == per[[i]]$cell$scenario[1]]
+    }
+  }
   per <- per[!vapply(per, is.null, logical(1))]
   if (length(per) == 0) return(NULL)
   hh_all <- rbindlist(lapply(per, `[[`, "hh"))

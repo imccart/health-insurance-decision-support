@@ -174,7 +174,7 @@ DELTA_HH_DIR      <- file.path(TEMP_DIR, "cf_delta_hh")   # per-household sink (
 
 # Scenario rows without a sensitivity (scenario absent from the cf1 solution set
 # or a non-finite Jacobian) carry a zero sensitivity; reported.
-cf_pert_base <- merge(cf_base[, .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau, mc)],
+cf_pert_base <- merge(cf_base[, .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau, mc, claims)],
                       sens_all, by = c("region", "year", "scenario", "plan_id"), all.x = TRUE)
 dcols <- c(paste0("dp_d", seq_len(K)), paste0("deta_d", seq_len(K)))
 n_missing <- sum(is.na(cf_pert_base[[dcols[1]]]))

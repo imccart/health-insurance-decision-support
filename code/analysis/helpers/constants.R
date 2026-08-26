@@ -32,3 +32,17 @@ PLAN_FE_LEVELS <- c(
   "Small_BR",             "Small_G", "Small_P", "Small_SIL"
 )
 PLAN_FE_TERMS <- paste0("PFE_", PLAN_FE_LEVELS)
+
+# Government cost of the uninsured (counterfactual scoring, score_cf.R).
+# Coughlin, Holahan, Caswell, and McGrath (2014): government-paid medical costs
+# for the nonelderly uninsured, $2,025 per uninsured person in 2013. Inflated to
+# each study year by per-capita national health expenditures (CMS NHE Accounts;
+# Table 1, per-capita national health expenditures in current dollars, December 2025 release of the 2024 historical accounts).
+UC_UNINSURED_2013 <- 2025
+NHE_PER_CAPITA <- c("2013" = 9024, "2014" = 9421, "2015" = 9860, "2016" = 10229, "2017" = 10582, "2018" = 11042, "2019" = 11487)
+UC_PER_UNINSURED <- UC_UNINSURED_2013 * NHE_PER_CAPITA / NHE_PER_CAPITA[["2013"]]
+
+# Government share of claims under the silver cost-sharing reductions, by CSR
+# variant: 73 - 70 = 3 percent with no induced utilization; 87 and 94 percent
+# with 12 percent induced utilization, 19.04 and 26.88 percent.
+CSR_GOV_SHARE <- c("73" = 0.03, "87" = 0.1904, "94" = 0.2688)
