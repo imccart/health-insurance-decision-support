@@ -899,11 +899,24 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
       else quit(save = "no")
     }
 
-    if (!is.null(sol) && sol$termcd > 2) {
+    if (!is.null(sol) && sol$termcd > 2 && is.null(sens)) {
       f_norm <- sqrt(sum(sol$fvec^2))
       cat("    nleqslv termcd:", sol$termcd, ", |f|:", round(f_norm, 6), "\n")
+      if (f_norm >= 0.05) {
+        # Broyden stalled away from the root: retry with Newton (numerical
+        # Jacobian) and a dogleg global step from the stalled point
+        sol2 <- tryCatch(
+          nleqslv(x = sol$x, fn = fns$fn, method = "Newton", global = "dbldog",
+                  control = list(maxit = 150, xtol = 1e-6, ftol = 1e-8)),
+          error = function(e) NULL)
+        if (!is.null(sol2)) {
+          f2 <- sqrt(sum(sol2$fvec^2))
+          cat("    Newton retry termcd:", sol2$termcd, ", |f|:", round(f2, 6), "\n")
+          if (is.finite(f2) && f2 < f_norm) { sol <- sol2; f_norm <- f2 }
+        }
+      }
       if (f_norm >= 0.05) return(NULL)
-      cat("    Accepting with small residual\n")
+      if (sol$termcd > 2) cat("    Accepting with small residual\n")
     }
     if (is.null(sol)) return(NULL)
 

@@ -200,14 +200,4 @@ if (nrow(endog_scenarios) > 0) {
   cat("\n"); print(endog_summary %>% mutate(across(where(is.numeric), ~round(., 3))), n = Inf)
 }
 
-# Commission markup mu at the model baseline (estimated from the commission FOC)
-mu_base <- cf_results %>%
-  filter(scenario == "baseline", !is.na(mu_comm)) %>%
-  distinct(region, year, plan_id, mu_comm, share_cf)
-if (nrow(mu_base) > 0) {
-  cat("\n  Commission markup mu (estimated): enrollment-weighted mean =",
-      round(weighted.mean(mu_base$mu_comm, mu_base$share_cf, na.rm = TRUE), 2), "; quantiles:\n")
-  print(round(quantile(mu_base$mu_comm, c(.05, .25, .5, .75, .95), na.rm = TRUE), 2))
-}
-
 cat("\nCounterfactual simulation complete.\n")
