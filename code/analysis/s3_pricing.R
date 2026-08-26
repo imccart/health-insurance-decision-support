@@ -301,6 +301,7 @@ for (i in seq_len(nrow(cells))) {
     elast_mat      = elast_mat,   # raw (untransposed) E, so the GMM can recompute ra_foc at its theta
     own_mat        = own_mat,
     demo_shares    = demo_shares, # demand-model-predicted demographic shares for M1/M3
+    hmo            = setNames(plan_chars_cell$HMO, plan_chars_cell$plan_id),  # network type (claims equation)
     comm_D         = comm_D,      # broker commission-derivative matrix dqB_j/deta_k (M4 commission FOC)
     comm_qB        = comm_qB      # broker enrollment per plan, share units (M4 commission FOC)
   ), file.path(foc_inputs_dir, paste0("foc_", r, "_", y, ".rds")))

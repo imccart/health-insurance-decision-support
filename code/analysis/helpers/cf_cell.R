@@ -293,11 +293,11 @@ run_cf_cell <- function(r, y, seed, sample_frac, hhs_raw,
     # Demographics used in risk score regression (age, gender,
     # income). Map each predicted share to its raw per-HH column for the Eq. 17
     # dr/dp Jacobian below (the FPL shares don't follow the share_->perc_ rule).
-    demo_names <- intersect(c("share_18to34", "share_35to54", "share_male",
+    demo_names <- intersect(c("share_18to34", "share_35to54", "share_male", "share_hispanic",
                               "share_fpl250to400", "share_fpl400plus"),
                             names(rs_coefs))
     DEMO_RAWCOL <- c(share_18to34 = "perc_18to34", share_35to54 = "perc_35to54",
-                     share_male = "perc_male",
+                     share_male = "perc_male", share_hispanic = "perc_hispanic",
                      share_fpl250to400 = "FPL_250to400",
                      share_fpl400plus = "FPL_400plus")
 

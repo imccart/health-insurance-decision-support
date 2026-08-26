@@ -44,9 +44,9 @@ demo_all <- rbindlist(lapply(foc_cells, function(fc) {
   d <- as.data.table(fc$demo_shares); d[, year := fc$year]; d
 }), fill = TRUE)
 pred_py <- demo_all[, .(
-  share_18to34 = sum(share_18to34 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
-  share_35to54 = sum(share_35to54 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
-  share_male   = sum(share_male * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)
+  share_18to34   = sum(share_18to34 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
+  share_35to54   = sum(share_35to54 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
+  share_hispanic = sum(share_hispanic * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)
 ), by = .(plan_id, year)]
 rsdata <- rsdata %>%
   left_join(as.data.frame(pred_py), by = c("plan_id", "year")) %>%
@@ -55,7 +55,7 @@ rsdata <- rsdata %>%
   # dropped them; drop here too so M1/M2 share a complete-case sample (the claims
   # moment needs HMO). Small plans still enter the model on the application side,
   # where structural HMO is keyed off the Kaiser prefix, not PLAN_TYPE.
-  filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_male),
+  filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic),
          !is.na(HMO), !is.na(AV_METAL))
 cat("  Rate filing observations:", nrow(rsdata), "\n")
 
@@ -91,29 +91,25 @@ N_INS_COST <- length(INS_COST)
 # --- M1-M2 data matrices (rate filings) ---
 w_rf <- sqrt(rsdata$EXP_MM)  # WLS weights
 
-# M1 regressors: AV + age/gender demographic shares, plus insurer
-# FEs, our one data-motivated deviation (the risk score has no carrier term
-# otherwise, so it over-scores low-risk carriers like Molina and drives their MC
-# negative; see ra.R). Income/FPL shares stay out. To run the spec without them, drop
-# all_of(INS_COST) here and from alpha_names.
-X_rs <- as.matrix(rsdata %>% select(AV, share_18to34, share_35to54, share_male,
-                                     all_of(INS_COST)))
+# M1 regressors: metal tier dummies (bronze base) + predicted shares of ages
+# 18-34, 35-54, and Hispanic enrollees (ra.R). No insurer terms in the risk score.
+X_rs <- as.matrix(rsdata %>% select(Silver, Gold, Platinum,
+                                     share_18to34, share_35to54, share_hispanic))
 y_rs <- rsdata$log_risk_score
 
 # M2 regressors: claims equation exogenous part (observed log_rs enters via Z_cl
-# below). AV is OMITTED, since the risk score carries generosity.
-X_cl_exog <- as.matrix(rsdata %>% transmute(HMO, trend))
+# below): HMO, trend, and big-four insurer indicators. AV is OMITTED, since the
+# risk score carries generosity.
+X_cl_exog <- as.matrix(rsdata %>% transmute(HMO, trend, Anthem, Blue_Shield, Kaiser, Health_Net))
 y_cl <- rsdata$log_cost
 
 # M1 instruments: intercept + regressors
-Z_rs <- cbind(1, X_rs)  # intercept + AV + 3 demographic shares + INS_COST insurer FEs
+Z_rs <- cbind(1, X_rs)
 
 # M2 instruments: intercept + OBSERVED log_rs + exogenous regressors. The claims
 # equation regresses on the PREDICTED risk score (see compute_g_bar); the observed
-# score here instruments it, undoing the attenuation from measurement noise. Insurer
-# FEs are NOT in claims (they live in the risk score); carrying them in both made the
-# sandwich rank-deficient through the pass-through collinearity.
-Z_cl <- cbind(1, y_rs, X_cl_exog)  # intercept + log_rs(instr) + HMO/trend
+# score here instruments it, undoing the attenuation from measurement noise.
+Z_cl <- cbind(1, y_rs, X_cl_exog)
 
 # --- M3: Precompute FOC cell data ---
 # For each cell, we need plan characteristics to predict MC(alpha, gamma).
@@ -134,18 +130,20 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Silver <- as.integer(plan_metal == "Silver")
   foc_cells[[k]]$Gold <- as.integer(plan_metal == "Gold")
   foc_cells[[k]]$Platinum <- as.integer(plan_metal == "Platinum")
-  foc_cells[[k]]$HMO <- as.integer(str_detect(pn, "^KA"))
+  # Network type from the plan attributes s3 saved (falls back to the Kaiser prefix)
+  foc_cells[[k]]$HMO <- if (!is.null(fc$hmo)) as.integer(fc$hmo[pn]) else as.integer(str_detect(pn, "^KA"))
   foc_cells[[k]]$trend <- y - 2014L
   for (ins in INS_COST) {
     foc_cells[[k]][[ins]] <- as.integer(str_detect(pn, paste0("^", COST_PREFIX[[ins]])))
   }
+  foc_cells[[k]]$Kaiser <- as.integer(str_detect(pn, "^KA"))
 
   # Predicted demographic shares for this cell (age, gender, income), from the
   # demand model saved in the foc_inputs RDS — consistent with M1 and with the
   # application in s3_pricing/cf. The cell-mean fallback guards any plan_id absent
   # from demo_shares. AV comes from plan_avs (the dominant risk-score regressor).
   demo <- as.data.frame(fc$demo_shares)
-  for (col in c("share_18to34", "share_35to54", "share_male")) {
+  for (col in c("share_18to34", "share_35to54", "share_hispanic")) {
     foc_cells[[k]][[col]] <- sapply(pn, function(p) {
       v <- demo[[col]][demo$plan_id == p]
       if (length(v) == 0) return(mean(demo[[col]], na.rm = TRUE))
@@ -194,12 +192,13 @@ comm_struct <- lapply(foc_cells, function(fc) {
 # PARAMETER LAYOUT
 # =========================================================================
 
-N_ALPHA <- 5L + N_INS_COST  # intercept, AV, 3 demo shares + INS_COST insurer FEs
-N_GAMMA <- 4L               # intercept, log_risk_score, HMO, trend (no insurer FEs)
+N_ALPHA <- 7L   # intercept, 3 metal dummies, 3 demographic shares
+N_GAMMA <- 8L   # intercept, log_risk_score, HMO, trend, 4 big-four insurer dummies
 
-alpha_names <- c("(Intercept)", "AV", "share_18to34", "share_35to54", "share_male",
-                 INS_COST)
-gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend")
+alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum",
+                 "share_18to34", "share_35to54", "share_hispanic")
+gamma_names <- c("(Intercept)", "log_risk_score", "HMO", "trend",
+                 "Anthem", "Blue_Shield", "Kaiser", "Health_Net")
 
 # Starting values from OLS
 rs_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs.csv"), show_col_types = FALSE)
@@ -270,19 +269,15 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     fc <- foc_cells[[ci]]
     J <- length(fc$plan_ids)
 
-    # Predict log risk scores for this cell's plans (Eq. 16 demographics + insurer
-    # FEs, alpha[6:(5+N_INS_COST)] in INS_COST order).
-    pred_log_rs <- alpha[1] + alpha[2] * fc$AV +
-      alpha[3] * fc$share_18to34 + alpha[4] * fc$share_35to54 +
-      alpha[5] * fc$share_male
-    for (j in seq_len(N_INS_COST)) {
-      pred_log_rs <- pred_log_rs + alpha[5 + j] * fc[[INS_COST[j]]]
-    }
+    # Predict log risk scores for this cell's plans (metal dummies + demographic shares)
+    pred_log_rs <- alpha[1] + alpha[2] * fc$Silver + alpha[3] * fc$Gold + alpha[4] * fc$Platinum +
+      alpha[5] * fc$share_18to34 + alpha[6] * fc$share_35to54 + alpha[7] * fc$share_hispanic
 
-    # Predict log claims from the risk score (AV omitted; carried by the score).
-    # Insurer effects are in the risk score, not here, so claims has no insurer FE.
+    # Predict log claims from the risk score (AV omitted; carried by the score),
+    # HMO, trend, and the big-four insurer indicators.
     pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs +
-      gamma[3] * fc$HMO + gamma[4] * fc$trend
+      gamma[3] * fc$HMO + gamma[4] * fc$trend +
+      gamma[5] * fc$Anthem + gamma[6] * fc$Blue_Shield + gamma[7] * fc$Kaiser + gamma[8] * fc$Health_Net
 
     pred_claims <- exp(pred_log_cl)
     pred_rs <- exp(pred_log_rs)
@@ -525,12 +520,10 @@ print(comp, row.names = FALSE)
 # claims for high-metal cells should climb, so the negatives should shrink.
 cat("\n  Negative MC at GMM solution (by metal):\n")
 mc_rows <- lapply(foc_cells, function(fc) {
-  plr <- alpha_gmm[1] + alpha_gmm[2]*fc$AV +
-         alpha_gmm[3]*fc$share_18to34 + alpha_gmm[4]*fc$share_35to54 +
-         alpha_gmm[5]*fc$share_male
-  for (j in seq_len(N_INS_COST)) plr <- plr + alpha_gmm[5 + j]*fc[[INS_COST[j]]]
-  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$HMO +
-         gamma_gmm[4]*fc$trend
+  plr <- alpha_gmm[1] + alpha_gmm[2]*fc$Silver + alpha_gmm[3]*fc$Gold + alpha_gmm[4]*fc$Platinum +
+         alpha_gmm[5]*fc$share_18to34 + alpha_gmm[6]*fc$share_35to54 + alpha_gmm[7]*fc$share_hispanic
+  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$HMO + gamma_gmm[4]*fc$trend +
+         gamma_gmm[5]*fc$Anthem + gamma_gmm[6]*fc$Blue_Shield + gamma_gmm[7]*fc$Kaiser + gamma_gmm[8]*fc$Health_Net
   prs <- exp(plr); pclm <- exp(pcl); sh <- fc$shares; av <- fc$plan_avs
   avg_p <- weighted.mean(fc$posted_premium, sh, na.rm = TRUE)
   mh <- MH_LOOKUP[as.character(round(av, 1))]; mh[is.na(mh)] <- 1
@@ -545,7 +538,8 @@ mc_check <- bind_rows(mc_rows) %>%
   summarise(n = n(), negative = sum(mc < 0), pct_neg = round(100*mean(mc < 0), 1), .groups = "drop")
 print(mc_check)
 cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
-    " | risk-score AV coef:", round(alpha_gmm[2], 3),
+    " | risk-score metal effects:", round(alpha_gmm[2:4], 3), " demographic shares:", round(alpha_gmm[5:7], 3), "
+")
     " age coefs:", round(alpha_gmm[3], 3), round(alpha_gmm[4], 3), "\n")
 
 # =========================================================================
