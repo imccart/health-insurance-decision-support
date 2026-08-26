@@ -80,8 +80,13 @@ cost_gmm_sandwich_se <- function(theta_hat, W, gbar_fn, N_ALPHA, N_GAMMA,
   contr <- gbar_fn(theta_hat, return_contributions = TRUE)
   Vg <- matrix(0, n_mom, n_mom)
   Vg[1:n12, 1:n12] <- crossprod(contr$M12_mat) / contr$n_rf^2          # M1+M2 robust
-  Vg[(n12 + 1):n_mom, (n12 + 1):n_mom] <-
+  n3 <- ncol(contr$M3_cell)
+  Vg[(n12 + 1):(n12 + n3), (n12 + 1):(n12 + n3)] <-
     crossprod(contr$M3_cell) / contr$n_foc^2                           # M3 cell-clustered
+  if (!is.null(contr$M4_rows)) {                                        # M4 insurer-year rows
+    i4 <- (n12 + n3 + 1):n_mom
+    Vg[i4, i4] <- crossprod(contr$M4_rows) / contr$n_comm^2
+  }
 
   A    <- t(G) %*% W %*% G
   Ainv <- tryCatch(solve(A), error = function(e) MASS::ginv(A))

@@ -42,20 +42,6 @@ write.csv(cse$se, "results/cost_coefficients_gmm_se.csv", row.names = FALSE)
 write.csv(data.frame(param = rownames(cse$vcov), cse$vcov, check.names = FALSE),
           "results/cost_coefficients_gmm_vcov.csv", row.names = FALSE)
 
-# --- Commission FOC SE (cluster-robust WLS sandwich) ---------------------
-# Conditional on the demand and cost estimates (same convention as the cost SE);
-# clustered by insurer. Full first-step propagation is in the CF bootstrap. Reads
-# the insurer-year FOC panel s4_cost-gmm wrote.
-cat("\n--- Commission FOC standard errors (cluster-robust) ---\n"); flush.console()
-foc_df <- read.csv(file.path(TEMP_DIR, "commission_foc_fit.csv"),
-                   stringsAsFactors = FALSE)
-fse <- comm_foc_sandwich_se(foc_df)
-cat(sprintf("  insurer clusters: %d\n", fse$n_clusters))
-write.csv(fse$se, "results/commission_foc_coefs_se.csv", row.names = FALSE)
-write.csv(data.frame(term = rownames(fse$vcov), fse$vcov, check.names = FALSE),
-          "results/commission_foc_coefs_vcov.csv", row.names = FALSE)
-
 cat("  -> results/choice_coefficients_structural_se.csv (+ vcov)\n")
 cat("  -> results/cost_coefficients_gmm_se.csv (+ vcov)\n")
-cat("  -> results/commission_foc_coefs_se.csv (+ vcov)\n")
 cat("\nStructural standard errors complete.\n")

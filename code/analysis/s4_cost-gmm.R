@@ -168,9 +168,27 @@ cat("  Below share floor", SHARE_FLOOR_FOC, "(dropped from M3):",
 # We'll compute Z_foc * eps_foc inside compute_g_bar by accumulating across cells
 N_Z_FOC <- 6L + N_INS_COST  # intercept, Silver, Gold, Platinum, HMO, trend + INS_COST
 
-N_MOMENTS <- ncol(Z_rs) + ncol(Z_cl) + N_Z_FOC
+# M4: the insurer commission FOC, MB_ft = MC_ft per insurer-year, as one moment
+# (the mean of the scaled FOC residual over insurer-years). No free parameter of
+# its own: it disciplines the cost parameters through the margins in MB.
+N_Z_COMM <- 1L
+N_MOMENTS <- ncol(Z_rs) + ncol(Z_cl) + N_Z_FOC + N_Z_COMM
 cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
-    " M2:", ncol(Z_cl), " M3:", N_Z_FOC, ")\n")
+    " M2:", ncol(Z_cl), " M3:", N_Z_FOC, " M4:", N_Z_COMM, ")\n")
+
+# Per-cell insurer structure for M4 (theta-independent pieces)
+comm_struct <- lapply(foc_cells, function(fc) {
+  if (is.null(fc$comm_D) || is.null(fc$comm_qB)) return(NULL)
+  pn <- fc$plan_ids; pref <- sub("_.*", "", pn)
+  firms <- unique(pref[fc$comm_vec > 0])
+  if (length(firms) == 0) return(NULL)
+  lapply(firms, function(f) {
+    ii <- which(pref == f)
+    w_f <- numeric(length(pn)); w_f[ii] <- fc$comm_vec[ii]
+    list(firm = f, ii = ii, dq = as.numeric(fc$comm_D %*% w_f),
+         MC = sum(fc$comm_qB[ii] * fc$comm_vec[ii]))
+  })
+})
 
 # =========================================================================
 # PARAMETER LAYOUT
@@ -208,6 +226,7 @@ cat("    gamma:", round(gamma0, 4), "\n")
 # M1: E[Z_rs' * (log_rs_obs - alpha'X)] = 0   (risk scores)
 # M2: E[Z_cl' * (log_cl_obs - gamma'W)] = 0   (claims)
 # M3: E[Z_foc' * foc_residual] = 0             (pricing FOC, evaluated directly)
+# M4: E[MB_ft / MC_ft - 1] = 0                  (commission FOC per insurer-year)
 #
 # FOC residual for plan j in cell c:
 #   foc_j = s_j + sum_k Omega_{jk} * (p_k - MC_k(alpha,gamma)) + sum_k Omega_broker_{jk} * comm_k
@@ -245,8 +264,10 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   g_foc_sum <- rep(0, N_Z_FOC)
   n_foc <- 0L
   if (return_contributions) { m3_obs_list <- list(); m3_cell_list <- list(); ki <- 0L }
+  MB_fy <- numeric(0); MC_fy <- numeric(0)   # M4 accumulators keyed firm_year
 
-  for (fc in foc_cells) {
+  for (ci in seq_along(foc_cells)) {
+    fc <- foc_cells[[ci]]
     J <- length(fc$plan_ids)
 
     # Predict log risk scores for this cell's plans (Eq. 16 demographics + insurer
@@ -294,6 +315,22 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
                  as.vector(fc$Omega %*% (fc$posted_premium - mc)) +
                  as.vector(fc$Omega_broker %*% fc$comm_vec)
 
+    # M4: commission FOC pieces at the current cost parameters. MB_f = sum over the
+    # insurer's plans of margin x d qB / d k plus the risk-adjustment response;
+    # MC_f = commission outlay. Summed to the insurer-year across cells below.
+    cs <- comm_struct[[ci]]
+    if (!is.null(cs)) {
+      ra_eta <- compute_ra_foc(setNames(pred_rs, fc$plan_ids), fc$shares, fc$plan_avs,
+                               avg_p, fc$comm_D, fc$own_mat)
+      margin <- fc$posted_premium - mc - fc$comm_vec
+      for (cf_ in cs) {
+        key <- paste(cf_$firm, fc$year, sep = "_")
+        MBf <- sum(margin[cf_$ii] * cf_$dq[cf_$ii]) + sum(fc$comm_vec[cf_$ii] * ra_eta[cf_$ii])
+        MB_fy[key] <- (if (is.na(MB_fy[key])) 0 else MB_fy[key]) + MBf
+        MC_fy[key] <- (if (is.na(MC_fy[key])) 0 else MC_fy[key]) + cf_$MC
+      }
+    }
+
     # Instruments for this cell: intercept + plan characteristics + insurer dummies
     Z_cell <- cbind(1, fc$Silver, fc$Gold, fc$Platinum, fc$HMO, fc$trend,
                     sapply(INS_COST, function(ins) fc[[ins]]))
@@ -317,14 +354,23 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
 
   g_foc <- g_foc_sum / n_foc  # average across all plan-cell observations
 
-  g <- c(g_rs, g_cl, g_foc)
+  # M4: scaled commission FOC residual per insurer-year, averaged
+  ok4 <- is.finite(MB_fy) & is.finite(MC_fy) & MC_fy > 0
+  r4 <- MB_fy[ok4] / MC_fy[ok4] - 1
+  g_comm <- mean(r4)
+
+  g <- c(g_rs, g_cl, g_foc, g_comm)
   if (!return_contributions) return(g)
   list(g       = g,
        M12_mat = cbind(M1_mat, M2_mat),
        M3_obs  = do.call(rbind, m3_obs_list),
        M3_cell = do.call(rbind, m3_cell_list),
+       M4_rows = matrix(r4, ncol = 1, dimnames = list(names(r4), NULL)),
        n_rf    = nrow(Z_rs),
-       n_foc   = n_foc)
+       n_foc   = n_foc,
+       n_comm  = length(r4),
+       comm_fy = data.frame(key = names(r4), MB = MB_fy[ok4], MC = MC_fy[ok4],
+                            mu_hat = r4, stringsAsFactors = FALSE))
 }
 
 # =========================================================================
@@ -350,7 +396,8 @@ if (any(!is.finite(g_init))) {
   cat("  non-finite indices:", which(!is.finite(g_init)), "\n")
   cat("  M1:", round(g_init[1:ncol(Z_rs)], 4), "\n")
   cat("  M2:", round(g_init[(ncol(Z_rs)+1):(ncol(Z_rs)+ncol(Z_cl))], 4), "\n")
-  cat("  M3:", round(g_init[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 4), "\n")
+  cat("  M3:", round(g_init[(ncol(Z_rs)+ncol(Z_cl)+1):(N_MOMENTS - N_Z_COMM)], 4), "\n")
+  cat("  M4:", round(g_init[N_MOMENTS], 4), "\n")
   stop("Cannot proceed with non-finite initial moments")
 }
 
@@ -377,7 +424,8 @@ g1 <- compute_g_bar(result1$par)
 cat("  g_bar at Step 1:\n")
 cat("    M1 (risk score):", round(g1[1:ncol(Z_rs)], 4), "\n")
 cat("    M2 (claims):", round(g1[(ncol(Z_rs)+1):(ncol(Z_rs)+ncol(Z_cl))], 4), "\n")
-cat("    M3 (FOC):", round(g1[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 6), "\n")
+cat("    M3 (FOC):", round(g1[(ncol(Z_rs)+ncol(Z_cl)+1):(N_MOMENTS - N_Z_COMM)], 6), "\n")
+cat("    M4 (commission FOC):", round(g1[N_MOMENTS], 6), "\n")
 
 # =========================================================================
 # STEP 2: OPTIMAL WEIGHTING
@@ -400,7 +448,9 @@ contr1 <- compute_g_bar(result1$par, return_contributions = TRUE)
 n12 <- ncol(Z_rs) + ncol(Z_cl)
 S <- matrix(0, N_MOMENTS, N_MOMENTS)
 S[1:n12, 1:n12] <- crossprod(contr1$M12_mat) / contr1$n_rf^2
-S[(n12 + 1):N_MOMENTS, (n12 + 1):N_MOMENTS] <- crossprod(contr1$M3_cell) / contr1$n_foc^2
+n3 <- N_Z_FOC
+S[(n12 + 1):(n12 + n3), (n12 + 1):(n12 + n3)] <- crossprod(contr1$M3_cell) / contr1$n_foc^2
+S[N_MOMENTS, N_MOMENTS] <- crossprod(contr1$M4_rows) / contr1$n_comm^2
 
 # Invert S to get the optimal weight. If S is ill-conditioned (near-redundant moments,
 # most likely in the FOC block) a plain solve() is unstable, so ridge the diagonal and
@@ -438,7 +488,8 @@ g2 <- compute_g_bar(result2$par)
 cat("  g_bar at Step 2:\n")
 cat("    M1 (risk score):", round(g2[1:ncol(Z_rs)], 4), "\n")
 cat("    M2 (claims):", round(g2[(ncol(Z_rs)+1):(ncol(Z_rs)+ncol(Z_cl))], 4), "\n")
-cat("    M3 (FOC):", round(g2[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 6), "\n")
+cat("    M3 (FOC):", round(g2[(ncol(Z_rs)+ncol(Z_cl)+1):(N_MOMENTS - N_Z_COMM)], 6), "\n")
+cat("    M4 (commission FOC):", round(g2[N_MOMENTS], 6), "\n")
 
 # =========================================================================
 # DIAGNOSTICS
@@ -454,8 +505,9 @@ cat("    GMM:", round(sqrt(sum(g2^2)), 4), "\n")
 
 # FOC residual distribution (how well does MC(alpha,gamma) satisfy the FOC?)
 cat("\n  FOC moment breakdown (should be near 0):\n")
-cat("    OLS g_foc:", round(g_ols[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 6), "\n")
-cat("    GMM g_foc:", round(g2[(ncol(Z_rs)+ncol(Z_cl)+1):N_MOMENTS], 6), "\n")
+cat("    OLS g_foc:", round(g_ols[(ncol(Z_rs)+ncol(Z_cl)+1):(N_MOMENTS - N_Z_COMM)], 6), "\n")
+cat("    GMM g_foc:", round(g2[(ncol(Z_rs)+ncol(Z_cl)+1):(N_MOMENTS - N_Z_COMM)], 6), "\n")
+cat("    OLS g_comm:", round(g_ols[N_MOMENTS], 6), " | GMM g_comm:", round(g2[N_MOMENTS], 6), "\n")
 
 # Parameter comparison
 cat("\n  Parameter comparison (OLS → GMM):\n")
@@ -497,83 +549,31 @@ cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
     " age coefs:", round(alpha_gmm[3], 3), round(alpha_gmm[4], 3), "\n")
 
 # =========================================================================
-# M4: COMMISSION FOC (specification estimated off insurer-year FOCs)
+# M4 DIAGNOSTIC: commission FOC residuals at the GMM solution
 # =========================================================================
-# The insurer commission FOC is MB_ft = (1 + mu_ft) MC_ft, summed over the
-# insurer's plans within a cell and aggregated across regions to the insurer-year.
-# The markup term mu_ft is specified as mu_ft = z_ft' delta with z = (1, large,
-# pct, broker enrollment per available agent) and delta estimated off the
-# insurer-year FOCs at the estimated demand and cost parameters. A handful of
-# coefficients against many more insurer-year conditions, so mu is estimated and
-# leaves residuals. This does not identify the cost or demand parameters (those
-# come from M1-M3 and the choice model); it fits the commission side so the
-# counterfactual baseline reproduces the market.
+# The commission FOC MB_ft = MC_ft is imposed as a moment above, so the
+# counterfactual solves it with no insurer-specific term (mu = 0). The residual
+# mu_hat = MB/MC - 1 per insurer-year is reported here as a fit diagnostic and
+# written alongside mu_fit = 0, which cf1 reads.
 
-cat("\n--- M4: commission FOC specification ---\n")
-bd_comm <- read_csv("data/output/broker_density.csv", show_col_types = FALSE)
-cl_comm <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
-
-comm_rows <- list()
-for (fc in foc_cells) {
-  if (is.null(fc$comm_D) || is.null(fc$comm_qB)) next
-  pn <- fc$plan_ids; J <- length(pn)
-  # mc at the GMM cost estimates (same construction as the negative-MC check)
-  plr <- alpha_gmm[1] + alpha_gmm[2]*fc$AV + alpha_gmm[3]*fc$share_18to34 +
-         alpha_gmm[4]*fc$share_35to54 + alpha_gmm[5]*fc$share_male
-  for (j in seq_len(N_INS_COST)) plr <- plr + alpha_gmm[5 + j]*fc[[INS_COST[j]]]
-  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + gamma_gmm[3]*fc$HMO + gamma_gmm[4]*fc$trend
-  prs <- exp(plr); pclm <- exp(pcl)
-  sh <- fc$shares; avg_p <- weighted.mean(fc$posted_premium, sh, na.rm = TRUE)
-  mh <- MH_LOOKUP[as.character(round(fc$plan_avs, 1))]; mh[is.na(mh)] <- 1
-  util <- fc$plan_avs * mh
-  ra <- (prs/sum(prs*sh, na.rm = TRUE) - util/sum(util*sh, na.rm = TRUE)) * avg_p
-  mc <- pclm*(1 - fc$reins_vec) - ra
-  ra_eta <- compute_ra_foc(setNames(prs, pn), setNames(sh, pn), fc$plan_avs,
-                           avg_p, fc$comm_D, fc$own_mat)
-  margin <- fc$posted_premium - mc - fc$comm_vec
-  pref <- sub("_.*", "", pn)
-  na_r <- bd_comm$n_agents[bd_comm$region == fc$region & bd_comm$year == fc$year][1]
-  for (f in unique(pref)) {
-    ii <- which(pref == f); if (sum(fc$comm_vec[ii]) <= 0) next
-    w_f <- numeric(J); w_f[ii] <- fc$comm_vec[ii]
-    dq <- as.numeric(fc$comm_D %*% w_f)
-    MB <- sum(margin[ii]*dq[ii]) + sum(fc$comm_vec[ii]*ra_eta[ii])
-    MC <- sum(fc$comm_qB[ii]*fc$comm_vec[ii])
-    comm_rows[[length(comm_rows) + 1]] <- data.frame(
-      firm = f, year = fc$year, MB = MB, MC = MC,
-      qB = sum(fc$comm_qB[ii]), enroll = sum(sh[ii]), n_agents = na_r)
-  }
-}
-
-comm_fy <- bind_rows(comm_rows) %>%
-  group_by(firm, year) %>%
-  summarise(MB = sum(MB), MC = sum(MC), qB = sum(qB),
-            enroll = sum(enroll), n_agents = mean(n_agents), .groups = "drop") %>%
-  mutate(large = as.integer(firm %in% c("ANT", "BS", "HN", "KA")),
-         broker_per_agent = qB / n_agents,
-         mu_hat = MB / MC - 1) %>%
-  left_join(cl_comm %>% transmute(firm = insurer_prefix, year, pct = as.integer(is_pct)),
-            by = c("firm", "year")) %>%
-  filter(is.finite(mu_hat), MC > 0, !is.na(pct), !is.na(broker_per_agent))
-
-# Estimate delta: mu_ft = delta' z_ft, delta the MC-weighted method-of-moments
-# solution to E[z (MB - (1+delta'z) MC)] = 0. SEs here are the plain WLS SEs;
-# the cluster-robust SEs are computed in s5_se (helpers/se.R).
-wls <- lm(mu_hat ~ large + pct + broker_per_agent, data = comm_fy, weights = MC)
-delta <- coef(wls)
-comm_fy$mu_fit <- as.numeric(predict(wls))
+cat("\n--- M4: commission FOC residuals at the GMM solution ---\n")
+contr2 <- compute_g_bar(result2$par, return_contributions = TRUE)
+comm_fy <- contr2$comm_fy %>%
+  tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE) %>%
+  mutate(mu_fit = 0)
 cat("  insurer-year conditions:", nrow(comm_fy),
     " | distinct insurers:", n_distinct(comm_fy$firm), "\n")
-cat("  R2:", round(summary(wls)$r.squared, 3),
-    " | residual sd:", round(sd(comm_fy$mu_hat - comm_fy$mu_fit), 3), "\n")
-print(round(summary(wls)$coefficients, 3))
+cat("  mu_hat = MB/MC - 1: mean", round(mean(comm_fy$mu_hat), 3),
+    " sd", round(sd(comm_fy$mu_hat), 3),
+    " range [", round(min(comm_fy$mu_hat), 2), ",", round(max(comm_fy$mu_hat), 2), "]\n")
+print(comm_fy %>% group_by(firm) %>%
+        summarise(n = n(), mean_mu_hat = round(mean(mu_hat), 2), .groups = "drop"), n = Inf)
 
-write_csv(tibble(term = names(delta), estimate = unname(delta)),
+write_csv(tibble(term = "(Intercept)", estimate = 0),
           file.path(TEMP_DIR, "commission_foc_coefs.csv"))
-write_csv(comm_fy %>% select(firm, year, large, pct, broker_per_agent,
-                             MC, mu_hat, mu_fit),
+write_csv(comm_fy %>% select(firm, year, MB, MC, mu_hat, mu_fit),
           file.path(TEMP_DIR, "commission_foc_fit.csv"))
-cat("  Saved commission_foc_coefs.csv and commission_foc_fit.csv\n")
+cat("  Saved commission_foc_fit.csv (mu_fit = 0)\n")
 
 # =========================================================================
 # SAVE COEFFICIENTS
