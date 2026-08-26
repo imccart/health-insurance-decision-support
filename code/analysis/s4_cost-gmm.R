@@ -19,10 +19,12 @@
 
 cat("Loading data for cost-side GMM...\n")
 
-# --- Rate filing data (moments 1-2) ---
+# --- Rate filing PUF (claims, moment 2) and SRRT plan risk scores (moment 1) ---
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE) %>%
-  filter(!is.na(log_risk_score), is.finite(log_risk_score),
-         !is.na(log_cost), is.finite(log_cost), EXP_MM > 0)
+  filter(!is.na(log_cost), is.finite(log_cost), EXP_MM > 0)
+rs_srrt      <- read_csv("data/output/plan_risk_scores.csv", show_col_types = FALSE)
+rs_srrt_year <- read_csv("data/output/plan_risk_scores_year.csv", show_col_types = FALSE)
+supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 
 # --- FOC inputs per cell (moment 3) ---
 foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
@@ -35,14 +37,31 @@ if (any(sapply(foc_cells, function(fc) is.null(fc$demo_shares)))) {
   stop("foc_inputs lack demo_shares — re-run 2_pricing.R to save predicted demographic shares")
 }
 
-# --- Predicted demographic shares: from the demand model, NOT
-#     observed enrollment (which is endogenous). Aggregate per-cell predicted
-#     shares to plan-year (enrollment-weighted) for the M1 risk-score moment;
-#     the per-cell shares feed M3 below. Built from ALL cells (pre-Omega-filter)
-#     to maximize M1 plan-year coverage. ---
+# --- Predicted demographic shares: from the demand model, NOT observed
+#     enrollment (which is endogenous). The per-cell predicted shares are
+#     aggregated (demand-weighted) to insurer-metal-region-year for the M1
+#     risk-score rows (SRRT) and to plan-year for the M2 claims rows (PUF);
+#     the per-cell shares feed M3 below. Built from ALL cells. ---
 demo_all <- rbindlist(lapply(foc_cells, function(fc) {
-  d <- as.data.table(fc$demo_shares); d[, year := fc$year]; d
+  d <- as.data.table(fc$demo_shares); d[, `:=`(year = fc$year, region = fc$region)]; d
 }), fill = TRUE)
+plan_metal_map <- as.data.table(supply_results)[, .(metal = first(metal)), by = plan_id]
+demo_all <- merge(demo_all, plan_metal_map, by = "plan_id")
+demo_all[, insurer_prefix := sub("_.*", "", plan_id)]
+
+pred_region <- demo_all[, .(
+  share_18to34   = sum(share_18to34 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
+  share_35to54   = sum(share_35to54 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
+  share_hispanic = sum(share_hispanic * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)
+), by = .(insurer_prefix, metal, region, year)]
+rs_srrt <- rs_srrt %>%
+  inner_join(as.data.frame(pred_region), by = c("insurer_prefix", "metal", "region", "year")) %>%
+  filter(is.finite(log_risk_score), member_months > 0,
+         !is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic)) %>%
+  mutate(Silver = as.integer(metal == "Silver"), Gold = as.integer(metal == "Gold"),
+         Platinum = as.integer(metal == "Platinum"))
+cat("  SRRT risk-score observations (M1):", nrow(rs_srrt), "\n")
+
 pred_py <- demo_all[, .(
   share_18to34   = sum(share_18to34 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
   share_35to54   = sum(share_35to54 * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE),
@@ -50,14 +69,13 @@ pred_py <- demo_all[, .(
 ), by = .(plan_id, year)]
 rsdata <- rsdata %>%
   left_join(as.data.frame(pred_py), by = c("plan_id", "year")) %>%
-  mutate(AV = AV_METAL) %>%  # Eq. 16 regressor name matches predict_risk_scores
-  # Small-insurer rows have NA PLAN_TYPE -> NA HMO. The old observed-share filter
-  # dropped them; drop here too so M1/M2 share a complete-case sample (the claims
-  # moment needs HMO). Small plans still enter the model on the application side,
-  # where structural HMO is keyed off the Kaiser prefix, not PLAN_TYPE.
+  mutate(insurer_prefix = sub("_.*", "", plan_id), metal = METAL) %>%
+  # The SRRT plan-year score instruments the predicted score in the claims moment
+  left_join(rs_srrt_year %>% transmute(insurer_prefix, metal, year, log_rs_srrt = log_risk_score),
+            by = c("insurer_prefix", "metal", "year")) %>%
   filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic),
-         !is.na(HMO), !is.na(AV_METAL))
-cat("  Rate filing observations:", nrow(rsdata), "\n")
+         !is.na(HMO), !is.na(log_rs_srrt))
+cat("  Rate filing claims observations (M2):", nrow(rsdata), "\n")
 
 # Filter to cells with valid Omega (non-NA markup)
 foc_cells <- Filter(function(fc) {
@@ -65,8 +83,6 @@ foc_cells <- Filter(function(fc) {
 }, foc_cells)
 cat("  FOC cells with valid Omega:", length(foc_cells), "\n")
 
-# --- Supply results (for plan metal classification) ---
-supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 
 # =========================================================================
 # PREPARE MOMENT DATA
@@ -88,28 +104,27 @@ COST_PREFIX <- c(Anthem = "ANT", Blue_Shield = "BS", Health_Net = "HN",
                  Western = "WEST", Valley = "VAL")
 N_INS_COST <- length(INS_COST)
 
-# --- M1-M2 data matrices (rate filings) ---
-w_rf <- sqrt(rsdata$EXP_MM)  # WLS weights
+# --- M1 data matrices (SRRT risk scores) ---
+w_rs <- sqrt(rs_srrt$member_months)  # WLS weights
+X_rs <- as.matrix(rs_srrt %>% select(Silver, Gold, Platinum,
+                                      share_18to34, share_35to54, share_hispanic))
+y_rs <- rs_srrt$log_risk_score
+Z_rs <- cbind(1, X_rs)               # M1 instruments: intercept + regressors
 
-# M1 regressors: metal tier dummies (bronze base) + predicted shares of ages
-# 18-34, 35-54, and Hispanic enrollees (ra.R). No insurer terms in the risk score.
-X_rs <- as.matrix(rsdata %>% select(Silver, Gold, Platinum,
-                                     share_18to34, share_35to54, share_hispanic))
-y_rs <- rsdata$log_risk_score
-
-# M2 regressors: claims equation exogenous part (observed log_rs enters via Z_cl
-# below): HMO, trend, and big-four insurer indicators. AV is OMITTED, since the
-# risk score carries generosity.
+# --- M2 data matrices (rate filing PUF claims) ---
+w_rf <- sqrt(rsdata$EXP_MM)          # WLS weights
+# Regressors of the predicted risk score for the claims rows (same terms as M1,
+# at the plan-year predicted shares)
+X_rs_cl <- as.matrix(rsdata %>% select(Silver, Gold, Platinum,
+                                        share_18to34, share_35to54, share_hispanic))
+# Claims equation exogenous part: HMO, trend, and big-four insurer indicators.
+# AV is OMITTED, since the risk score carries generosity.
 X_cl_exog <- as.matrix(rsdata %>% transmute(HMO, trend, Anthem, Blue_Shield, Kaiser, Health_Net))
 y_cl <- rsdata$log_cost
-
-# M1 instruments: intercept + regressors
-Z_rs <- cbind(1, X_rs)
-
-# M2 instruments: intercept + OBSERVED log_rs + exogenous regressors. The claims
-# equation regresses on the PREDICTED risk score (see compute_g_bar); the observed
-# score here instruments it, undoing the attenuation from measurement noise.
-Z_cl <- cbind(1, y_rs, X_cl_exog)
+# M2 instruments: intercept + the SRRT plan-year log risk score + exogenous
+# regressors. The claims equation regresses on the PREDICTED risk score (see
+# compute_g_bar); the observed score instruments it.
+Z_cl <- cbind(1, rsdata$log_rs_srrt, X_cl_exog)
 
 # --- M3: Precompute FOC cell data ---
 # For each cell, we need plan characteristics to predict MC(alpha, gamma).
@@ -242,17 +257,17 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   alpha <- theta[1:N_ALPHA]
   gamma <- theta[(N_ALPHA + 1):(N_ALPHA + N_GAMMA)]
 
-  # --- M1: Risk score residuals ---
-  pred_log_rs_rf <- alpha[1] + X_rs %*% alpha[2:N_ALPHA]
-  eps_rs <- as.vector(y_rs - pred_log_rs_rf) * w_rf
-  M1_mat <- Z_rs * eps_rs           # n_rf x ncol(Z_rs)
+  # --- M1: Risk score residuals (SRRT rows) ---
+  pred_log_rs_srrt <- alpha[1] + X_rs %*% alpha[2:N_ALPHA]
+  eps_rs <- as.vector(y_rs - pred_log_rs_srrt) * w_rs
+  M1_mat <- Z_rs * eps_rs           # n_rs x ncol(Z_rs)
   g_rs <- colMeans(M1_mat)
 
-  # --- M2: Claims residuals ---
-  # Regress claims on the PREDICTED risk score (pred_log_rs_rf, the M1 fitted
-  # score), matching the FOC and counterfactual, which also predict claims from
-  # the fitted score. The observed score (y_rs) is the instrument in Z_cl, so the
-  # moment is a clean IV of the noisy observed score onto the model score.
+  # --- M2: Claims residuals (PUF rows) ---
+  # Regress claims on the PREDICTED risk score at the plan-year predicted shares,
+  # matching the FOC and counterfactual, which also predict claims from the
+  # fitted score. The SRRT plan-year score is the instrument in Z_cl.
+  pred_log_rs_rf <- alpha[1] + X_rs_cl %*% alpha[2:N_ALPHA]
   pred_log_cl_rf <- gamma[1] + gamma[2] * pred_log_rs_rf + X_cl_exog %*% gamma[3:N_GAMMA]
   eps_cl <- as.vector(y_cl - pred_log_cl_rf) * w_rf
   M2_mat <- Z_cl * eps_cl           # n_rf x ncol(Z_cl)
@@ -357,11 +372,14 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   g <- c(g_rs, g_cl, g_foc, g_comm)
   if (!return_contributions) return(g)
   list(g       = g,
-       M12_mat = cbind(M1_mat, M2_mat),
+       # Moment blocks for the covariance: one row per observation of each block
+       # (SRRT rows, PUF rows, region-year cells, insurer-years); blocks are
+       # treated as independent
+       blocks  = list(list(mat = M1_mat, n = nrow(M1_mat)),
+                      list(mat = M2_mat, n = nrow(M2_mat)),
+                      list(mat = do.call(rbind, m3_cell_list), n = n_foc),
+                      list(mat = matrix(r4, ncol = 1), n = length(r4))),
        M3_obs  = do.call(rbind, m3_obs_list),
-       M3_cell = do.call(rbind, m3_cell_list),
-       M4_rows = matrix(r4, ncol = 1, dimnames = list(names(r4), NULL)),
-       n_rf    = nrow(Z_rs),
        n_foc   = n_foc,
        n_comm  = length(r4),
        comm_fy = data.frame(key = names(r4), MB = MB_fy[ok4], MC = MC_fy[ok4],
@@ -430,22 +448,17 @@ cat("\n--- GMM Step 2 (optimal weighting: inverse moment covariance) ---\n")
 
 # Efficient two-step feasible GMM. The step-2 weight is the
 # inverse of the moment variance-covariance matrix S, estimated at the step-1
-# parameters. S is block-diagonal across the two independent data sources — the risk
-# and claims moments come from the rate filings (M12_mat, one row per plan-year), the
-# FOC moments from the equilibrium cells (M3_cell, one row per region-year) — so the
-# cross-block covariance is zero. This is the same S the sandwich uses for its meat, so
+# parameters. S is block-diagonal across the independent data sources: the risk-score
+# moments from the SRRT rows, the claims moments from the rate-filing plan-years, the
+# FOC moments from the equilibrium cells (one row per region-year), and the
+# commission FOC from the insurer-years, so the cross-block covariance is zero. This is the same S the sandwich uses for its meat, so
 # feeding S^{-1} back as the weight makes the estimator efficient and the sandwich
 # collapse to the correct (G' S^{-1} G)^{-1} variance. The earlier block-diagonal
 # SCALAR weight (diag / sum(moment^2)) was a crude stand-in; it over-credited the FOC
 # block's sensitivity to the weakly-identified risk-score coefficients as precision,
 # distorting those coefficients and understating their SEs by 1-2 orders of magnitude.
 contr1 <- compute_g_bar(result1$par, return_contributions = TRUE)
-n12 <- ncol(Z_rs) + ncol(Z_cl)
-S <- matrix(0, N_MOMENTS, N_MOMENTS)
-S[1:n12, 1:n12] <- crossprod(contr1$M12_mat) / contr1$n_rf^2
-n3 <- N_Z_FOC
-S[(n12 + 1):(n12 + n3), (n12 + 1):(n12 + n3)] <- crossprod(contr1$M3_cell) / contr1$n_foc^2
-S[N_MOMENTS, N_MOMENTS] <- crossprod(contr1$M4_rows) / contr1$n_comm^2
+S <- moment_cov_blocks(contr1$blocks, N_MOMENTS)
 
 # Invert S to get the optimal weight. If S is ill-conditioned (near-redundant moments,
 # most likely in the FOC block) a plain solve() is unstable, so ridge the diagonal and

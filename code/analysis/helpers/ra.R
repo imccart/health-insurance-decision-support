@@ -9,24 +9,27 @@
 
 # Risk score and claims regressions ---------------------------------------
 
-#' Estimate risk score and claims regressions from rate filing data.
-#' Called once before the supply cell loop.
+#' Estimate risk score and claims regressions. Called once before the supply
+#' cell loop (OLS starting values for the cost GMM).
 #'
-#' @param rsdata  Rate filing data (from rate_filing_rsdata.csv)
+#' @param rsdata   Rate filing PUF rows (plan-year): claims, member months, metal
+#'                 dummies, HMO, trend, insurer dummies, and the observed
+#'                 plan-year demographic shares
+#' @param rs_srrt  SRRT plan risk scores (insurer x metal x region x year) with
+#'                 the observed enrollment demographic shares at that level
 #' @return List with rs_reg (risk score lm), claims_reg (claims lm),
 #'         rs_coefs (named vector), claims_coefs (named vector)
 
-estimate_ra_regressions <- function(rsdata) {
+estimate_ra_regressions <- function(rsdata, rs_srrt) {
 
-  # Drop invalid risk scores
-  rs_valid <- rsdata %>%
-    filter(!is.na(log_risk_score), is.finite(log_risk_score), EXP_MM > 0)
+  # Risk-score rows: SRRT scores, valid and weighted by member months
+  rs_valid <- rs_srrt %>%
+    filter(!is.na(log_risk_score), is.finite(log_risk_score), member_months > 0)
 
   # Risk score regression: metal tier fixed effects (bronze the base) plus the
   # plan's predicted shares of ages 18-34, 35-54, and Hispanic enrollees. No
   # insurer terms here; the insurer effects sit in the claims equation.
   # predict_risk_scores applies whatever terms rs_coefs holds.
-  rs_valid <- rs_valid %>% mutate(AV = AV_METAL)
   demo_terms <- c("share_18to34", "share_35to54", "share_hispanic")
   has_demo <- all(demo_terms %in% names(rs_valid))
   if (has_demo) {
@@ -34,9 +37,9 @@ estimate_ra_regressions <- function(rsdata) {
       filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic))
     rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum +
                    share_18to34 + share_35to54 + share_hispanic,
-                 data = rs_valid, weights = rs_valid$EXP_MM)
+                 data = rs_valid, weights = rs_valid$member_months)
   } else {
-    rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum, data = rs_valid, weights = rs_valid$EXP_MM)
+    rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum, data = rs_valid, weights = rs_valid$member_months)
   }
 
   cat("  Risk score regression: N =", nrow(rs_valid),
@@ -48,8 +51,9 @@ estimate_ra_regressions <- function(rsdata) {
   # pass-through to), an HMO indicator, a linear trend, and big-four insurer
   # indicators. AV is omitted (collinear with the risk score; generosity still
   # enters the RA transfer through the utilization factor).
-  claims_valid <- rs_valid %>%
-    filter(!is.na(log_cost), is.finite(log_cost), !is.na(AV_METAL))
+  claims_valid <- rsdata %>%
+    filter(!is.na(log_cost), is.finite(log_cost), EXP_MM > 0,
+           !is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic))
   claims_valid <- claims_valid %>%
     mutate(log_risk_score = predict(rs_reg, newdata = claims_valid))
 

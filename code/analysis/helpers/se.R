@@ -58,14 +58,28 @@ demand_sandwich_se <- function(cells, theta, fd_rel = 1e-5) {
 
 # --- Cost GMM: sandwich for the two-step estimator -------------------------
 # V = (G'WG)^-1 G'W S W G (G'WG)^-1. gbar_fn(theta) returns averaged moments;
-# gbar_fn(theta, return_contributions = TRUE) returns M12_mat / M3_obs / M3_cell /
-# n_rf / n_foc. Meat S is block-diagonal: M1+M2 robust (rate-filing rows), M3
+# gbar_fn(theta, return_contributions = TRUE) returns the contribution blocks
+# (see moment_cov_blocks). Meat S is block-diagonal: M1 (SRRT rows), M2 (PUF rows), M3
 # cluster-robust by region-year cell (Omega couples plans within a cell), with the
 # cross-block covariance set to zero (distinct data sources). CONDITIONAL on the
 # demand estimates (no Newey-McFadden first-step correction; full propagation is in
 # the CF bootstrap). param_names labels the rows in (alpha, gamma) order.
+# Block-diagonal moment covariance from the per-observation contribution blocks
+# (each element list(mat, n); rows are the block's observations, columns its
+# moments, blocks in moment order and treated as independent).
+moment_cov_blocks <- function(blocks, n_mom) {
+  S <- matrix(0, n_mom, n_mom); k <- 0L
+  for (b in blocks) {
+    m <- ncol(b$mat); idx <- (k + 1):(k + m)
+    S[idx, idx] <- crossprod(b$mat) / b$n^2
+    k <- k + m
+  }
+  stopifnot(k == n_mom)
+  S
+}
+
 cost_gmm_sandwich_se <- function(theta_hat, W, gbar_fn, N_ALPHA, N_GAMMA,
-                                 n_mom, n12, param_names, fd_rel = 1e-5) {
+                                 n_mom, param_names, fd_rel = 1e-5) {
   n_par <- length(theta_hat)
 
   # Jacobian G = d g_bar / d theta' (n_mom x n_par)
@@ -78,15 +92,7 @@ cost_gmm_sandwich_se <- function(theta_hat, W, gbar_fn, N_ALPHA, N_GAMMA,
   }
 
   contr <- gbar_fn(theta_hat, return_contributions = TRUE)
-  Vg <- matrix(0, n_mom, n_mom)
-  Vg[1:n12, 1:n12] <- crossprod(contr$M12_mat) / contr$n_rf^2          # M1+M2 robust
-  n3 <- ncol(contr$M3_cell)
-  Vg[(n12 + 1):(n12 + n3), (n12 + 1):(n12 + n3)] <-
-    crossprod(contr$M3_cell) / contr$n_foc^2                           # M3 cell-clustered
-  if (!is.null(contr$M4_rows)) {                                        # M4 insurer-year rows
-    i4 <- (n12 + n3 + 1):n_mom
-    Vg[i4, i4] <- crossprod(contr$M4_rows) / contr$n_comm^2
-  }
+  Vg <- moment_cov_blocks(contr$blocks, n_mom)
 
   A    <- t(G) %*% W %*% G
   Ainv <- tryCatch(solve(A), error = function(e) MASS::ginv(A))

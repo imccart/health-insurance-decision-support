@@ -30,9 +30,8 @@ cat("  Coefficients:", nrow(coefs), "terms\n")
 # =========================================================================
 
 cat("\nEstimating RA regressions...\n")
+# Claims rows: rate filing PUF plan-years with observed plan-year demographics
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
-
-# Merge plan-level demographics from observed enrollment
 plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
 rsdata <- rsdata %>%
   left_join(plan_demo, by = c("plan_id", "year"))
@@ -40,7 +39,29 @@ n_matched <- sum(!is.na(rsdata$share_18to34))
 cat("  Demographics merged:", n_matched, "of", nrow(rsdata), "plan-years matched\n")
 rm(plan_demo)
 
-ra_regs <- estimate_ra_regressions(rsdata)
+# Risk-score rows: SRRT scores at insurer x metal x region x year, with the
+# observed enrollment demographics aggregated to that level
+rs_srrt <- read_csv("data/output/plan_risk_scores.csv", show_col_types = FALSE)
+plan_metal_map <- plan_choice %>%
+  distinct(plan_id, metal) %>%
+  mutate(metal = sub(" - Enhanced.*", "", metal)) %>%
+  distinct(plan_id, metal)
+pdr <- read_csv(file.path(TEMP_DIR, "plan_demographics_region.csv"), show_col_types = FALSE) %>%
+  inner_join(plan_metal_map, by = "plan_id") %>%
+  mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
+  group_by(insurer_prefix, metal, region, year) %>%
+  summarize(share_18to34   = weighted.mean(share_18to34,   enrollment),
+            share_35to54   = weighted.mean(share_35to54,   enrollment),
+            share_hispanic = weighted.mean(share_hispanic, enrollment),
+            .groups = "drop")
+rs_srrt <- rs_srrt %>%
+  inner_join(pdr, by = c("insurer_prefix", "metal", "region", "year")) %>%
+  mutate(Silver = as.integer(metal == "Silver"), Gold = as.integer(metal == "Gold"),
+         Platinum = as.integer(metal == "Platinum"))
+cat("  SRRT risk-score rows with demographics:", nrow(rs_srrt), "\n")
+rm(pdr, plan_metal_map)
+
+ra_regs <- estimate_ra_regressions(rsdata, rs_srrt)
 
 # Save coefficients for counterfactual worker
 rs_coefs_df <- tibble(term = names(ra_regs$rs_coefs), estimate = ra_regs$rs_coefs)
@@ -55,7 +76,7 @@ reins_df <- rsdata %>%
 write_csv(reins_df, file.path(TEMP_DIR, "reinsurance_factors.csv"))
 
 cat("  RA coefficients and reinsurance factors saved.\n")
-rm(rsdata)
+rm(rsdata, rs_srrt)
 
 # =========================================================================
 # Identify cells and set seeds (same as demand)

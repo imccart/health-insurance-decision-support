@@ -90,4 +90,12 @@ source("code/data-build/6_broker-density.R")
 cat("\n--- Step 7: Rate filings ---\n")
 source("code/data-build/7_rate-filings.R")
 
+# ----------------------------------------------------------------------------
+# Step 8: SRRT plan risk scores (insurer x metal x region x year)
+# ----------------------------------------------------------------------------
+cat("
+--- Step 8: SRRT risk scores ---
+")
+source("code/data-build/8_risk-scores.R")
+
 cat("\n=== Data build complete ===\n")

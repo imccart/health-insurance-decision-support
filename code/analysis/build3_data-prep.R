@@ -151,6 +151,22 @@ fwrite(plan_demographics, file.path(TEMP_DIR, "plan_demographics.csv"))
 cat("  plan_demographics:", nrow(plan_demographics), "rows\n")
 rm(plan_demographics)
 
+# Same shares by plan x region x year (the level of the SRRT plan risk scores)
+plan_demographics_region <- hh_full %>%
+  filter(!is.na(plan_id), plan_id != "Uninsured") %>%
+  mutate(plan_id = gsub("SIL(94|73|87)", "SIL", plan_id),
+         wt = household_size) %>%
+  group_by(plan_id, region, year) %>%
+  summarize(share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
+            share_35to54   = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
+            share_male     = weighted.mean(perc_male,     wt, na.rm = TRUE),
+            share_hispanic = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
+            enrollment     = sum(wt),
+            .groups = "drop")
+fwrite(plan_demographics_region, file.path(TEMP_DIR, "plan_demographics_region.csv"))
+cat("  plan_demographics_region:", nrow(plan_demographics_region), "rows\n")
+rm(plan_demographics_region)
+
 # HH choice file ----------------------------------------------------------
 # Single file consumed by both 2_choice-att.R (RF) and 1_demand.R (structural).
 # Carries both ipweight (RF needs) and channel_detail/any_agent/p_nav
