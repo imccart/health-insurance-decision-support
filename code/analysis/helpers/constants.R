@@ -42,6 +42,27 @@ UC_UNINSURED_2013 <- 2025
 NHE_PER_CAPITA <- c("2013" = 9024, "2014" = 9421, "2015" = 9860, "2016" = 10229, "2017" = 10582, "2018" = 11042, "2019" = 11487)
 UC_PER_UNINSURED <- UC_UNINSURED_2013 * NHE_PER_CAPITA / NHE_PER_CAPITA[["2013"]]
 
+# HHS risk adjustment transfer formula (Pope et al. 2014; 2014 Payment Notice):
+# induced demand factors by metal actuarial value, the geographic cost factors
+# by rating region and benefit year (CMS summary reports, individual market), and
+# the reduction of the statewide average premium for administrative costs from
+# benefit year 2018.
+RA_IDF_BY_AV <- c("0.6" = 1.00, "0.7" = 1.03, "0.8" = 1.08, "0.9" = 1.15)
+RA_ADMIN_SHARE <- c("2014" = 0, "2015" = 0, "2016" = 0, "2017" = 0, "2018" = 0.14, "2019" = 0.14)
+RA_GCF <- read.csv("data/input/cms_gcf_california.csv", stringsAsFactors = FALSE)
+# Statewide averages CMS used in the transfer formula (summary reports, CA
+# individual market): the statewide average premium per billable member-month,
+# already net of the administrative-cost share from 2018, is Pbar.
+RA_STATE_CMS <- read.csv("data/input/cms_ca_state_ra_summary.csv", stringsAsFactors = FALSE)
+ra_pbar_cms <- function(year) {
+  p <- RA_STATE_CMS$avg_premium[RA_STATE_CMS$benefit_year == year]
+  if (length(p) == 1) p else NA_real_
+}
+ra_gcf <- function(region, year) {
+  g <- RA_GCF$gcf[RA_GCF$benefit_year == year & RA_GCF$rating_area == region]
+  if (length(g) == 1) g else NA_real_
+}
+
 # Government share of claims under the silver cost-sharing reductions, by CSR
 # variant: 73 - 70 = 3 percent with no induced utilization; 87 and 94 percent
 # with 12 percent induced utilization, 19.04 and 26.88 percent.

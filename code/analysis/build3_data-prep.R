@@ -128,6 +128,29 @@ plan_choice <- plan_choice %>%
   )) %>%
   select(-insurer_prefix, -rate, -is_pct)
 
+# Rating-area shares of each plan-year's enrollment (claims equation, Eq. 9;
+# region 1 the base). Attached to every region row of the plan-year.
+plan_region_shares <- hh_full %>%
+  filter(!is.na(plan_id), plan_id != "Uninsured") %>%
+  mutate(plan_id = gsub("SIL(94|73|87)", "SIL", plan_id)) %>%
+  group_by(plan_id, year, region) %>%
+  summarize(enroll = sum(household_size), .groups = "drop") %>%
+  group_by(plan_id, year) %>%
+  mutate(share = enroll / sum(enroll)) %>%
+  ungroup() %>%
+  select(-enroll) %>%
+  pivot_wider(names_from = region, values_from = share, names_prefix = "share_ra", values_fill = 0)
+for (rc in paste0("share_ra", 1:19)) if (!rc %in% names(plan_region_shares)) plan_region_shares[[rc]] <- 0
+plan_region_shares <- plan_region_shares %>% select(plan_id, year, all_of(paste0("share_ra", 2:19)))
+n_before <- nrow(plan_choice)
+plan_choice <- plan_choice %>%
+  mutate(plan_id_base = gsub("SIL(94|73|87)", "SIL", plan_id)) %>%
+  left_join(plan_region_shares, by = c("plan_id_base" = "plan_id", "year")) %>%
+  select(-plan_id_base) %>%
+  mutate(across(all_of(paste0("share_ra", 2:19)), ~ ifelse(is.na(.x), 0, .x)))
+stopifnot(nrow(plan_choice) == n_before)
+rm(plan_region_shares)
+
 fwrite(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
 cat("  plan_choice:", nrow(plan_choice), "rows -> plan_choice.csv\n")
 
@@ -138,14 +161,19 @@ plan_demographics <- hh_full %>%
   mutate(plan_id = gsub("SIL(94|73|87)", "SIL", plan_id),
          wt = household_size,
          fpl_250to400 = as.integer(FPL > 2.50 & FPL <= 4.00),
-         fpl_400plus  = as.integer(FPL > 4.00)) %>%
+         fpl_400plus  = as.integer(FPL > 4.00),
+         family       = as.integer(household_size > 1)) %>%
   group_by(plan_id, year) %>%
-  summarize(share_18to34      = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
-            share_35to54      = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
-            share_male        = weighted.mean(perc_male,     wt, na.rm = TRUE),
-            share_fpl250to400 = weighted.mean(fpl_250to400,  wt, na.rm = TRUE),
-            share_fpl400plus  = weighted.mean(fpl_400plus,   wt, na.rm = TRUE),
-            share_hispanic    = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
+  summarize(share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
+            share_35to54   = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
+            share_250to400 = weighted.mean(fpl_250to400,  wt, na.rm = TRUE),
+            share_400plus  = weighted.mean(fpl_400plus,   wt, na.rm = TRUE),
+            share_male     = weighted.mean(perc_male,     wt, na.rm = TRUE),
+            share_family   = weighted.mean(family,        wt, na.rm = TRUE),
+            share_asian    = weighted.mean(perc_asian,    wt, na.rm = TRUE),
+            share_black    = weighted.mean(perc_black,    wt, na.rm = TRUE),
+            share_hispanic = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
+            share_other    = weighted.mean(perc_other,    wt, na.rm = TRUE),
             .groups = "drop")
 fwrite(plan_demographics, file.path(TEMP_DIR, "plan_demographics.csv"))
 cat("  plan_demographics:", nrow(plan_demographics), "rows\n")
@@ -155,12 +183,21 @@ rm(plan_demographics)
 plan_demographics_region <- hh_full %>%
   filter(!is.na(plan_id), plan_id != "Uninsured") %>%
   mutate(plan_id = gsub("SIL(94|73|87)", "SIL", plan_id),
-         wt = household_size) %>%
+         wt = household_size,
+         fpl_250to400 = as.integer(FPL > 2.50 & FPL <= 4.00),
+         fpl_400plus  = as.integer(FPL > 4.00),
+         family       = as.integer(household_size > 1)) %>%
   group_by(plan_id, region, year) %>%
   summarize(share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
             share_35to54   = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
+            share_250to400 = weighted.mean(fpl_250to400,  wt, na.rm = TRUE),
+            share_400plus  = weighted.mean(fpl_400plus,   wt, na.rm = TRUE),
             share_male     = weighted.mean(perc_male,     wt, na.rm = TRUE),
+            share_family   = weighted.mean(family,        wt, na.rm = TRUE),
+            share_asian    = weighted.mean(perc_asian,    wt, na.rm = TRUE),
+            share_black    = weighted.mean(perc_black,    wt, na.rm = TRUE),
             share_hispanic = weighted.mean(perc_hispanic, wt, na.rm = TRUE),
+            share_other    = weighted.mean(perc_other,    wt, na.rm = TRUE),
             enrollment     = sum(wt),
             .groups = "drop")
 fwrite(plan_demographics_region, file.path(TEMP_DIR, "plan_demographics_region.csv"))

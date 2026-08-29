@@ -49,6 +49,11 @@ CS_TABLE       <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsF
 
 comm_foc_df   <- read_csv(file.path(TEMP_DIR, "commission_foc_fit.csv"), show_col_types = FALSE)
 commission_mu <- setNames(comm_foc_df$mu_fit, paste(comm_foc_df$firm, comm_foc_df$year, sep = "_"))
+svc_df <- read_csv(file.path(TEMP_DIR, "service_cost_fit.csv"), show_col_types = FALSE)
+service_floor <- setNames(svc_df$s_hat, paste(svc_df$firm, svc_df$year, sep = "_"))
+# Statewide transfer sums and each cell's own contribution at the s4 solution
+ra_state <- list(totals = read_csv(file.path(TEMP_DIR, "ra_state_gmm.csv"), show_col_types = FALSE),
+                 own    = read_csv(file.path(TEMP_DIR, "ra_state_cells_gmm.csv"), show_col_types = FALSE))
 
 # Cost parameters theta = (risk-score coefficients, claims coefficients) in the
 # order of the cost GMM, and their covariance from s5 (rows in the same order;
@@ -109,7 +114,8 @@ run_one_sens <- function(task) {
     run_cf_cell(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
                 plan_choice, supply_results, coefs, commission_lookup,
                 rs_coefs, claims_coefs, reins_df, STRUCTURAL_SPEC,
-                warm_start = task$ws, commission_mu = commission_mu, sens = SENS),
+                warm_start = task$ws, commission_mu = commission_mu, sens = SENS,
+                service_floor = service_floor, ra_state = ra_state),
     error = function(e) { cat(sprintf("  [cell %d/%d] r%s y%s ERROR: %s\n",
       task$idx, task$n_total, task$r, task$y, conditionMessage(e))); NULL }
   )
@@ -143,7 +149,7 @@ if (!is.null(cl)) {
   })
   parallel::clusterExport(cl, c("run_cf_cell", "SAMPLE_FRAC", "plan_choice",
     "supply_results", "coefs", "commission_lookup", "rs_coefs", "claims_coefs",
-    "reins_df", "STRUCTURAL_SPEC", "CS_TABLE", "SENS_CELL_DIR", "commission_mu", "SENS"))
+    "reins_df", "STRUCTURAL_SPEC", "CS_TABLE", "SENS_CELL_DIR", "commission_mu", "SENS", "service_floor", "ra_state"))
   sens_list <- parallel::parLapplyLB(cl, tasks, run_one_sens)
   parallel::stopCluster(cl)
 } else {

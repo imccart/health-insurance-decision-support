@@ -12,7 +12,7 @@
 
 # Packages ----------------------------------------------------------------
 pacman::p_load(
-  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit
+  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit, readxl
 )
 
 source("code/data-build/_helpers.R")
@@ -97,5 +97,17 @@ cat("
 --- Step 8: SRRT risk scores ---
 ")
 source("code/data-build/8_risk-scores.R")
+
+# ----------------------------------------------------------------------------
+# Step 9: MLR administrative costs by insurer-year (commission substitution)
+# ----------------------------------------------------------------------------
+cat("\n--- Step 9: MLR administrative costs ---\n")
+source("code/data-build/9_mlr-admin.R")
+
+# ----------------------------------------------------------------------------
+# Step 10: commissions per broker enrollee from the filings (SRRT, MLR)
+# ----------------------------------------------------------------------------
+cat("\n--- Step 10: commissions from the filings ---\n")
+source("code/data-build/10_commissions.R")
 
 cat("\n=== Data build complete ===\n")

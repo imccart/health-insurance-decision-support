@@ -36,7 +36,7 @@ cat("\n--- Cost standard errors (sandwich) ---\n"); flush.console()
 cse <- cost_gmm_sandwich_se(
   theta_hat   = result2$par, W = W2, gbar_fn = compute_g_bar,
   N_ALPHA     = N_ALPHA, N_GAMMA = N_GAMMA, n_mom = N_MOMENTS,
-  param_names = c(alpha_names, gamma_names))
+  param_names = c(alpha_names, gamma_names, "beta_admin"))
 write.csv(cse$se, "results/cost_coefficients_gmm_se.csv", row.names = FALSE)
 write.csv(data.frame(param = rownames(cse$vcov), cse$vcov, check.names = FALSE),
           "results/cost_coefficients_gmm_vcov.csv", row.names = FALSE)

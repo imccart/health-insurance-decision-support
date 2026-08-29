@@ -15,6 +15,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   fp <- file.path(CELL_DIR, sprintf("cell_%s_%s_data.csv", r, y))
   if (!file.exists(fp)) return(NULL)
   cell_data_base <- as.data.frame(fread(fp))
+  if (!"family" %in% names(cell_data_base)) cell_data_base$family <- as.integer(cell_data_base$hh_size > 1L)
   sr_cell <- supply_results[supply_results$region == r & supply_results$year == y, ]
   if (nrow(sr_cell) == 0 || nrow(cf_cell) == 0) return(NULL)
 
@@ -165,7 +166,13 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       enr <- ins[, .(mem = sum(mem), mem_b = sum(mem_b)), by = plan_id]
       enr[, `:=`(p = p_vec[plan_id], mc = mc_vec[plan_id], eta = comm[plan_id])]
       enr[is.na(eta), eta := 0]
-      ps_month <- enr[, sum((p - mc) * mem - eta * mem_b, na.rm = TRUE)]
+      # mc carries claims net of transfers plus the insurer's administrative cost
+      # per member; a commission dollar offsets beta of administrative cost on
+      # the broker enrollees it is paid for (commission_beta.csv, s4)
+      beta_adm <- if (exists("BETA_ADMIN")) BETA_ADMIN else {
+        bf <- file.path(TEMP_DIR, "commission_beta.csv")
+        if (file.exists(bf)) read.csv(bf)$estimate[1] else 0 }
+      ps_month <- enr[, sum((p - mc) * mem - (1 - beta_adm) * eta * mem_b, na.rm = TRUE)]
       ins[, sub_paid := pmin((p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor, subsidy_cf)]
       ins[is.na(sub_paid), sub_paid := 0]
       gov_month <- ins[, sum(p_ch * sub_paid, na.rm = TRUE)]
@@ -187,10 +194,9 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       rsg <- if (exists("RS_COEFS_GOV")) RS_COEFS_GOV else {
         rc <- read.csv(file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"), stringsAsFactors = FALSE); setNames(rc$estimate, rc$term) }
       g <- function(n) if (n %in% names(rsg)) rsg[[n]] else 0
-      pool <- out[, .(s1834 = sum(p_ch * hh_weight * perc_18to34) / sum(p_ch * hh_weight),
-                      s3554 = sum(p_ch * hh_weight * perc_35to54) / sum(p_ch * hh_weight),
-                      shisp = sum(p_ch * hh_weight * perc_hispanic) / sum(p_ch * hh_weight))]
-      rs_unins <- exp(g("(Intercept)") + g("share_18to34") * pool$s1834 + g("share_35to54") * pool$s3554 + g("share_hispanic") * pool$shisp)
+      pool <- out[, lapply(RS_DEMO_RAWCOL, function(col) sum(p_ch * hh_weight * .SD[[col]]) / sum(p_ch * hh_weight)),
+                  .SDcols = unname(RS_DEMO_RAWCOL)]
+      rs_unins <- exp(g("(Intercept)") + sum(vapply(RS_DEMO_TERMS, function(t) g(t) * pool[[t]], numeric(1))))
       list(ps = ps_month / M * 12, gov = gov_month / M * 12, csr = csr_month / M * 12,
            pen = pen_month / M * 12, uc = uc_month / M * 12, rs_unins = rs_unins)
     }, error = function(e) list(ps = NA_real_, gov = NA_real_, csr = NA_real_, pen = NA_real_, uc = NA_real_, rs_unins = NA_real_))

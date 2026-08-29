@@ -61,10 +61,10 @@ source("code/analysis/s4_cost-gmm.R")
 source("code/analysis/s5_se.R")
 
 # cf: counterfactuals -----------------------------------------------------
-source("code/analysis/cf1_estimate.R")       # solve equilibria (writes premium_cf)
+source("code/analysis/cf1_estimate.R")       # solve equilibria by year (writes premium_cf)
 source("code/analysis/cf2_score.R")          # score welfare from the solved equilibria
 source("code/analysis/cf3_se.R")             # demand-parameter bootstrap (frozen re-score)
-source("code/analysis/cf4_se-cost.R")        # cost-parameter delta method; combines with cf3
+# source("code/analysis/cf4_se-cost.R")      # cost-parameter delta method: per-cell sensitivities, pending a year-level rebuild
 
 # sum: summary tables + figures -------------------------------------------
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk

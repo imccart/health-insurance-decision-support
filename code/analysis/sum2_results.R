@@ -354,8 +354,14 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     "AV"                = "Actuarial value",
     "share_18to34"      = "Share age 18--34",
     "share_35to54"      = "Share age 35--54",
+    "share_250to400"    = "Share FPL 250--400\\%",
+    "share_400plus"     = "Share FPL above 400\\%",
     "share_male"        = "Share male",
+    "share_family"      = "Share family households",
+    "share_asian"       = "Share Asian",
+    "share_black"       = "Share Black",
     "share_hispanic"    = "Share Hispanic",
+    "share_other"       = "Share other race",
     "Silver"            = "Silver",
     "Gold"              = "Gold",
     "Platinum"          = "Platinum",
@@ -372,11 +378,14 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     "Valley"            = "Valley",
     "log_risk_score"    = "Log predicted risk score",
     "HMO"               = "HMO",
-    "trend"             = "Linear trend"
+    "trend"             = "Linear trend",
+    "Kaiser"            = "Kaiser",
+    "log_size"          = "Log insurer enrollment"
   )
 
   rs <- cost_coefs %>% filter(equation == "risk_score")
-  cl <- cost_coefs %>% filter(equation == "claims")
+  cl <- cost_coefs %>% filter(equation == "claims", !str_detect(param, "^share_ra"))
+  has_region <- any(cost_coefs$equation == "claims" & str_detect(cost_coefs$param, "^share_ra"))
 
   tab_lines <- c("\\begin{tabular}{lr}", "\\hline\\hline",
                  "Variable & Estimate \\\\", "\\hline",
@@ -395,6 +404,18 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     tab_lines <- c(tab_lines,
       sprintf("%s & %s \\\\", lab, formatC(cl$estimate[i], format = "f", digits = 4)),
       sprintf(" & (%s) \\\\", formatC(cl$se[i], format = "f", digits = 4)))
+  }
+  if (has_region) tab_lines <- c(tab_lines, "Rating-area shares & Yes \\\\")
+  sv <- cost_coefs %>% filter(equation == "commission")
+  if (nrow(sv) > 0) {
+    tab_lines <- c(tab_lines, "\\hline", "\\emph{Commission condition} & \\\\")
+    for (i in seq_len(nrow(sv))) {
+      lab <- ifelse(sv$param[i] == "beta_admin", "Administrative saving per commission dollar ($\\beta$)",
+                    gsub("_", "\\\\_", sv$param[i]))
+      tab_lines <- c(tab_lines,
+        sprintf("%s & %s \\\\", lab, formatC(sv$estimate[i], format = "f", digits = 3)),
+        sprintf(" & (%s) \\\\", formatC(sv$se[i], format = "f", digits = 3)))
+    }
   }
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/cost_estimates.tex")

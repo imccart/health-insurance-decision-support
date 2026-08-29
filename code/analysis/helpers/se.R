@@ -101,7 +101,8 @@ cost_gmm_sandwich_se <- function(theta_hat, W, gbar_fn, N_ALPHA, N_GAMMA,
   d <- diag(V); d[d < 0] <- NA_real_
   se_df <- data.frame(
     param    = param_names,
-    equation = c(rep("risk_score", N_ALPHA), rep("claims", N_GAMMA)),
+    equation = c(rep("risk_score", N_ALPHA), rep("claims", N_GAMMA),
+                 rep("commission", n_par - N_ALPHA - N_GAMMA)),
     estimate = as.numeric(theta_hat),
     se       = sqrt(d),
     stringsAsFactors = FALSE

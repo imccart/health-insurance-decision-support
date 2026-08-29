@@ -20,6 +20,22 @@
 #' @return List with rs_reg (risk score lm), claims_reg (claims lm),
 #'         rs_coefs (named vector), claims_coefs (named vector)
 
+# Risk-score demographics (Eq. 8): the plan's enrollment shares by age, income,
+# gender, family status, and race, each mapped to the per-household column the
+# counterfactual differentiates (dr/dp) and the uninsured-pool score uses.
+RS_DEMO_RAWCOL <- c(share_18to34 = "perc_18to34", share_35to54 = "perc_35to54",
+                    share_250to400 = "FPL_250to400", share_400plus = "FPL_400plus",
+                    share_male = "perc_male", share_family = "family",
+                    share_asian = "perc_asian", share_black = "perc_black",
+                    share_hispanic = "perc_hispanic", share_other = "perc_other")
+RS_DEMO_TERMS <- names(RS_DEMO_RAWCOL)
+# Claims equation (Eq. 9): HMO, trend, big-four insurer indicators, and the
+# rating-area shares of the plan-year's enrollment (region 1 the base), which
+# stand in for market fixed effects.
+CLAIMS_REGION_TERMS <- paste0("share_ra", 2:19)
+CLAIMS_EXOG_TERMS <- c("HMO", "trend", "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+                       CLAIMS_REGION_TERMS)
+
 estimate_ra_regressions <- function(rsdata, rs_srrt) {
 
   # Risk-score rows: SRRT scores, valid and weighted by member months
@@ -27,16 +43,12 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
     filter(!is.na(log_risk_score), is.finite(log_risk_score), member_months > 0)
 
   # Risk score regression: metal tier fixed effects (bronze the base) plus the
-  # plan's predicted shares of ages 18-34, 35-54, and Hispanic enrollees. No
-  # insurer terms here; the insurer effects sit in the claims equation.
+  # plan's predicted demographic shares (RS_DEMO_TERMS). No insurer terms.
   # predict_risk_scores applies whatever terms rs_coefs holds.
-  demo_terms <- c("share_18to34", "share_35to54", "share_hispanic")
-  has_demo <- all(demo_terms %in% names(rs_valid))
+  has_demo <- all(RS_DEMO_TERMS %in% names(rs_valid))
   if (has_demo) {
-    rs_valid <- rs_valid %>%
-      filter(!is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic))
-    rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum +
-                   share_18to34 + share_35to54 + share_hispanic,
+    rs_valid <- rs_valid %>% filter(if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)))
+    rs_reg <- lm(reformulate(c("Silver", "Gold", "Platinum", RS_DEMO_TERMS), "log_risk_score"),
                  data = rs_valid, weights = rs_valid$member_months)
   } else {
     rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum, data = rs_valid, weights = rs_valid$member_months)
@@ -48,18 +60,19 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
 
   # Claims regression: log claims on the PREDICTED log risk score (the fitted
   # values from rs_reg, the object the FOC and counterfactual apply the
-  # pass-through to), an HMO indicator, a linear trend, and big-four insurer
-  # indicators. AV is omitted (collinear with the risk score; generosity still
-  # enters the RA transfer through the utilization factor).
+  # pass-through to) and the exogenous terms in CLAIMS_EXOG_TERMS. AV is
+  # omitted (collinear with the risk score; generosity still enters the RA
+  # transfer through the utilization factor).
   claims_valid <- rsdata %>%
     filter(!is.na(log_cost), is.finite(log_cost), EXP_MM > 0,
-           !is.na(share_18to34), !is.na(share_35to54), !is.na(share_hispanic))
+           if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)))
+  for (rc in CLAIMS_REGION_TERMS) if (!rc %in% names(claims_valid)) claims_valid[[rc]] <- 0
   claims_valid <- claims_valid %>%
-    mutate(log_risk_score = predict(rs_reg, newdata = claims_valid))
+    mutate(across(all_of(CLAIMS_REGION_TERMS), ~ ifelse(is.na(.x), 0, .x)),
+           log_risk_score = predict(rs_reg, newdata = claims_valid))
 
-  claims_reg <- lm(log_cost ~ log_risk_score + HMO + trend +
-                     Anthem + Blue_Shield + Kaiser + Health_Net,
-                    data = claims_valid, weights = claims_valid$EXP_MM)
+  claims_reg <- lm(reformulate(c("log_risk_score", CLAIMS_EXOG_TERMS), "log_cost"),
+                   data = claims_valid, weights = claims_valid$EXP_MM)
 
   cat("  Claims regression: N =", nrow(claims_valid), "\n")
   cat("  R² =", round(summary(claims_reg)$r.squared, 4), "\n")
@@ -104,18 +117,17 @@ compute_demographic_shares <- function(cell_data, V, lambda, V_base = NULL) {
     ins_dt[, perc_18to34 := perc_18to25 + perc_26to34]
   }
 
-  # Predicted shares from the choice model. The risk-score spec
-  # uses age and gender (share_18to34/35to54/male); income (FPL) and hispanic are
-  # still emitted for other consumers but do not enter the risk-score equation.
-  demo_shares <- ins_dt[, .(
-    share_18to34      = sum(wp * perc_18to34, na.rm = TRUE) / sum(wp),
-    share_35to54      = sum(wp * perc_35to54, na.rm = TRUE) / sum(wp),
-    share_male        = sum(wp * perc_male, na.rm = TRUE) / sum(wp),
-    share_fpl250to400 = sum(wp * FPL_250to400, na.rm = TRUE) / sum(wp),
-    share_fpl400plus  = sum(wp * FPL_400plus, na.rm = TRUE) / sum(wp),
-    share_hispanic    = sum(wp * perc_hispanic, na.rm = TRUE) / sum(wp),
-    demand            = sum(wp)
-  ), by = plan_id]
+  # Predicted shares from the choice model, one per RS_DEMO_TERMS entry (the
+  # per-household column named in RS_DEMO_RAWCOL, choice-probability weighted).
+  if (!"family" %in% names(ins_dt)) ins_dt[, family := as.integer(hh_size > 1L)]
+  if (!"FPL_le150" %in% names(ins_dt)) ins_dt[, FPL_le150 := as.integer(FPL <= 1.5)]
+  # Per-member age rating factor of the plan's enrollees (the ARF of the
+  # transfer formula): household rating factor over household size, weighted by
+  # predicted members.
+  if (!"rf_member" %in% names(ins_dt)) ins_dt[, rf_member := rating_factor / hh_size]
+  demo_shares <- ins_dt[, c(lapply(RS_DEMO_RAWCOL, function(col) sum(wp * .SD[[col]], na.rm = TRUE) / sum(wp)),
+                            list(arf = sum(wp * rf_member, na.rm = TRUE) / sum(wp), demand = sum(wp))),
+                        by = plan_id, .SDcols = unname(RS_DEMO_RAWCOL)]
 
   as_tibble(demo_shares)
 }
@@ -177,44 +189,78 @@ predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
 #' @param plan_avs               Named vector: plan_id → actuarial value
 #' @return Named vector of PMPM RA transfers per plan
 
-compute_ra_transfers <- function(predicted_risk_scores, plan_shares, avg_premium, plan_avs) {
+# Risk adjustment transfers ----------------------------------------------
+#
+# HHS transfer formula (Pope et al. 2014; 2014 Payment Notice), per member-month
+# for plan j in rating region m:
+#
+#   T_j = Pbar * M * ( x_j / R - y_j / A )
+#   x_j = r_j * IDF_j * G_m,   y_j = AV_j * ARF_j * IDF_j * G_m
+#   R = sum_i n_i x_i,  A = sum_i n_i y_i,  M = sum_i n_i     (statewide, members)
+#
+# with Pbar the statewide average premium per member-month (less the
+# administrative-cost share from 2018), r the plan liability risk score, AV the
+# metal actuarial value, ARF the plan's average age rating factor, IDF the
+# induced demand factor by metal, and G the region's geographic cost factor.
+# The statewide sums are split into the cell's own contribution, recomputed at
+# the current shares and scores, and the rest of the state held at its baseline
+# (ra_env$rest). The formula is zero-sum across the state.
+#
+# ra_env: list(gcf, arf [named by plan], N [cell members], rest = list(R, A, M),
+#              pbar) from ra_env_for_cell().
 
-  # If tibble, extract as named vector
-  if (is.data.frame(predicted_risk_scores)) {
-    rs_vec <- setNames(predicted_risk_scores$predicted_risk_score,
-                       predicted_risk_scores$plan_id)
-  } else {
-    rs_vec <- predicted_risk_scores
-  }
+ra_cell_xy <- function(rs, plan_avs, ra_env) {
+  pn <- names(rs)
+  av  <- unname(plan_avs[pn])
+  idf <- unname(RA_IDF_BY_AV[as.character(round(av, 1))]); idf[is.na(idf)] <- 1
+  arf <- unname(ra_env$arf[pn]); arf[is.na(arf)] <- 1
+  list(x = unname(rs) * idf * ra_env$gcf, y = av * arf * idf * ra_env$gcf)
+}
 
+compute_ra_transfers <- function(predicted_risk_scores, plan_shares, ra_env, plan_avs) {
+  rs_vec <- if (is.data.frame(predicted_risk_scores))
+    setNames(predicted_risk_scores$predicted_risk_score, predicted_risk_scores$plan_id) else predicted_risk_scores
   pn <- names(plan_shares)
-  rs <- rs_vec[pn]
-  sh <- plan_shares[pn]
-  av <- plan_avs[pn]
+  rs <- rs_vec[pn]; sh <- unname(plan_shares[pn]); N <- ra_env$N
+  xy <- ra_cell_xy(rs, plan_avs, ra_env)
+  R <- ra_env$rest$R + N * sum(sh * xy$x, na.rm = TRUE)
+  A <- ra_env$rest$A + N * sum(sh * xy$y, na.rm = TRUE)
+  M <- ra_env$rest$M + N * sum(sh, na.rm = TRUE)
+  setNames(ra_env$pbar * M * (xy$x / R - xy$y / A), pn)
+}
 
-  # Moral hazard factors by AV (same as MH_FACTOR in data build)
-  MH_LOOKUP <- c("0.6" = 1.00, "0.7" = 1.03, "0.8" = 1.08, "0.9" = 1.15)
-  av_rounded <- as.character(round(av, 1))
-  mh <- MH_LOOKUP[av_rounded]
-  mh[is.na(mh)] <- 1.0
+# Statewide sums from a list of cell records (year, N, shares, rs, av, arf, gcf,
+# premium), and each cell's own contribution. Pbar is the member-weighted average
+# posted premium, less the administrative-cost share of the year.
+ra_state_totals <- function(cells) {
+  own <- lapply(cells, function(cl) {
+    env <- list(gcf = cl$gcf, arf = cl$arf, N = cl$N)
+    xy <- ra_cell_xy(cl$rs, cl$av, env)
+    sh <- unname(cl$shares[names(cl$rs)])
+    data.frame(region = cl$region, year = cl$year,
+               R = cl$N * sum(sh * xy$x, na.rm = TRUE), A = cl$N * sum(sh * xy$y, na.rm = TRUE),
+               M = cl$N * sum(sh, na.rm = TRUE),
+               PM = cl$N * sum(sh * unname(cl$premium[names(cl$rs)]), na.rm = TRUE))
+  })
+  own <- do.call(rbind, own)
+  tot <- aggregate(cbind(R, A, M, PM) ~ year, data = own, FUN = sum)
+  # Pbar: the statewide average premium CMS used (net of the admin share from
+  # 2018); the model's own share-weighted posted premium is the fallback
+  tot$pbar <- vapply(tot$year, ra_pbar_cms, numeric(1))
+  miss <- is.na(tot$pbar)
+  tot$pbar[miss] <- (tot$PM / tot$M * (1 - RA_ADMIN_SHARE[as.character(tot$year)]))[miss]
+  list(totals = tot, own = own)
+}
 
-  # ACA RA formula (Pope et al. 2014):
-  # Total RA for plan j = (risk_share_j - util_share_j) × total_premium_revenue
-  # PMPM RA = total RA / member_months = (risk_share_j - util_share_j) × avg_premium / share_j
-  #
-  # risk_share_j = (rs_j × share_j) / Σ(rs_k × share_k)
-  # util_share_j = (util_adj_j × share_j) / Σ(util_adj_k × share_k)
-  #
-  # Simplifying: PMPM RA = (rs_j / Σ(rs·sh) - util_adj_j / Σ(util_adj·sh)) × avg_premium
-  # This is budget-neutral: Σ(PMPM_j × share_j) = 0 by construction.
-
-  sum_rs_sh <- sum(rs * sh, na.rm = TRUE)
-  util_adj <- av * mh
-  sum_util_sh <- sum(util_adj * sh, na.rm = TRUE)
-
-  ra_pmpm <- (rs / sum_rs_sh - util_adj / sum_util_sh) * avg_premium
-
-  setNames(ra_pmpm, pn)
+# ra_env for one cell: its GCF, ARF (from the demographic shares), members, the
+# rest-of-state sums (totals less the cell's baseline contribution), and Pbar.
+ra_env_for_cell <- function(region, year, N, demo_shares, totals, own = NULL) {
+  tot <- totals[totals$year == year, ]
+  o <- if (is.null(own)) NULL else own[own$region == region & own$year == year, ]
+  rest <- if (is.null(o) || nrow(o) == 0) list(R = tot$R, A = tot$A, M = tot$M) else
+    list(R = tot$R - o$R, A = tot$A - o$A, M = tot$M - o$M)
+  list(gcf = ra_gcf(region, year), N = N, pbar = tot$pbar, rest = rest,
+       arf = setNames(demo_shares$arf, demo_shares$plan_id))
 }
 
 
@@ -233,28 +279,13 @@ predict_claims <- function(claims_coefs, plan_chars, log_rs) {
   log_cost <- claims_coefs[["(Intercept)"]] +
     claims_coefs[["log_risk_score"]] * log_rs[pn]
 
-  # Add AV (generosity / moral hazard) if in model
-  if ("AV" %in% names(claims_coefs) && "AV" %in% names(plan_chars)) {
-    log_cost <- log_cost + claims_coefs[["AV"]] * plan_chars$AV
-  }
-  # Add HMO if in model
-  if ("HMO" %in% names(claims_coefs)) {
-    log_cost <- log_cost + claims_coefs[["HMO"]] * plan_chars$HMO
-  }
-  # Add trend if in model
-  if ("trend" %in% names(claims_coefs)) {
-    log_cost <- log_cost + claims_coefs[["trend"]] * plan_chars$trend
-  }
-  # Add insurer FEs (NA coefficient = reference category, treat as 0). Big four +
-  # the seven larger regionals; Other_Small carries no dummy (baseline).
-  for (ins in c("Anthem", "Blue_Shield", "Health_Net", "Kaiser",
-                "Molina", "LA_Care", "SHARP", "Chinese_Community",
-                "Oscar", "Western", "Valley")) {
-    if (ins %in% names(claims_coefs) && ins %in% names(plan_chars)) {
-      coef_val <- claims_coefs[[ins]]
-      if (!is.na(coef_val)) {
-        log_cost <- log_cost + coef_val * plan_chars[[ins]]
-      }
+  # Every other term in claims_coefs present as a column of plan_chars (HMO,
+  # trend, insurer indicators, rating-area shares). An aliased (NA) coefficient
+  # contributes nothing.
+  for (term in setdiff(names(claims_coefs), c("(Intercept)", "log_risk_score"))) {
+    coef_t <- claims_coefs[[term]]
+    if (!is.na(coef_t) && term %in% names(plan_chars)) {
+      log_cost <- log_cost + coef_t * plan_chars[[term]]
     }
   }
 
@@ -296,19 +327,21 @@ predict_mc_structural <- function(predicted_claims, ra_transfers, reins_factors)
 #'                      (share_18to34, share_35to54, share_male,
 #'                      share_fpl250to400, share_fpl400plus); NULL for AV-only
 #' @param shares        Named vector of market shares (among insured)
-#' @param avg_premium   Scalar average premium in market
+#' @param ra_env        Transfer-formula environment for the cell (ra_env_for_cell)
 #' @param plan_avs      Named vector of actuarial values
 #' @param reins_vec     Named vector of reinsurance factors
 #' @return List with mc (named vector), predicted_claims, predicted_risk_scores,
 #'         ra_transfers, log_risk_score_hat
 
 compute_mc <- function(rs_coefs, claims_coefs, plan_chars, demo_shares,
-                       shares, avg_premium, plan_avs, reins_vec) {
+                       shares, ra_env, plan_avs, reins_vec) {
 
   rs_pred <- predict_risk_scores(rs_coefs, plan_chars, demo_shares)
   log_rs <- setNames(rs_pred$log_risk_score_hat, rs_pred$plan_id)
   pred_claims <- predict_claims(claims_coefs, plan_chars, log_rs)
-  ra_transfers <- compute_ra_transfers(rs_pred, shares, avg_premium, plan_avs)
+  # the cell's current ARF travels with its demographic shares
+  ra_env$arf <- setNames(demo_shares$arf, demo_shares$plan_id)
+  ra_transfers <- compute_ra_transfers(rs_pred, shares, ra_env, plan_avs)
   mc <- predict_mc_structural(pred_claims, ra_transfers, reins_vec)
 
   list(
@@ -337,34 +370,32 @@ compute_mc <- function(rs_coefs, claims_coefs, plan_chars, demo_shares,
 #' @param risk_scores  Named vector of predicted risk scores (levels, not log)
 #' @param shares       Named vector of market shares
 #' @param plan_avs     Named vector of actuarial values
-#' @param avg_premium  Scalar: average premium in market
+#' @param ra_env       Transfer-formula environment for the cell (ra_env_for_cell)
 #' @param elast_mat    J x J elasticity matrix (ds_j/dp_l)
 #' @param own_mat      J x J ownership matrix (1 if same firm)
 #' @return Named J-vector of RA FOC contributions
 
-compute_ra_foc <- function(risk_scores, shares, plan_avs, avg_premium,
+compute_ra_foc <- function(risk_scores, shares, plan_avs, ra_env,
                            elast_mat, own_mat) {
 
   pn <- names(shares)
   J <- length(pn)
   rs <- unname(risk_scores[pn])
   sh <- unname(shares[pn])
-  av <- unname(plan_avs[pn])
+  N <- ra_env$N
+  xy <- ra_cell_xy(setNames(rs, pn), plan_avs, ra_env)
+  x <- xy$x; y <- xy$y
+  R <- ra_env$rest$R + N * sum(sh * x, na.rm = TRUE)
+  A <- ra_env$rest$A + N * sum(sh * y, na.rm = TRUE)
+  M <- ra_env$rest$M + N * sum(sh, na.rm = TRUE)
+  P <- ra_env$pbar
 
-  # Moral hazard factors
-  MH_LOOKUP <- c("0.6" = 1.00, "0.7" = 1.03, "0.8" = 1.08, "0.9" = 1.15)
-  av_r <- as.character(round(av, 1))
-  mh <- MH_LOOKUP[av_r]; mh[is.na(mh)] <- 1.0
-  util_adj <- av * mh
+  # T_k = P M (x_k/R - y_k/A) with R, A, M moving through the cell's own shares:
+  # dT_k/ds_m = P [ N (x_k/R - y_k/A) - M N (x_k x_m / R^2 - y_k y_m / A^2) ]
+  dRA_ds <- P * (N * outer(x / R - y / A, rep(1, J)) -
+                 M * N * (outer(x, x) / R^2 - outer(y, y) / A^2))
 
-  S_rs <- sum(rs * sh, na.rm = TRUE)
-  S_u  <- sum(util_adj * sh, na.rm = TRUE)
-
-  # dRA_k/ds_m = (-rs_k * rs_m / S_rs^2 + u_k * u_m / S_u^2) * avg_premium
-  dRA_ds <- (-outer(rs, rs) / S_rs^2 + outer(util_adj, util_adj) / S_u^2) * avg_premium
-
-  # dRA_k/dp_l = sum_m dRA_k/ds_m * ds_m/dp_l = dRA_ds %*% elast_mat
-  # elast_mat and own_mat are J x J, already ordered by plan_ids_cell
+  # dRA_k/dp_l = sum_m dRA_k/ds_m * ds_m/dp_l
   dRA_dp <- dRA_ds %*% elast_mat
 
   # ra_foc_l = sum_k O[l,k] * s_k * dRA_dp[k,l]

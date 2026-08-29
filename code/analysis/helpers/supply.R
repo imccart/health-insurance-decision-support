@@ -236,7 +236,7 @@ build_structural <- function(plans, hhs, sample_frac,
                  "perc_black", "perc_hispanic", "perc_asian",
                  "perc_other", "perc_male", "channel",
                  "csr94_elig", "csr87_elig")
-  for (extra in c("v_hat", "channel_detail", "any_agent", "p_nav")) {
+  for (extra in c("v_hat", "channel_detail", "any_agent", "p_nav", "new_enrollee")) {
     if (extra %in% names(hhs_dt)) demo_cols <- c(demo_cols, extra)
   }
   hh_demo <- hhs_dt[, ..demo_cols]
@@ -308,6 +308,11 @@ build_structural <- function(plans, hhs, sample_frac,
     FPL_250to400_av  = FPL_250to400  * av,
     FPL_400plus_av   = FPL_400plus   * av
   )]
+
+  # Family indicator (risk-score demographics; see RS_DEMO_RAWCOL in ra.R) and the
+  # Medi-Cal-line indicator (agents' servicing cost; SERVICE_RAWCOL)
+  dt[, family := as.integer(hh_size > 1L)]
+  dt[, FPL_le150 := as.integer(FPL <= 1.5)]
 
   # Demographic x insured interactions (cross-nest margin shifters)
   insured_ind <- fifelse(dt$plan_id == "Uninsured", 0, 1)
