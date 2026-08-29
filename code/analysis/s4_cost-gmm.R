@@ -2,14 +2,17 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-03-31
-## Description:   GMM estimation of cost-side parameters (risk score regression
-##                and claims regression) with demand held fixed. Three moment
-##                conditions:
-##                  M1: Risk score moments (rate filing data)
-##                  M2: Claims moments (rate filing data)
-##                  M3: FOC moments (evaluated directly, not inverted)
-##                Two-step feasible GMM. Produces cost parameters consistent
-##                with both rate filing data and the pricing FOC.
+## Description:   Two-step GMM for the cost side with demand held fixed: the
+##                risk-score coefficients (alpha), the claims coefficients
+##                (gamma), and beta, the administrative saving per commission
+##                dollar. Five moment blocks:
+##                  M1: risk-score regression on the SRRT plan scores
+##                  M2: claims regression on the rate-filing plan-years
+##                  M3: plan-year pricing FOC residuals (cell-level instruments)
+##                  M4: commission conditions MB = (1 - beta) MC per insurer-year
+##                  M5: the MLR relation of administrative cost to commissions
+##                Writes the GMM coefficients, beta, the commission residuals by
+##                insurer-year, and the statewide transfer sums for cf1.
 
 # Dependencies: tidyverse, data.table, helpers (loaded by _supply.R)
 

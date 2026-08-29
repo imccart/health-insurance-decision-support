@@ -40,8 +40,6 @@ demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 # channel-specific premium slopes
 STRUCTURAL_SPEC <- demand_spec$all
 
-source("code/analysis/helpers/cf_year.R")
-
 # Scenario grids
 TAU_GRID       <- c(0, 0.25, 0.5, 0.75, 1.0)   # commission ban, brokers -> navigators
 ENDOG_TAU_GRID <- c(0.5, 1.0)                  # navigator expansion, commissions endogenous

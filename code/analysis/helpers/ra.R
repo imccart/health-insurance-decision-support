@@ -2,10 +2,13 @@
 
 ## Author:        Ian McCarthy
 ## Date Created:  2026-03-26
-## Description:   Risk adjustment helper functions for structural estimation.
-##                Estimates risk score and claims regressions from rate filings,
-##                predicts plan-level risk scores from demographic composition,
-##                computes endogenous RA transfers for counterfactuals.
+## Description:   Cost-side helpers for the structural model: the risk-score and
+##                claims regressions, plan-level risk scores predicted from the
+##                demographic composition, the HHS risk adjustment transfer
+##                formula pooled across the state (with each cell's own
+##                contribution moving in the FOC and the counterfactual), its
+##                derivative with respect to premiums and commissions, and
+##                marginal cost.
 
 # Risk score and claims regressions ---------------------------------------
 

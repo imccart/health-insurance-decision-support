@@ -9,6 +9,11 @@
     ]
   },
   "Packages": {
+    "readxl": {
+      "Package": "readxl",
+      "Version": "1.5.0",
+      "Source": "Repository"
+    },
     "renv": {
       "Package": "renv",
       "Version": "1.2.1",

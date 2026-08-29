@@ -3,11 +3,18 @@
 ## Author:        Ian McCarthy
 ## Date Created:  2026-03-06
 ## Date Edited:   2026-03-26
-## Description:   Supply-side markup recovery (pure R).
-##                Reads parquet partitions, computes nested logit shares and
-##                elasticities, recovers markups via Bertrand FOC with
-##                broker-commission correction. Also estimates structural RA
-##                regressions and validates FOC-implied MC against predicted MC.
+## Description:   Supply side at the estimated demand. Fits the risk-score and
+##                claims regressions (OLS starting values for s4), then two passes
+##                over the region-year cells: shares, elasticities, demographic
+##                composition, and commission derivatives per cell; the statewide
+##                transfer sums; transfers, marginal cost (claims net of
+##                reinsurance and transfers, plus the insurer's administrative
+##                cost per member), and the pricing FOC residual per plan-cell,
+##                aggregated to the plan-year condition (each plan priced once
+##                for the year: base premium x fixed regional factor). Writes
+##                results/supply_results.csv, the per-cell FOC inputs for s4,
+##                and the plan-year residuals; the per-cell markup inversion
+##                (mc_foc) is kept as a diagnostic only.
 
 # Dependencies: preamble + s1_inputs.R (plan_choice, commission_lookup)
 # loaded by _analysis.R before this step. Full spec (base + assisted) feeds the

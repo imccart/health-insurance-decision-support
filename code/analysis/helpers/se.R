@@ -1,10 +1,9 @@
 # se.R — Analytical sandwich standard errors for the structural estimators.
 #
-# Two pure functions, called inline from the estimation stages: demand_sandwich_se
-# from 1_demand.R (via estimate_demand) and cost_gmm_sandwich_se from 3_cost_gmm.R.
-# Each returns the SE table AND the full parameter covariance matrix, the latter
-# consumed by the CF parametric bootstrap (_cf_bootstrap.R) to draw correlated
-# parameter vectors.
+# Two pure functions, called from s5_se.R: demand_sandwich_se for the two-part
+# nested logit and cost_gmm_sandwich_se for the cost GMM. Each returns the SE
+# table AND the full parameter covariance matrix, the latter consumed by the CF
+# parametric bootstrap (cf3_se.R) to draw correlated parameter vectors.
 #
 # Dependencies are resolved at CALL time, not source time:
 #   demand_sandwich_se   needs estimate_demand.R (accumulate, cell_negll_gradi)
@@ -59,11 +58,12 @@ demand_sandwich_se <- function(cells, theta, fd_rel = 1e-5) {
 # --- Cost GMM: sandwich for the two-step estimator -------------------------
 # V = (G'WG)^-1 G'W S W G (G'WG)^-1. gbar_fn(theta) returns averaged moments;
 # gbar_fn(theta, return_contributions = TRUE) returns the contribution blocks
-# (see moment_cov_blocks). Meat S is block-diagonal: M1 (SRRT rows), M2 (PUF rows), M3
-# cluster-robust by region-year cell (Omega couples plans within a cell), with the
-# cross-block covariance set to zero (distinct data sources). CONDITIONAL on the
-# demand estimates (no Newey-McFadden first-step correction; full propagation is in
-# the CF bootstrap). param_names labels the rows in (alpha, gamma) order.
+# (see moment_cov_blocks). Meat S is block-diagonal: M1 (SRRT rows), M2 (PUF rows),
+# M3 (plan-year FOC rows), M4 (insurer-year commission conditions), M5 (MLR
+# insurer-years), with the cross-block covariance set to zero (distinct data
+# sources). CONDITIONAL on the demand estimates (no Newey-McFadden first-step
+# correction; full propagation is in the CF bootstrap). param_names labels the rows
+# in (alpha, gamma, beta) order.
 # Block-diagonal moment covariance from the per-observation contribution blocks
 # (each element list(mat, n); rows are the block's observations, columns its
 # moments, blocks in moment order and treated as independent).
@@ -115,38 +115,3 @@ cost_gmm_sandwich_se <- function(theta_hat, W, gbar_fn, N_ALPHA, N_GAMMA,
   list(se = se_df, vcov = V)
 }
 
-# --- Commission FOC: cluster-robust WLS sandwich ---------------------------
-# The commission markup mu_ft = z_ft' delta is the MC-weighted linear fit of the
-# insurer-year FOC to the insurer covariates. V = (Z'WZ)^-1 M (Z'WZ)^-1 with the
-# meat M summed over insurer clusters, since an insurer's year-specific FOCs share
-# its type and correlated residuals. CONDITIONAL on the demand and cost estimates
-# (same convention as cost_gmm_sandwich_se; full first-step propagation is in the
-# CF bootstrap). foc_df holds firm, mu_hat, MC, and the z columns.
-comm_foc_sandwich_se <- function(foc_df, z_terms = c("large", "pct", "broker_per_agent")) {
-  Z <- cbind(`(Intercept)` = 1, as.matrix(foc_df[, z_terms, drop = FALSE]))
-  w <- foc_df$MC
-  y <- foc_df$mu_hat
-  firm <- foc_df$firm
-
-  ZtWZ    <- crossprod(Z, w * Z)
-  ZtWZinv <- tryCatch(solve(ZtWZ), error = function(e) MASS::ginv(ZtWZ))
-  delta   <- as.numeric(ZtWZinv %*% crossprod(Z, w * y))
-  e       <- as.numeric(y - Z %*% delta)
-
-  meat <- matrix(0, ncol(Z), ncol(Z))                 # sum_f (Z_f' W_f e_f)(.)'
-  for (f in unique(firm)) {
-    ii <- which(firm == f)
-    sf <- crossprod(Z[ii, , drop = FALSE], w[ii] * e[ii])
-    meat <- meat + tcrossprod(sf)
-  }
-  V <- ZtWZinv %*% meat %*% ZtWZinv
-
-  d <- diag(V); d[d < 0] <- NA_real_
-  se_df <- data.frame(term = colnames(Z), estimate = delta, se = sqrt(d),
-                      stringsAsFactors = FALSE)
-  se_df$z       <- se_df$estimate / se_df$se
-  se_df$p_value <- 2 * pnorm(-abs(se_df$z))
-  rownames(se_df) <- NULL
-  dimnames(V) <- list(colnames(Z), colnames(Z))
-  list(se = se_df, vcov = V, n_clusters = length(unique(firm)))
-}
