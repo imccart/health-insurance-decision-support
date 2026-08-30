@@ -387,7 +387,7 @@ claims:
     artifact_key: "row=Any Assistance,col=ATT (x100 = -1.56 pp); CI cols CI_lower/CI_upper"
     expected_value: -1.6
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -399,7 +399,7 @@ claims:
     artifact_key: "row=Any Assistance,col=Observed_rate (0.021697)"
     expected_value: 2.17
     tolerance: 0.02
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -411,7 +411,7 @@ claims:
     artifact_key: "row=Any Assistance,col=Predicted_rate (0.037271)"
     expected_value: 3.73
     tolerance: 0.02
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -423,7 +423,7 @@ claims:
     artifact_key: "-ATT/Predicted_rate for Any Assistance = 1.557/3.727"
     expected_value: 42
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation: "Derived relative reduction from the dominated ATT and predicted rate."
     last_verified: 2026-08-17
 
@@ -435,7 +435,7 @@ claims:
     artifact_key: "row=Navigator,col=ATT (x100 = -0.90 pp); relative = 0.897/3.523"
     expected_value: -0.9
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -447,7 +447,7 @@ claims:
     artifact_key: "row=Agent/Broker,col=ATT (x100 = -1.83 pp); relative = 1.834/3.813"
     expected_value: -1.8
     tolerance: 0.1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -459,7 +459,7 @@ claims:
     artifact_key: "row=Any Assistance,col=att_new (-0.0226)"
     expected_value: -0.0226
     tolerance: 0.0005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -472,7 +472,7 @@ claims:
     artifact_key: "col=All Enrollees (Any -0.0156 / Agent -0.0183 / Navigator -0.0090)"
     expected_value: -0.0156
     tolerance: 0.0005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -527,7 +527,7 @@ claims:
     artifact_key: "row=Assisted,col=(1)"
     expected_value: -0.0152
     tolerance: 0.0005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -539,7 +539,7 @@ claims:
     artifact_key: "row=Assisted,col=(3)"
     expected_value: -0.0168
     tolerance: 0.0005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -551,7 +551,7 @@ claims:
     artifact_key: "row=Assisted,col=(4)"
     expected_value: -0.2564
     tolerance: 0.001
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -563,7 +563,7 @@ claims:
     artifact_key: "row=CF Residual,col=(4)"
     expected_value: 0.2402
     tolerance: 0.001
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -575,7 +575,7 @@ claims:
     artifact_key: "row=Assisted,col=(5)"
     expected_value: -0.0161
     tolerance: 0.0005
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
@@ -587,7 +587,7 @@ claims:
     artifact_key: "row=Observations"
     expected_value: 2993294
     tolerance: 1
-    status: PASS
+    status: STALE
     explanation:
     last_verified: 2026-08-17
 
