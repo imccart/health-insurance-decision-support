@@ -23,14 +23,12 @@
 #' @return List with rs_reg (risk score lm), claims_reg (claims lm),
 #'         rs_coefs (named vector), claims_coefs (named vector)
 
-# Risk-score demographics (Eq. 8): the plan's enrollment shares by age, income,
-# gender, family status, and race, each mapped to the per-household column the
-# counterfactual differentiates (dr/dp) and the uninsured-pool score uses.
-RS_DEMO_RAWCOL <- c(share_18to34 = "perc_18to34", share_35to54 = "perc_35to54",
-                    share_250to400 = "FPL_250to400", share_400plus = "FPL_400plus",
-                    share_male = "perc_male", share_family = "family",
-                    share_asian = "perc_asian", share_black = "perc_black",
-                    share_hispanic = "perc_hispanic", share_other = "perc_other")
+# Risk-score demographics: the plan's enrollment shares of members aged 0 to
+# 34, male, in a family household, and non-white (the REStat specification),
+# each mapped to the per-household column the counterfactual differentiates
+# (dr/dp) and the uninsured-pool score uses.
+RS_DEMO_RAWCOL <- c(share_0to34 = "perc_0to34", share_male = "perc_male",
+                    share_family = "family", share_minority = "perc_minority")
 RS_DEMO_TERMS <- names(RS_DEMO_RAWCOL)
 # Claims equation (Eq. 9): HMO, trend, big-four insurer indicators, and the
 # rating-area shares of the plan-year's enrollment (region 1 the base), which
@@ -123,7 +121,9 @@ compute_demographic_shares <- function(cell_data, V, lambda, V_base = NULL) {
   # Predicted shares from the choice model, one per RS_DEMO_TERMS entry (the
   # per-household column named in RS_DEMO_RAWCOL, choice-probability weighted).
   if (!"family" %in% names(ins_dt)) ins_dt[, family := as.integer(hh_size > 1L)]
-  if (!"FPL_le150" %in% names(ins_dt)) ins_dt[, FPL_le150 := as.integer(FPL <= 1.5)]
+  if (!"perc_0to34" %in% names(ins_dt)) ins_dt[, perc_0to34 := perc_0to17 + perc_18to34]
+  if (!"perc_minority" %in% names(ins_dt))
+    ins_dt[, perc_minority := perc_asian + perc_black + perc_hispanic + perc_other]
   # Per-member age rating factor of the plan's enrollees (the ARF of the
   # transfer formula): household rating factor over household size, weighted by
   # predicted members.

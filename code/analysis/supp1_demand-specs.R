@@ -38,7 +38,7 @@ stopifnot("choice_cells not found — run s2_demand.R first" = dir.exists(CELL_D
 
 # Specification sequence --------------------------------------------------
 price     <- "premium"
-plan_attr <- c("av", "hmo",
+plan_attr <- c("inside", "av", "hmo",
                "Anthem", "Blue_Shield", "Kaiser", "Health_Net")
 demo_het  <- c("hh_size_prem", "perc_0to17_prem", "perc_18to34_prem",
                "perc_35to54_prem", "perc_male_prem", "perc_black_prem",

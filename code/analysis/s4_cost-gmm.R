@@ -38,12 +38,7 @@ BETA0 <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta
 # commission conditions.
 mlr_admin <- read_csv("data/output/mlr_admin.csv", show_col_types = FALSE) %>%
   filter(!is.na(mm), is.finite(sales_ga_pmpm), is.finite(commission_pmpm))
-mlr_dm <- fixest::demean(X = as.matrix(mlr_admin[, c("sales_ga_pmpm", "commission_pmpm")]),
-                         f = mlr_admin[, c("insurer_prefix", "year")], weights = mlr_admin$mm)
-a_mlr <- mlr_dm[, 1]; c_mlr <- mlr_dm[, 2]
-w_mlr <- mlr_admin$mm / mean(mlr_admin$mm)
-VAR_C_MLR <- sum(w_mlr * c_mlr^2) / sum(w_mlr)          # scales the moment to units of beta
-cat("  MLR administrative-cost rows (M5):", nrow(mlr_admin), "\n")
+cat("  MLR administrative-cost rows:", nrow(mlr_admin), "\n")
 
 # --- FOC inputs per cell (moment 3) ---
 foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
@@ -126,26 +121,37 @@ COST_PREFIX <- c(Anthem = "ANT", Blue_Shield = "BS", Health_Net = "HN",
                  Western = "WEST", Valley = "VAL")
 N_INS_COST <- length(INS_COST)
 
-# --- M1 data matrices (SRRT risk scores) ---
-w_rs <- sqrt(rs_srrt$member_months)  # WLS weights
-X_rs <- as.matrix(rs_srrt %>% select(Silver, Gold, Platinum, all_of(RS_DEMO_TERMS)))
-y_rs <- rs_srrt$log_risk_score
-Z_rs <- cbind(1, X_rs)               # M1 instruments: intercept + regressors
+# --- Risk-score equation: weighted OLS on the SRRT rows (metal dummies and
+#     the predicted composition shares), estimated once and held fixed in the
+#     GMM, as in the REStat code ---
+rs_ols <- lm(reformulate(c("Silver", "Gold", "Platinum", RS_DEMO_TERMS), "log_risk_score"),
+             data = rs_srrt, weights = rs_srrt$member_months)
+alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum", RS_DEMO_TERMS)
+ALPHA_FIXED <- unname(coef(rs_ols)[alpha_names])
+cat("  Risk-score OLS (fixed): N =", nrow(rs_srrt), " R2 =", round(summary(rs_ols)$r.squared, 3), "\n")
+cat("    ", paste(alpha_names, round(ALPHA_FIXED, 3), collapse = "; "), "\n")
 
 # --- M2 data matrices (rate filing PUF claims) ---
-w_rf <- sqrt(rsdata$EXP_MM)          # WLS weights
-# Regressors of the predicted risk score for the claims rows (same terms as M1,
-# at the plan-year predicted shares)
+# Weights: member months normalized within insurer, so every insurer carries the
+# same total weight
+w_rf <- rsdata$EXP_MM / ave(rsdata$EXP_MM, rsdata$insurer_prefix, FUN = sum)
 X_rs_cl <- as.matrix(rsdata %>% select(Silver, Gold, Platinum, all_of(RS_DEMO_TERMS)))
 # Claims equation exogenous part (CLAIMS_EXOG_TERMS): HMO, trend, big-four
 # insurer indicators, rating-area shares. AV is OMITTED, since the risk score
 # carries generosity.
 X_cl_exog <- as.matrix(rsdata %>% select(all_of(CLAIMS_EXOG_TERMS)))
 y_cl <- rsdata$log_cost
-# M2 instruments: intercept + the SRRT plan-year log risk score + exogenous
-# regressors. The claims equation regresses on the PREDICTED risk score (see
-# compute_g_bar); the observed score instruments it.
-Z_cl <- cbind(1, rsdata$log_rs_srrt, X_cl_exog)
+CLAIMS_SCALE <- mean(exp(y_cl))      # normalization of the level residual
+# The risk score in the claims equation is the first-stage fitted value of the
+# observed SRRT plan-year score on the predicted score and the claims controls;
+# the instruments are the regressors themselves
+pred_log_rs_rf <- as.vector(ALPHA_FIXED[1] + X_rs_cl %*% ALPHA_FIXED[-1])
+rs_first_stage <- lm(rsdata$log_rs_srrt ~ pred_log_rs_rf + X_cl_exog, weights = rsdata$EXP_MM)
+log_rs_fs <- as.vector(fitted(rs_first_stage))
+cat("  Claims first stage: coefficient on the predicted score",
+    round(coef(rs_first_stage)[2], 3), " R2 =", round(summary(rs_first_stage)$r.squared, 3), "\n")
+W_cl <- cbind(1, log_rs_fs, X_cl_exog)   # claims regressors
+Z_cl <- W_cl                             # instruments
 
 # --- M3: Precompute FOC cell data ---
 # For each cell, we need plan characteristics to predict MC(alpha, gamma).
@@ -263,7 +269,6 @@ cat("  Below share floor", SHARE_FLOOR_FOC, "(dropped from the plan-year sums):"
 
 # M3 instruments: plan characteristics at the cell level (HMO varies across
 # regions within some plan-years), aggregated with the residual to the plan-year
-N_Z_FOC <- 6L + N_INS_COST  # intercept, Silver, Gold, Platinum, HMO, trend + INS_COST
 
 # M4: the insurer commission condition MB_fy = (1 - beta) MC_fy per insurer-year,
 # evaluated at the observed schedules and interacted with insurer indicators.
@@ -289,45 +294,97 @@ comm_struct <- lapply(foc_cells, function(fc) {
 })
 COMM_FIRMS <- sort(unique(unlist(lapply(comm_struct, function(cs)
   vapply(cs, function(x) x$firm, character(1))))))
-N_BETA   <- 1L
+# --- The commission block's parameter: beta by insurer characteristics ---
+# beta_fy = Z_BETA bcoef, with the insurer-year's log members, broker share of
+# its enrollment, and broker enrollees per agent in its regions (FOIA roster,
+# data-build step 6), each standardized over the commissioned insurer-years so
+# the intercept is the average insurer's beta. Estimated in stage 4 from the
+# commission conditions and the MLR relation with the cost coefficients held.
+broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE) %>%
+  mutate(bpa = total_broker_enrollees / n_agents) %>% select(region, year, bpa)
+fy_rows <- rbindlist(lapply(foc_cells, function(fc) {
+  pref <- sub("_.*", "", fc$plan_ids)
+  d <- as.data.frame(fc$demo_shares); dem <- d$demand[match(fc$plan_ids, d$plan_id)]
+  qb <- if (!is.null(fc$comm_qB)) fc$comm_qB else rep(NA_real_, length(pref))
+  data.table(firm = pref, year = fc$year, region = fc$region,
+             members = fc$N * dem, brokers = fc$N * qb)
+}))
+fy_rows <- merge(fy_rows, as.data.table(broker_density), by = c("region", "year"), all.x = TRUE)
+fy_cov <- fy_rows[, .(members = sum(members, na.rm = TRUE), brokers = sum(brokers, na.rm = TRUE),
+                      bpa = sum(members * bpa, na.rm = TRUE) / sum(members[!is.na(bpa)], na.rm = TRUE)),
+                  by = .(firm, year)]
+fy_cov[, key := paste(firm, year, sep = "_")]
+fy_cov[, `:=`(z_size = log(members), z_bshare = brokers / members, z_bpa = bpa)]
+COMM_KEYS <- sort(unique(unlist(lapply(seq_along(foc_cells), function(ci) {
+  cs <- comm_struct[[ci]]; if (is.null(cs)) return(NULL)
+  paste(vapply(cs, function(x) x$firm, character(1)), foc_cells[[ci]]$year, sep = "_") }))))
+zstd <- function(z, ref) (z - mean(z[ref], na.rm = TRUE)) / sd(z[ref], na.rm = TRUE)
+ref <- fy_cov$key %in% COMM_KEYS
+fy_cov[, `:=`(z_size = zstd(z_size, ref), z_bshare = zstd(z_bshare, ref), z_bpa = zstd(z_bpa, ref))]
+for (v in c("z_size", "z_bshare", "z_bpa")) fy_cov[!is.finite(get(v)), (v) := 0]
+Z_BETA <- as.matrix(fy_cov[, .(1, z_size, z_bshare, z_bpa)]); rownames(Z_BETA) <- fy_cov$key
+BETA_TERMS <- c("(Intercept)", "log_members", "broker_share", "broker_enrollees_per_agent")
+colnames(Z_BETA) <- BETA_TERMS
+cat("  beta covariates: ", nrow(Z_BETA), " insurer-years (", sum(ref), " with commission conditions)\n")
+# The MLR rows carry the same covariates (insurer-years without cells drop out)
+mlr_admin <- mlr_admin %>% mutate(key = paste(insurer_prefix, year, sep = "_")) %>%
+  filter(key %in% rownames(Z_BETA))
+mlr_dm <- fixest::demean(X = as.matrix(mlr_admin[, c("sales_ga_pmpm", "commission_pmpm")]),
+                         f = mlr_admin[, c("insurer_prefix", "year")], weights = mlr_admin$mm)
+a_mlr <- mlr_dm[, 1]; c_mlr <- mlr_dm[, 2]
+w_mlr <- mlr_admin$mm / mean(mlr_admin$mm)
+VAR_C_MLR <- sum(w_mlr * c_mlr^2) / sum(w_mlr)
+Z_MLR <- Z_BETA[mlr_admin$key, , drop = FALSE]
+cat("  MLR rows with covariates (M5):", nrow(Z_MLR), "\n")
+BCOEF <- NULL; BETA_FY <- NULL; BETA_FY_DEFAULT <- NULL
+set_beta <- function(bcoef) {
+  BCOEF <<- bcoef
+  BETA_FY <<- setNames(as.vector(Z_BETA %*% bcoef), rownames(Z_BETA))
+  BETA_FY_DEFAULT <<- bcoef[1]
+  invisible(NULL)
+}
+set_beta(c(BETA0, 0, 0, 0))
+# (1 - beta) for each plan of a cell, by the plan's insurer-year
+cs_of <- function(fc) {
+  b <- BETA_FY[paste(sub("_.*", "", fc$plan_ids), fc$year, sep = "_")]
+  b[is.na(b)] <- BETA_FY_DEFAULT
+  1 - unname(b)
+}
+
 N_Z_COMM <- length(COMM_FIRMS)                     # insurer indicators
-N_Z_MLR  <- 1L                                     # the MLR administrative-cost relation
-N_MOMENTS <- ncol(Z_rs) + ncol(Z_cl) + N_Z_FOC + N_Z_COMM + N_Z_MLR
-IDX_M1 <- seq_len(ncol(Z_rs))
-IDX_M2 <- ncol(Z_rs) + seq_len(ncol(Z_cl))
-IDX_M3 <- ncol(Z_rs) + ncol(Z_cl) + seq_len(N_Z_FOC)
-IDX_M4 <- ncol(Z_rs) + ncol(Z_cl) + N_Z_FOC + seq_len(N_Z_COMM)
-IDX_M5 <- N_MOMENTS
-cat("  Total moment conditions:", N_MOMENTS, "(M1:", ncol(Z_rs),
-    " M2:", ncol(Z_cl), " M3:", N_Z_FOC, " M4:", N_Z_COMM, " M5:", N_Z_MLR, ")\n")
+N_Z_MLR  <- ncol(Z_MLR)                            # the MLR relation, by covariate
+# M3: one moment per plan-year with at least one plan-cell above the share floor
+PY_OK <- rep(FALSE, N_PY)
+for (fc in foc_cells) PY_OK[fc$py_idx[fc$shares >= SHARE_FLOOR_FOC]] <- TRUE
+N_M3 <- sum(PY_OK)
+# The GMM moments are the claims equation (M2) and the plan-year pricing
+# conditions (M3), as in the REStat estimator. The commission conditions (M4)
+# and the MLR relation (M5) are evaluated at the fixed beta as diagnostics.
+N_MOMENTS <- ncol(Z_cl) + N_M3
+IDX_M2 <- seq_len(ncol(Z_cl))
+IDX_M3 <- ncol(Z_cl) + seq_len(N_M3)
+cat("  Total moment conditions:", N_MOMENTS, "(M2:", ncol(Z_cl), " M3:", N_M3, ")\n")
 
 # =========================================================================
 # PARAMETER LAYOUT
 # =========================================================================
 
-alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum", RS_DEMO_TERMS)
 gamma_names <- c("(Intercept)", "log_risk_score", CLAIMS_EXOG_TERMS)
-N_ALPHA <- length(alpha_names)   # intercept, 3 metal dummies, demographic shares
+N_ALPHA <- 0L                    # the risk-score coefficients are fixed (ALPHA_FIXED)
 N_GAMMA <- length(gamma_names)   # intercept, log_risk_score, exogenous claims terms
+# beta, the administrative saving per commission dollar, is held at its current
+# stage-4 value while the cost coefficients are estimated (BETA_FY; the MLR
+# within-insurer estimate at the start)
 
-# Starting values from OLS
-rs_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_rs_coefs.csv"), show_col_types = FALSE)
+# Starting values: the claims OLS from s3
 cl_coefs_start <- read_csv(file.path(TEMP_DIR, "ra_claims_coefs.csv"), show_col_types = FALSE)
-
-alpha0_raw <- setNames(rs_coefs_start$estimate, rs_coefs_start$term)[alpha_names]
-alpha0_raw[is.na(alpha0_raw)] <- 0  # any aliased insurer FE -> baseline
-alpha0 <- unname(alpha0_raw)
 gamma0_raw <- setNames(cl_coefs_start$estimate, cl_coefs_start$term)[gamma_names]
 gamma0_raw[is.na(gamma0_raw)] <- 0
 gamma0 <- unname(gamma0_raw)
-
-# Commission substitution start: the within-insurer MLR relation (step 9)
-beta0 <- BETA0
-theta0 <- c(alpha0, gamma0, beta0)
+theta0 <- gamma0
 cat("  Starting values (OLS):\n")
-cat("    alpha:", round(alpha0, 4), "\n")
 cat("    gamma:", round(gamma0, 4), "\n")
-cat("    beta:", round(beta0, 4), "\n")
+cat("    beta (start, MLR):", round(BETA0, 4), "\n")
 
 # =========================================================================
 # MOMENT FUNCTION
@@ -335,10 +392,14 @@ cat("    beta:", round(beta0, 4), "\n")
 
 # Computes g_bar(theta): the N_MOMENTS-vector of averaged moment conditions.
 #
-# M1: E[Z_rs' * (log_rs_obs - alpha'X)] = 0   (risk scores)
-# M2: E[Z_cl' * (log_cl_obs - gamma'W)] = 0   (claims)
-# M3: E[Z_foc' * foc_residual] = 0             (pricing FOC, evaluated directly)
-# M4: E[MB_ft / MC_ft - 1] = 0                  (commission FOC per insurer-year)
+# The risk-score coefficients (alpha) are fixed at the SRRT OLS above.
+# M2: E[W_cl' * (cl_obs - exp(gamma'W))] = 0  (claims, in levels: fits the mean
+#     claims per member-month; a log residual understates the mean where claims
+#     are dispersed, which is the platinum plans)
+# M3: one moment per plan-year, the marginal cost the observed price implies
+#     minus the model's, in dollars per member-month (the plan-year FOC residual
+#     divided by its own-price term)
+# M4: E[MB_ft / MC_ft - (1 - beta)] = 0        (commission condition per insurer-year)
 #
 # FOC residual for plan j in cell c:
 #   foc_j = s_j + sum_k Omega_{jk} * (p_k - MC_k(alpha,gamma)) + sum_k Omega_broker_{jk} * comm_k
@@ -351,32 +412,24 @@ cat("    beta:", round(beta0, 4), "\n")
 # and the SE sandwich share one code path (cost_gmm_sandwich_se).
 compute_g_bar <- function(theta, return_contributions = FALSE) {
 
-  alpha <- theta[1:N_ALPHA]
-  gamma <- theta[(N_ALPHA + 1):(N_ALPHA + N_GAMMA)]
-  beta <- theta[N_ALPHA + N_GAMMA + 1]
+  alpha <- ALPHA_FIXED
+  gamma <- theta[1:N_GAMMA]
 
-  # --- M1: Risk score residuals (SRRT rows) ---
-  pred_log_rs_srrt <- alpha[1] + X_rs %*% alpha[2:N_ALPHA]
-  eps_rs <- as.vector(y_rs - pred_log_rs_srrt) * w_rs
-  M1_mat <- Z_rs * eps_rs           # n_rs x ncol(Z_rs)
-  g_rs <- colMeans(M1_mat)
-
-  # --- M2: Claims residuals (PUF rows) ---
-  # Regress claims on the PREDICTED risk score at the plan-year predicted shares,
-  # matching the FOC and counterfactual, which also predict claims from the
-  # fitted score. The SRRT plan-year score is the instrument in Z_cl.
-  pred_log_rs_rf <- alpha[1] + X_rs_cl %*% alpha[2:N_ALPHA]
-  pred_log_cl_rf <- gamma[1] + gamma[2] * pred_log_rs_rf + X_cl_exog %*% gamma[3:N_GAMMA]
-  eps_cl <- as.vector(y_cl - pred_log_cl_rf) * w_rf
+  # --- M2: Claims residuals (PUF rows), level residual in units of the mean
+  #     filed claims so the block is O(1) ---
+  pred_log_cl_rf <- as.vector(W_cl %*% gamma)
+  eps_cl <- as.vector(exp(y_cl) - exp(pred_log_cl_rf)) / CLAIMS_SCALE * w_rf
   M2_mat <- Z_cl * eps_cl           # n_rf x ncol(Z_cl)
   g_cl <- colMeans(M2_mat)
 
   # --- M3: plan-year pricing FOC, accumulated from the per-cell residuals ---
-  # M3_py[jy, ] = sum_c Z_jc w_jc foc_resid_jc, w_py[jy] = sum_c w_jc, with
-  # w_jc = N_c g_jc; the moment is the mean over plan-years of M3_py / w_py.
-  M3_py <- matrix(0, N_PY, N_Z_FOC)
+  # M3_num[jy] = sum_c w_jc foc_resid_jc, ow_py[jy] = sum_c w_jc Omega_jj,c with
+  # w_jc = N_c g_jc; the plan-year moment is M3_num / ow_py, the residual in
+  # dollars per member-month (implied minus model marginal cost).
+  M3_num <- numeric(N_PY)
   w_py  <- numeric(N_PY)
   ow_py <- numeric(N_PY)                      # sum_c w_jc Omega_jj,c (dollar scale of the residual)
+  cp_row <- integer(0); cp_py <- integer(0); cp_val <- numeric(0)   # plan-cell pieces (for the covariance)
   MB_fy <- numeric(0); MC_fy <- numeric(0)   # M4 accumulators keyed firm_year
   qB_fy <- numeric(0)
   cell_mc <- vector("list", length(foc_cells)); cell_env <- vector("list", length(foc_cells))
@@ -419,15 +472,11 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     } else if (!is.null(fc$ra_foc)) fc$ra_foc else rep(0, J)
     foc_resid <- fc$shares + ra_foc_cell -
                  as.vector(fc$Omega %*% (fc$posted_premium - mc)) +
-                 (1 - beta) * as.vector(fc$Omega_broker %*% fc$comm_vec)
+                 as.vector(fc$Omega_broker %*% (cs_of(fc) * fc$comm_vec))
 
     # Kept for the commission pieces (pass C), which use the plan-year pricing
     # residual of this pass in the margin
     cell_mc[[ci]] <- mc; cell_env[[ci]] <- ra_env
-
-    # Instruments for this cell: intercept + plan characteristics + insurer dummies
-    Z_cell <- cbind(1, fc$Silver, fc$Gold, fc$Platinum, fc$HMO, fc$trend,
-                    sapply(INS_COST, function(ins) fc[[ins]]))
 
     # Share floor: a plan with near-zero share in a cell has an uninformative
     # piece there, so it is left out of that plan-year's sum. It stays in the
@@ -436,33 +485,35 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     if (any(keep)) {
       idx <- fc$py_idx[keep]
       w   <- fc$w_py[keep]
-      M3_py[idx, ] <- M3_py[idx, , drop = FALSE] + Z_cell[keep, , drop = FALSE] * (w * foc_resid[keep])
+      M3_num[idx] <- M3_num[idx] + w * foc_resid[keep]
       w_py[idx]  <- w_py[idx] + w
       ow_py[idx] <- ow_py[idx] + w * diag(fc$Omega)[keep]
+      cp_row <- c(cp_row, length(cp_row) + seq_along(idx)); cp_py <- c(cp_py, idx); cp_val <- c(cp_val, w * foc_resid[keep])
     }
   }
 
-  py_ok <- w_py > 0
-  M3_py <- M3_py[py_ok, , drop = FALSE] / w_py[py_ok]   # per-member share units
-  g_foc <- colMeans(M3_py)                                # average across plan-years
-  # Plan-year pricing residual in dollars: the margin the insurer's pricing implies
-  # exceeds the model's margin by this amount (positive when the structural cost
-  # sits above what pricing implies). It enters the commission benefit below so
-  # both conditions see the same margin.
+  # Plan-year pricing residual in dollars: the marginal cost the observed price
+  # implies minus the model's (positive when the model's cost sits below what
+  # pricing implies). One moment per plan-year.
   e_dollars_py <- numeric(N_PY)
-  e_dollars_py[py_ok] <- M3_py[, 1] / (ow_py[py_ok] / w_py[py_ok])
+  e_dollars_py[PY_OK] <- M3_num[PY_OK] / ow_py[PY_OK]
+  g_foc <- e_dollars_py[PY_OK]
+  # Plan-cell pieces of each plan-year moment, scaled so the column means
+  # reproduce g_foc (the covariance treats the plan-cells as the observations)
+  M3_mat <- matrix(0, length(cp_row), N_M3)
+  M3_mat[cbind(cp_row, match(cp_py, which(PY_OK)))] <- length(cp_row) * cp_val / ow_py[cp_py]
 
   # Pass C: commission pieces at the current cost parameters. MB_f = sum over the
-  # insurer's plans of the pricing-consistent margin x d qB / d k plus the
-  # risk-adjustment response; MC_f = commission outlay. Each is in the cell's
-  # share units, so the insurer-year sums across cells weight by the cell's members.
+  # insurer's plans of the model margin x d qB / d k plus the risk-adjustment
+  # response; MC_f = commission outlay. Each is in the cell's share units, so the
+  # insurer-year sums across cells weight by the cell's members.
   for (ci in seq_along(foc_cells)) {
     cs <- comm_struct[[ci]]
     if (is.null(cs)) next
     fc <- foc_cells[[ci]]
     ra_eta <- compute_ra_foc(setNames(cell_rs[[ci]], fc$plan_ids), fc$shares, fc$plan_avs,
                              cell_env[[ci]], fc$comm_D, fc$own_mat)
-    margin <- fc$posted_premium - cell_mc[[ci]] - (1 - beta) * fc$comm_vec + e_dollars_py[fc$py_idx]
+    margin <- fc$posted_premium - cell_mc[[ci]] - cs_of(fc) * fc$comm_vec
     for (cf_ in cs) {
       key <- paste(cf_$firm, fc$year, sep = "_")
       MBf <- sum(margin[cf_$ii] * cf_$dq[cf_$ii]) + sum(fc$comm_vec[cf_$ii] * ra_eta[cf_$ii])
@@ -484,15 +535,19 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   # A parameter step that makes every MB non-finite leaves no M4 rows; return a
   # large moment vector so the optimizer rejects the step.
   if (length(keys4) == 0) return(rep(1e3, N_MOMENTS))
-  phi4 <- r4 + beta
+  b4 <- BETA_FY[keys4]; b4[is.na(b4)] <- BETA_FY_DEFAULT
+  phi4 <- r4 + unname(b4)
   Z4 <- 1 * outer(firm4, COMM_FIRMS, "==")
-  g_comm <- as.numeric(crossprod(Z4, phi4)) / length(phi4)
+  M4_mat <- Z4 * phi4
+  g_comm <- colMeans(M4_mat)
 
-  # --- M5: the MLR administrative-cost relation, a_tilde = -beta c_tilde + e ---
-  M5_mat <- matrix(w_mlr * c_mlr * (a_mlr + beta * c_mlr) / VAR_C_MLR, ncol = 1)
-  g_mlr <- mean(M5_mat)
+  # --- M5: the MLR administrative-cost relation, a_tilde = -beta_f c_tilde + e,
+  #     beta_f from the same covariates, instrumented by c_tilde x covariates ---
+  beta_mlr <- as.vector(Z_MLR %*% BCOEF)
+  M5_mat <- (w_mlr * c_mlr * (a_mlr + beta_mlr * c_mlr) / VAR_C_MLR) * Z_MLR
+  g_mlr <- colMeans(M5_mat)
 
-  g <- c(g_rs, g_cl, g_foc, g_comm, g_mlr)
+  g <- c(g_cl, g_foc)
   if (!return_contributions) return(g)
   list(g       = g,
        ra_state = data.frame(year = FOC_YEARS, R = as.numeric(R_state[as.character(FOC_YEARS)]),
@@ -506,18 +561,16 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
                              A = sapply(foc_cells, function(fc) fc$A_own),
                              M = sapply(foc_cells, function(fc) fc$M_own)),
        # Moment blocks for the covariance: one row per observation of each block
-       # (SRRT rows, PUF rows, plan-years, insurer-years); blocks are treated as
-       # independent
-       blocks  = list(list(mat = M1_mat, n = nrow(M1_mat)),
-                      list(mat = M2_mat, n = nrow(M2_mat)),
-                      list(mat = M3_py, n = nrow(M3_py)),
-                      list(mat = Z4 * phi4, n = length(phi4)),
-                      list(mat = M5_mat, n = nrow(M5_mat))),
+       # (PUF rows, plan-cells, insurer-years, MLR insurer-years); blocks are
+       # treated as independent
+       blocks  = list(list(mat = M2_mat, n = nrow(M2_mat)),
+                      list(mat = M3_mat, n = nrow(M3_mat))),
+       g_comm  = g_comm, g_mlr = g_mlr, M4_mat = M4_mat, M5_mat = M5_mat,
        # Plan-year FOC residuals: per member (share units) and in dollars
-       foc_py  = data.frame(key = PY_KEYS[py_ok], G_per_member = M3_py[, 1],
-                            G_dollars = M3_py[, 1] / (ow_py[py_ok] / w_py[py_ok]),
+       foc_py  = data.frame(key = PY_KEYS[PY_OK], G_per_member = M3_num[PY_OK] / w_py[PY_OK],
+                            G_dollars = e_dollars_py[PY_OK],
                             stringsAsFactors = FALSE),
-       n_foc   = nrow(M3_py),
+       n_foc   = N_M3,
        n_comm  = length(r4),
        comm_fy = data.frame(key = keys4, MB = MB_fy[ok4], MC = MC_fy[ok4],
                             mu_hat = r4, comm_bar = cbar, phi = phi4, stringsAsFactors = FALSE))
@@ -544,11 +597,8 @@ cat("  g_bar(theta0):", round(g_init, 4), "\n")
 cat("  any NA/NaN/Inf:", any(!is.finite(g_init)), "\n")
 if (any(!is.finite(g_init))) {
   cat("  non-finite indices:", which(!is.finite(g_init)), "\n")
-  cat("  M1:", round(g_init[1:ncol(Z_rs)], 4), "\n")
-  cat("  M2:", round(g_init[(ncol(Z_rs)+1):(ncol(Z_rs)+ncol(Z_cl))], 4), "\n")
+  cat("  M2:", round(g_init[IDX_M2], 4), "\n")
   cat("  M3:", round(g_init[IDX_M3], 4), "\n")
-  cat("  M4:", round(g_init[IDX_M4], 4), "\n")
-  cat("  M5:", round(g_init[IDX_M5], 4), "\n")
   stop("Cannot proceed with non-finite initial moments")
 }
 
@@ -565,21 +615,15 @@ result1 <- optim(
 cat("  Converged:", result1$convergence == 0, "\n")
 cat("  Objective:", format(result1$value, digits = 6), "\n")
 
-alpha1 <- result1$par[1:N_ALPHA]
-gamma1 <- result1$par[(N_ALPHA + 1):(N_ALPHA + N_GAMMA)]
-beta1 <- result1$par[N_ALPHA + N_GAMMA + 1]
+gamma1 <- result1$par[1:N_GAMMA]
 
-cat("  alpha (Step 1):", round(alpha1, 4), "\n")
 cat("  gamma (Step 1):", round(gamma1, 4), "\n")
-cat("  beta (Step 1):", round(beta1, 4), "\n")
 
 g1 <- compute_g_bar(result1$par)
 cat("  g_bar at Step 1:\n")
-cat("    M1 (risk score):", round(g1[1:ncol(Z_rs)], 4), "\n")
-cat("    M2 (claims):", round(g1[(ncol(Z_rs)+1):(ncol(Z_rs)+ncol(Z_cl))], 4), "\n")
-cat("    M3 (FOC):", round(g1[IDX_M3], 6), "\n")
-cat("    M4 (commission FOC):", round(g1[IDX_M4], 6), "\n")
-cat("    M5 (MLR admin):", round(g1[IDX_M5], 6), "\n")
+cat("    M2 (claims):", round(g1[IDX_M2], 4), "\n")
+cat("    M3 (FOC, $ per member-month): mean", round(mean(g1[IDX_M3]), 2),
+    " RMS", round(sqrt(mean(g1[IDX_M3]^2)), 2), "\n")
 
 # =========================================================================
 # STEP 2: OPTIMAL WEIGHTING
@@ -605,16 +649,22 @@ S <- moment_cov_blocks(contr1$blocks, N_MOMENTS)
 # most likely in the FOC block) a plain solve() is unstable, so ridge the diagonal and
 # warn. A tiny rcond here is the signal that the analytical route is fragile and we
 # should fall back to bootstrapping the SEs.
-S_rcond <- rcond(S)
-cat("  Moment-covariance rcond:", format(S_rcond, digits = 3),
+# The blocks are on different scales (the pricing moments in dollars, the rest
+# unit-free), so the inverse is taken on the correlation form, S normalized by
+# its diagonal, and mapped back; a ridge, if needed, is then relative to each
+# moment's own variance rather than to the largest block's.
+d_S <- sqrt(diag(S))
+S_corr <- S / tcrossprod(d_S)
+S_rcond <- rcond(S_corr)
+cat("  Moment-correlation rcond:", format(S_rcond, digits = 3),
     " (small => ill-conditioned; consider bootstrap)\n")
 if (is.na(S_rcond) || S_rcond < 1e-12) {
-  ridge <- 1e-6 * mean(diag(S))
-  cat("  S ill-conditioned; ridge-regularizing diagonal by", format(ridge, digits = 3), "\n")
-  W2 <- solve(S + diag(ridge, N_MOMENTS))
+  cat("  S ill-conditioned; ridge-regularizing the correlation diagonal by 1e-6\n")
+  S_corr_inv <- solve(S_corr + diag(1e-6, N_MOMENTS))
 } else {
-  W2 <- solve(S)
+  S_corr_inv <- solve(S_corr)
 }
+W2 <- S_corr_inv / tcrossprod(d_S)
 
 result2 <- optim(
   par = result1$par,
@@ -627,21 +677,61 @@ result2 <- optim(
 cat("  Converged:", result2$convergence == 0, "\n")
 cat("  Objective:", format(result2$value, digits = 6), "\n")
 
-alpha_gmm <- result2$par[1:N_ALPHA]
-gamma_gmm <- result2$par[(N_ALPHA + 1):(N_ALPHA + N_GAMMA)]
-beta_gmm <- result2$par[N_ALPHA + N_GAMMA + 1]
+# =========================================================================
+# STAGE 4: THE COMMISSION BLOCK, beta by insurer characteristics
+# =========================================================================
+# bcoef from the commission conditions (M4, insurer indicators) and the MLR
+# relation (M5, covariate instruments), two-step GMM with the cost coefficients
+# held; then the cost GMM is re-run at the new beta and the block re-estimated,
+# twice, so each block's estimate is computed at the other's final values.
 
-cat("\n  alpha (GMM):", round(alpha_gmm, 4), "\n")
+beta_moments <- function(bcoef, gamma, contributions = FALSE) {
+  set_beta(bcoef)
+  cc <- compute_g_bar(gamma, return_contributions = TRUE)
+  if (contributions) return(cc)
+  c(colMeans(cc$M4_mat), colMeans(cc$M5_mat))
+}
+estimate_beta <- function(bstart, gamma) {
+  n4 <- N_Z_COMM + N_Z_MLR
+  obj <- function(b, W) { g <- beta_moments(b, gamma); as.numeric(t(g) %*% W %*% g) }
+  r1 <- optim(bstart, obj, W = diag(n4), method = "BFGS", control = list(maxit = 500, reltol = 1e-10))
+  cc <- beta_moments(r1$par, gamma, contributions = TRUE)
+  S4 <- moment_cov_blocks(list(list(mat = cc$M4_mat, n = nrow(cc$M4_mat)),
+                               list(mat = cc$M5_mat, n = nrow(cc$M5_mat))), n4)
+  d4 <- sqrt(diag(S4)); S4c <- S4 / tcrossprod(d4)
+  S4c_inv <- if (is.na(rcond(S4c)) || rcond(S4c) < 1e-12) solve(S4c + diag(1e-6, n4)) else solve(S4c)
+  W4 <- S4c_inv / tcrossprod(d4)
+  r2 <- optim(r1$par, obj, W = W4, method = "BFGS", control = list(maxit = 500, reltol = 1e-10))
+  set_beta(r2$par)
+  list(bcoef = r2$par, W = W4, value = r2$value)
+}
+cat("\n--- Stage 4: beta by insurer characteristics (commission conditions + MLR relation) ---\n")
+stage4 <- estimate_beta(BCOEF, result2$par)
+cat("  bcoef:", paste(BETA_TERMS, round(stage4$bcoef, 4), collapse = "; "), "\n")
+for (cycle in 1:2) {
+  cat(sprintf("\n--- Cycle %d: cost GMM at the new beta, then the commission block ---\n", cycle))
+  set_beta(stage4$bcoef)
+  result2 <- optim(par = result2$par, fn = gmm_objective, W = W2, method = "BFGS",
+                   control = list(maxit = 2000, reltol = 1e-12))
+  cat("  cost objective:", format(result2$value, digits = 6), " gamma[2] =", round(result2$par[2], 4), "\n")
+  stage4 <- estimate_beta(stage4$bcoef, result2$par)
+  cat("  bcoef:", paste(BETA_TERMS, round(stage4$bcoef, 4), collapse = "; "), "\n")
+}
+set_beta(stage4$bcoef)
+
+alpha_gmm <- ALPHA_FIXED
+gamma_gmm <- result2$par[1:N_GAMMA]
+beta_gmm <- BCOEF
+
+cat("\n  alpha (fixed OLS):", round(alpha_gmm, 4), "\n")
 cat("  gamma (GMM):", round(gamma_gmm, 4), "\n")
-cat("  beta (GMM):", round(beta_gmm, 4), "\n")
+cat("  beta coefficients:", round(beta_gmm, 4), "\n")
 
 g2 <- compute_g_bar(result2$par)
 cat("  g_bar at Step 2:\n")
-cat("    M1 (risk score):", round(g2[1:ncol(Z_rs)], 4), "\n")
-cat("    M2 (claims):", round(g2[(ncol(Z_rs)+1):(ncol(Z_rs)+ncol(Z_cl))], 4), "\n")
-cat("    M3 (FOC):", round(g2[IDX_M3], 6), "\n")
-cat("    M4 (commission FOC):", round(g2[IDX_M4], 6), "\n")
-cat("    M5 (MLR admin):", round(g2[IDX_M5], 6), "\n")
+cat("    M2 (claims):", round(g2[IDX_M2], 4), "\n")
+cat("    M3 (FOC, $ per member-month): mean", round(mean(g2[IDX_M3]), 2),
+    " RMS", round(sqrt(mean(g2[IDX_M3]^2)), 2), "\n")
 
 # =========================================================================
 # DIAGNOSTICS
@@ -657,17 +747,14 @@ cat("    GMM:", round(sqrt(sum(g2^2)), 4), "\n")
 
 # FOC residual distribution (how well does MC(alpha,gamma) satisfy the FOC?)
 cat("\n  FOC moment breakdown (should be near 0):\n")
-cat("    OLS g_foc:", round(g_ols[IDX_M3], 6), "\n")
-cat("    GMM g_foc:", round(g2[IDX_M3], 6), "\n")
-cat("    OLS g_comm:", round(g_ols[IDX_M4], 6), "\n")
-cat("    GMM g_comm:", round(g2[IDX_M4], 6), "\n")
-cat("    OLS g_mlr:", round(g_ols[IDX_M5], 6), " GMM g_mlr:", round(g2[IDX_M5], 6), "\n")
+cat("    OLS g_foc: mean", round(mean(g_ols[IDX_M3]), 2), " RMS", round(sqrt(mean(g_ols[IDX_M3]^2)), 2), "\n")
+cat("    GMM g_foc: mean", round(mean(g2[IDX_M3]), 2), " RMS", round(sqrt(mean(g2[IDX_M3]^2)), 2), "\n")
 
 # Parameter comparison
 cat("\n  Parameter comparison (OLS → GMM):\n")
 comp <- data.frame(
-  param = c(alpha_names, gamma_names, "beta_admin"),
-  equation = c(rep("risk_score", N_ALPHA), rep("claims", N_GAMMA), "commission"),
+  param = gamma_names,
+  equation = rep("claims", N_GAMMA),
   OLS = round(theta0, 4),
   GMM = round(result2$par, 4),
   change = round(result2$par - theta0, 4)
@@ -696,8 +783,7 @@ mc_check <- bind_rows(mc_rows) %>%
 print(mc_check)
 cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
     " | risk-score metal effects:", round(alpha_gmm[2:4], 3),
-    " demographic shares:", round(alpha_gmm[5:7], 3), "
-")
+    " composition shares:", round(alpha_gmm[-(1:4)], 3), "\n")
 
 # =========================================================================
 # M4 DIAGNOSTIC: commission condition residuals at the GMM solution
@@ -713,8 +799,13 @@ comm_fy <- contr2$comm_fy %>%
   tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE)
 cat("  insurer-year conditions:", nrow(comm_fy),
     " | distinct insurers:", n_distinct(comm_fy$firm), "\n")
-cat("  beta (administrative saving per commission dollar):", round(beta_gmm, 3),
-    " | MLR starting value:", round(beta0, 3), "\n")
+cat("  beta coefficients (standardized covariates):", paste(BETA_TERMS, round(BCOEF, 3), collapse = "; "), "\n")
+beta_fy_df <- tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
+  tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE) %>%
+  filter(paste(firm, year, sep = "_") %in% COMM_KEYS)
+cat("  beta by insurer (mean over years):\n")
+print(beta_fy_df %>% group_by(firm) %>% summarise(beta = round(mean(beta), 3), .groups = "drop"), n = Inf)
+cat("  commission condition moments:", round(contr2$g_comm, 4), " | MLR moments:", round(contr2$g_mlr, 4), "\n")
 cat("  mu_hat = MB/MC - 1: mean", round(mean(comm_fy$mu_hat), 3),
     " sd", round(sd(comm_fy$mu_hat), 3), " | residual phi: mean", round(mean(comm_fy$phi), 3),
     " sd", round(sd(comm_fy$phi), 3), "\n")
@@ -722,7 +813,10 @@ print(comm_fy %>% group_by(firm) %>%
         summarise(n = n(), MB_MC = round(mean(mu_hat) + 1, 2), comm_bar = round(mean(comm_bar), 2),
                   phi = round(mean(phi), 3), .groups = "drop"), n = Inf)
 
-write_csv(tibble(term = "beta_admin", estimate = beta_gmm), file.path(TEMP_DIR, "commission_beta.csv"))
+write_csv(tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
+            tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE),
+          file.path(TEMP_DIR, "commission_beta.csv"))
+write_csv(tibble(term = BETA_TERMS, estimate = BCOEF), file.path(TEMP_DIR, "commission_beta_coefs.csv"))
 write_csv(comm_fy %>% select(firm, year, MB, MC, mu_hat, comm_bar, phi),
           file.path(TEMP_DIR, "commission_foc_fit.csv"))
 cat("  Saved commission_beta.csv and commission_foc_fit.csv\n")

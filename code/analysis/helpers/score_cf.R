@@ -26,13 +26,19 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   pa <- pa[match(plan_ids_cell, pa$plan_id), ]
   p_obs    <- setNames(pa$premium_posted, plan_ids_cell)
   sil <- pa[pa$silver == 1, ]; sil <- sil[order(sil$premium_posted), ]
-  benchmark_plan <- if (nrow(sil) < 2) sil$plan_id[1] else sil$plan_id[2]
+  silver_ids <- sil$plan_id
+  benchmark_plan <- if (nrow(sil) < 2) sil$plan_id[1] else sil$plan_id[2]   # at observed premiums
 
   # --- frozen closures (copies of helpers/cf_cell.R) ---
+  # The benchmark (2nd cheapest silver) is re-picked at the candidate premiums,
+  # as in the solve; the subsidy is anchored to the data-build value at the
+  # observed benchmark.
   update_premiums <- function(dt, p_vec) {
     rf_i <- dt$rating_factor / RATING_FACTOR_AGE40
-    if (!is.na(benchmark_plan) && benchmark_plan %in% names(p_vec)) {
-      d_bench       <- p_vec[[benchmark_plan]] - p_obs[[benchmark_plan]]
+    sc <- silver_ids[silver_ids %in% names(p_vec)]
+    bench_cur <- if (length(sc) == 0) NA_character_ else { sc <- sc[order(p_vec[sc])]; if (length(sc) == 1) sc[1] else sc[2] }
+    if (!is.na(bench_cur) && !is.na(benchmark_plan)) {
+      d_bench       <- p_vec[[bench_cur]] - p_obs[[benchmark_plan]]
       premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
       sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
       dt[, subsidy_cf := fifelse(subsidized == 1L, sub_endog, adj_subsidy)]
@@ -168,10 +174,13 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       enr[is.na(eta), eta := 0]
       # mc carries claims net of transfers plus the insurer's administrative cost
       # per member; a commission dollar offsets beta of administrative cost on
-      # the broker enrollees it is paid for (commission_beta.csv, s4)
-      beta_adm <- if (exists("BETA_ADMIN")) BETA_ADMIN else {
+      # the broker enrollees it is paid for, beta by insurer-year
+      # (commission_beta.csv, s4)
+      beta_lookup <- if (exists("BETA_LOOKUP")) BETA_LOOKUP else {
         bf <- file.path(TEMP_DIR, "commission_beta.csv")
-        if (file.exists(bf)) read.csv(bf)$estimate[1] else 0 }
+        if (file.exists(bf)) { bl <- read.csv(bf); setNames(bl$beta, paste(bl$firm, bl$year, sep = "_")) } else 0 }
+      enr[, beta_adm := beta_lookup[paste(sub("_.*", "", plan_id), y, sep = "_")]]
+      enr[is.na(beta_adm), beta_adm := mean(beta_lookup)]
       ps_month <- enr[, sum((p - mc) * mem - (1 - beta_adm) * eta * mem_b, na.rm = TRUE)]
       ins[, sub_paid := pmin((p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor, subsidy_cf)]
       ins[is.na(sub_paid), sub_paid := 0]

@@ -227,6 +227,7 @@ cat("\n--- Table: Structural Demand Estimates ---\n")
 if (nrow(coefs_structural) > 0) {
   # Clean term names for display
   label_map <- c(
+    "inside"             = "Insured (constant)",
     "premium"            = "Premium",
     "penalty_own"        = "Penalty (outside option)",
     "premium_sq"         = "Premium$^2$",

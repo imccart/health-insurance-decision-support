@@ -33,7 +33,8 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
                          admin_lookup, beta_admin) {
   # admin_lookup: the insurer's non-commission administrative cost per member
   # (MLR), keyed prefix_year; beta_admin: the administrative saving per
-  # commission dollar on a broker enrollee (s4). Both enter marginal cost.
+  # commission dollar on a broker enrollee by insurer-year (s4), keyed
+  # prefix_year. Both enter marginal cost.
   .cf$cell <- NULL; .cf$scen <- NULL; .cf$ev <- NULL
 
   sr_cell <- supply_results %>%
@@ -83,7 +84,8 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   pct_plan <- plan_prefix %in% pct_prefixes
   rho_obs  <- ifelse(pct_plan & p_obs > 0, comm_obs / p_obs, 0)
 
-  # 2nd cheapest Silver by posted premium (ACA benchmark); identity fixed
+  # 2nd cheapest Silver by observed posted premium (the ACA benchmark at the
+  # observed point; the counterfactual re-picks it at the candidate premiums)
   silver <- plan_attrs[plan_attrs$metal == "Silver", ]
   silver <- silver[order(silver$premium_posted), ]
   benchmark_plan <- if (nrow(silver) == 0) NA_character_ else if (nrow(silver) == 1) silver$plan_id[1] else silver$plan_id[2]
@@ -126,10 +128,12 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
 
   admin_vec <- setNames(admin_lookup[paste(plan_prefix, y, sep = "_")], plan_ids_cell)
   admin_vec[is.na(admin_vec)] <- 0
+  beta_vec <- setNames(beta_admin[paste(plan_prefix, y, sep = "_")], plan_ids_cell)
+  beta_vec[is.na(beta_vec)] <- mean(beta_admin)
 
   .cf$cell <- list(
     r = r, y = y, N = N_cell, plan_ids = plan_ids_cell, prefix = plan_prefix,
-    admin = admin_vec, beta = beta_admin,
+    admin = admin_vec, beta = unname(beta_vec),
     margin_shift = setNames(rep(0, length(plan_ids_cell)), plan_ids_cell),
     cell_data_base = cell_data_base, plan_attrs = plan_attrs, plans_cell = plans_cell,
     coefs = coefs, lambda = setNames(coefs$estimate, coefs$term)[["lambda"]],
@@ -156,19 +160,35 @@ cf_cell_set_margin_shift <- function(shift) {
   TRUE
 }
 
+# current_benchmark -------------------------------------------------------
+# The ACA benchmark at a candidate posted-premium vector: the 2nd cheapest
+# Silver plan in the cell at those premiums (the cheapest if there is one).
+current_benchmark <- function(p_vec) {
+  cl <- .cf$cell
+  sil <- cl$plan_attrs$plan_id[cl$plan_attrs$metal == "Silver"]
+  sil <- sil[sil %in% names(p_vec)]
+  if (length(sil) == 0) return(NA_character_)
+  sil <- sil[order(p_vec[sil])]
+  if (length(sil) == 1) sil[1] else sil[2]
+}
+
 # update_premiums ---------------------------------------------------------
 # Re-level the demand `premium` column for a candidate posted-premium vector,
 # reproducing the builder's NET premium (helpers/supply.R): posted -> age-40-
 # normalized HH premium -> OOP after subsidy and penalty offset -> per-member,
-# per-$100. The APTC moves with the benchmark (2nd-cheapest silver) premium:
-# subsidy = max(0, premiumSLC(p) - zeta), anchored to the data-build value so
-# the observed point reproduces it exactly; the benchmark identity is fixed.
+# per-$100. The APTC moves with the benchmark premium, the 2nd-cheapest silver
+# re-picked at the candidate premiums: subsidy = max(0, premiumSLC(p) - zeta),
+# anchored to the data-build value at the observed benchmark so the observed
+# point reproduces it exactly. The benchmark in use is kept in .cf$bench_cur
+# for the share derivatives.
 update_premiums <- function(dt, p_vec) {
   cl <- .cf$cell
   rf_i <- dt$rating_factor / RATING_FACTOR_AGE40
-  if (!is.na(cl$benchmark_plan) && cl$benchmark_plan %in% names(p_vec) &&
+  bench_cur <- current_benchmark(p_vec)
+  .cf$bench_cur <- bench_cur
+  if (!is.na(bench_cur) && !is.na(cl$benchmark_plan) &&
       !isTRUE(getOption("cf.fixed.subsidy", FALSE))) {
-    d_bench       <- p_vec[[cl$benchmark_plan]] - cl$p_obs[[cl$benchmark_plan]]
+    d_bench       <- p_vec[[bench_cur]] - cl$p_obs[[cl$benchmark_plan]]
     premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
     sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
     dt[, subsidy_cf := fifelse(subsidized == 1L, sub_endog, adj_subsidy)]
@@ -349,8 +369,9 @@ cf_cell_eval_p1 <- function(P, k = NULL) {
   if (!is.null(sc$endog)) dt <- apply_commissions(dt, eta_cur)
 
   util <- compute_utility(dt, cl$coefs)
+  bench <- .cf$bench_cur
   se <- tryCatch(
-    compute_shares_and_elasticities(dt, util$V, cl$lambda, cl$benchmark_plan, cl$plan_attrs,
+    compute_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
                                      cl$coefs, spec = cl$spec, V_base = util$V_base),
     error = function(e) NULL)
   if (is.null(se)) { .cf$ev <- NULL; return(NULL) }
@@ -358,7 +379,7 @@ cf_cell_eval_p1 <- function(P, k = NULL) {
                    error = function(e) NULL)
   if (is.null(demo)) { .cf$ev <- NULL; return(NULL) }
   br <- tryCatch(
-    compute_broker_shares_and_elasticities(dt, util$V, cl$lambda, cl$benchmark_plan, cl$plan_attrs,
+    compute_broker_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
                                             cl$coefs, spec = cl$spec, V_base = util$V_base),
     error = function(e) NULL)
   ck <- if (!is.null(sc$endog) || sc$calib) tryCatch(
@@ -392,14 +413,14 @@ cf_cell_eval_p2 <- function(totals, own) {
   # administrative cost per member. A commission dollar on a broker enrollee
   # costs (1 - beta) net of the administrative work the agent takes over.
   mc <- mc_res$mc[pn] + cl$admin
-  cs <- 1 - cl$beta
+  cs <- 1 - cl$beta                              # (1 - beta) by plan (its insurer-year)
   ra_foc <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$elast, cl$own_mat)
 
   Omega <- -cl$own_mat * t(ev$elast)
   resid <- ev$shares + ra_foc - as.vector(Omega %*% (ev$p - mc))
   if (!is.null(ev$broker_elast)) {
     Omega_B <- -cl$own_mat * t(ev$broker_elast)
-    resid <- resid + cs * as.vector(Omega_B %*% ev$eta)
+    resid <- resid + as.vector(Omega_B %*% (cs * ev$eta))
   }
 
   # Commission pieces per insurer: MB_f = margin x d qB / d k + RA response,
@@ -423,7 +444,7 @@ cf_cell_eval_p2 <- function(totals, own) {
       qB[f] <- sum(ev$comm_qB[ii])
       pct_ii <- if (is.null(en)) cl$pct[ii] else en$pct[ii]
       rho_ii <- if (is.null(en)) cl$rho[ii] else en$rho[ii]
-      direct[ii] <- ifelse(pct_ii, cs * rho_ii * ev$comm_qB[ii], 0)
+      direct[ii] <- ifelse(pct_ii, cs[ii] * rho_ii * ev$comm_qB[ii], 0)
     }
   }
   list(plan_ids = pn, N = cl$N, g = cl$g, resid = setNames(resid, pn), direct = setNames(direct, pn),

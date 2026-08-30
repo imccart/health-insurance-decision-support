@@ -30,6 +30,7 @@ get_covariate_menu <- function() {
     hmo            = list(type = "plan_attribute"),
     hsa            = list(type = "plan_attribute"),
     av             = list(type = "plan_attribute"),
+    inside         = list(type = "plan_attribute"),   # 1 - uninsured_plan
 
     # --- Family × insured interaction ---
     family_insured = list(type = "insured_interaction", raw_demo = "family"),

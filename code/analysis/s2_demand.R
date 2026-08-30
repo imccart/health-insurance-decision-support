@@ -14,6 +14,8 @@
 # Structural specification ------------------------------------------------
 
 STRUCTURAL_SPEC <- c(
+  # Inside-good intercept (1 on every insured plan, 0 on the outside option).
+  "inside",
   "premium",
   # Coverage generosity: the household-specific actuarial value of the plan
   # (CSR-aware for silver), continuous, in place of metal-tier dummies.

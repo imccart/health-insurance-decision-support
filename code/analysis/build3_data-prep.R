@@ -164,7 +164,9 @@ plan_demographics <- hh_full %>%
          fpl_400plus  = as.integer(FPL > 4.00),
          family       = as.integer(household_size > 1)) %>%
   group_by(plan_id, year) %>%
-  summarize(share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
+  summarize(share_0to34    = weighted.mean(perc_0to17 + perc_18to34, wt, na.rm = TRUE),
+            share_minority = weighted.mean(perc_asian + perc_black + perc_hispanic + perc_other, wt, na.rm = TRUE),
+            share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
             share_35to54   = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
             share_250to400 = weighted.mean(fpl_250to400,  wt, na.rm = TRUE),
             share_400plus  = weighted.mean(fpl_400plus,   wt, na.rm = TRUE),
@@ -188,7 +190,9 @@ plan_demographics_region <- hh_full %>%
          fpl_400plus  = as.integer(FPL > 4.00),
          family       = as.integer(household_size > 1)) %>%
   group_by(plan_id, region, year) %>%
-  summarize(share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
+  summarize(share_0to34    = weighted.mean(perc_0to17 + perc_18to34, wt, na.rm = TRUE),
+            share_minority = weighted.mean(perc_asian + perc_black + perc_hispanic + perc_other, wt, na.rm = TRUE),
+            share_18to34   = weighted.mean(perc_18to34,   wt, na.rm = TRUE),
             share_35to54   = weighted.mean(perc_35to54,   wt, na.rm = TRUE),
             share_250to400 = weighted.mean(fpl_250to400,  wt, na.rm = TRUE),
             share_400plus  = weighted.mean(fpl_400plus,   wt, na.rm = TRUE),

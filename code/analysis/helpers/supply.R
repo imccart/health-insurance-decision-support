@@ -274,6 +274,9 @@ build_structural <- function(plans, hhs, sample_frac,
     # per regional pushes the nesting parameter non-RUM. See _demand.R.
     hh_weight      = as.numeric(weight)
   )]
+  # Inside-good intercept: one constant on every insured plan, zero on the
+  # outside option, so the enrollment level is not carried by AV and the brands.
+  dt[, inside := 1L - uninsured_plan]
 
   # Demographic x premium interactions (heterogeneous price sensitivity)
   dt[, `:=`(
