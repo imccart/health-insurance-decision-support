@@ -24,8 +24,8 @@
 #'         rs_coefs (named vector), claims_coefs (named vector)
 
 # Risk-score demographics: the plan's enrollment shares of members aged 0 to
-# 34, male, in a family household, and non-white (the REStat specification),
-# each mapped to the per-household column the counterfactual differentiates
+# 34, male, in a family household, and non-white, each mapped to the
+# per-household column the counterfactual differentiates
 # (dr/dp) and the uninsured-pool score uses.
 RS_DEMO_RAWCOL <- c(share_0to34 = "perc_0to34", share_male = "perc_male",
                     share_family = "family", share_minority = "perc_minority")

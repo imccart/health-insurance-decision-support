@@ -130,7 +130,7 @@ vN_objective <- function(cell_data, year, cs_table, cv, rho, mean_spending,
   # out-of-pocket by age/income) rather than their full, uncapped spending. The tail
   # is handled explicitly as a catastrophic rate (share crossing 40% of income),
   # priced by the dialable distress cost, and the rate is also returned so the
-  # multiplier can be varied after the fact. Falls back to the old full-spending
+  # multiplier can be varied after the fact. Falls back to the full-spending
   # uncapped valuation when the schedule is absent (unins_sched = NULL).
   is_unins <- d$plan_id == "Uninsured"
   cat_rate <- rep(0, nrow(d))
@@ -139,7 +139,7 @@ vN_objective <- function(cell_data, year, cs_table, cv, rho, mean_spending,
     soc  <- uninsured_social_cost(d, unins_scenario)     # risk protection + mortality
     eoop_mean[is_unins] <- uo$oop[is_unins]
     # risk term for the uninsured collects the catastrophic-distress overlay and the
-    # risk-protection + mortality social cost (not the old uncapped-spending variance)
+    # risk-protection + mortality social cost
     eoop_risk[is_unins] <- distress * uo$cat[is_unins] + soc[is_unins]
     cat_rate[is_unins]  <- uo$cat[is_unins]
   }

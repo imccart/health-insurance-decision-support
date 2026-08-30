@@ -171,8 +171,7 @@ build_structural <- function(plans, hhs, sample_frac,
   # supply FOC). Collapse ONLY the micro-carriers (United, Contra Costa, and any
   # other leftover) into a single "Other_Small" bucket, which serves as the demand
   # baseline. Group by base metal so CSR variants fold in. Prefix "OS" is absent
-  # from commission_lookup, so the micro-carriers correctly carry ~0 commission
-  # (rather than inheriting the old blended "Small" rate).
+  # from commission_lookup, so the micro-carriers carry zero commission.
   keep_separate <- c("Anthem", "Blue_Shield", "Kaiser", "Health_Net",
                      "Molina", "LA_Care", "SHARP", "Chinese_Community",
                      "Oscar", "Western", "Valley")

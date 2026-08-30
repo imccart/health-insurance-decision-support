@@ -27,10 +27,9 @@ cell_vars <- c(
   "cf_silver", "cf_bronze"
 )
 
-# Reduced-form cells live in their own directory. s2_demand writes STRUCTURAL
-# cells to TEMP_DIR/choice_cells under the identical file name, and both scripts
-# wipe the directory before writing, so sharing it meant re-running either one
-# silently replaced the other's data for s5_se and cf2_score.
+# Reduced-form cells live in their own directory: s2_demand writes the
+# structural cells to TEMP_DIR/choice_cells under the same file names, and each
+# script wipes its own directory before writing.
 RF_CELL_DIR <- file.path(TEMP_DIR, "rf_cells")
 
 plan_choice <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()

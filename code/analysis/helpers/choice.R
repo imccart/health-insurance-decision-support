@@ -256,9 +256,8 @@ build_rf <- function(plans, hhs, sample_frac,
   # 8. Final variables
   dt <- dt[!is.na(premium_oop) & !is.na(plan_id)]
   dt[, `:=`(
-    # Premium in $/100/month. Reduces gradient magnitude
-    # by 100x → much better-conditioned BHHH Hessian. β estimates are now
-    # directly comparable to JHE 2019 (-0.429 per $100).
+    # Premium in $/100 per member per month, the scale of the estimator and of
+    # the reported coefficients
     net_premium    = premium_oop / hh_size / 100,
     hmo            = fifelse(fifelse(is.na(network_type), "", network_type) == "HMO", 1L, 0L),
     hsa            = fifelse(is.na(hsa) | hsa <= 0, 0L, 1L),

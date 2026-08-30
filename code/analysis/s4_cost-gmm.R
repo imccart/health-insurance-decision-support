@@ -123,7 +123,7 @@ N_INS_COST <- length(INS_COST)
 
 # --- Risk-score equation: weighted OLS on the SRRT rows (metal dummies and
 #     the predicted composition shares), estimated once and held fixed in the
-#     GMM, as in the REStat code ---
+#     GMM ---
 rs_ols <- lm(reformulate(c("Silver", "Gold", "Platinum", RS_DEMO_TERMS), "log_risk_score"),
              data = rs_srrt, weights = rs_srrt$member_months)
 alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum", RS_DEMO_TERMS)
@@ -358,7 +358,7 @@ PY_OK <- rep(FALSE, N_PY)
 for (fc in foc_cells) PY_OK[fc$py_idx[fc$shares >= SHARE_FLOOR_FOC]] <- TRUE
 N_M3 <- sum(PY_OK)
 # The GMM moments are the claims equation (M2) and the plan-year pricing
-# conditions (M3), as in the REStat estimator. The commission conditions (M4)
+# conditions (M3). The commission conditions (M4)
 # and the MLR relation (M5) are evaluated at the fixed beta as diagnostics.
 N_MOMENTS <- ncol(Z_cl) + N_M3
 IDX_M2 <- seq_len(ncol(Z_cl))

@@ -16,7 +16,7 @@
 # Coefficient of variation of annual individual health spending. Right-skewed;
 # from AHRQ MEPS 2022 concentration tabulation (Stat. Brief #560), CV >= 2.5 as a
 # strict lower bound, plausibly 3-4 with within-group dispersion. Using the lower
-# bound; sensitivity to 3-4 worth reporting. Gives the lognormal spending
+# bound; sensitivity to 3 and 4 is reported in the appendix. Gives the lognormal spending
 # distribution its spread, which is what makes risk aversion bite.
 SPENDING_CV <- 2.5
 # CARA absolute risk aversion, PER DOLLAR. Handel (2013, AER) mean ~2.3e-4/$ is
@@ -149,7 +149,7 @@ load_uninsured_oop <- function(path = "data/input/meps_uninsured_oop.csv") {
 # Per-ROW expected realized out-of-pocket and catastrophic rate for the uninsured
 # option, from the household's age mix and income bracket (same construction as
 # household_spending). Returns a list(oop, cat); schedule = NULL -> oop = default,
-# cat = 0 (so the caller can fall back to the old full-spending valuation).
+# cat = 0 (so the caller can fall back to the full-spending valuation).
 household_uninsured_oop <- function(cell_data, schedule = NULL, default = MEAN_SPENDING) {
   n <- nrow(cell_data)
   if (is.null(schedule)) return(list(oop = rep(default, n), cat = rep(0, n)))

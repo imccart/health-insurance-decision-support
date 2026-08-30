@@ -153,8 +153,7 @@ if (has_col(hh_full, "channel")) {
   )
 
   # summary_stats.tex is owned by sum1_desc-stats.R, whose table carries the
-  # dominated-choice row the paper caption references. sum2 previously
-  # overwrote it with a dominated-free version; it no longer does.
+  # dominated-choice row the paper caption references.
   cat("  summary_stats.tex left to sum1_desc-stats.R (not overwritten)\n")
 } else {
   cat("  Skipped (channel column not found in hh_full)\n")

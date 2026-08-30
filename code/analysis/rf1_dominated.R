@@ -42,8 +42,8 @@ hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
 # instrument nothing to work with, and region FE only becomes a legitimate
 # first-stage covariate once the second stage carries it too.
 #
-# New enrollees are no longer a column here. That comparison is the body's
-# prediction-based ATT re-run on new enrollees (dominated_new_vs_all.csv below).
+# The new-enrollee comparison is the body's prediction-based ATT re-run on new
+# enrollees (dominated_new_vs_all.csv below).
 
 # (1) unconditional
 mod1 <- feols(
@@ -276,8 +276,8 @@ if (B > 0) {
 # =========================================================================
 
 # Observed and predicted dominated-choice rates alongside the ATT, with 95%
-# bootstrap percentile intervals (previously 90%; now matching the 95% intervals
-# on the choice-side figures). Saved to CSV so the paper can quote the baseline
+# bootstrap percentile intervals (the same 95% intervals as the choice-side
+# figures). Saved to CSV so the paper can quote the baseline
 # rates and intervals without re-running this script.
 att_summary <- tibble(
   Channel = c("Any Assistance", "Agent/Broker", "Navigator"),
