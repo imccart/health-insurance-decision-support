@@ -76,7 +76,7 @@ write.csv(data.frame(commission_coef = bC, max_abs_diff = max_diff, correlation 
 
 ord <- order(commission)
 lines <- c("\\begin{tabular}{rrrrr}", "\\hline\\hline",
-           "Insurer & Commission & Unassisted & \\shortstack{Broker\\\\(gatekeeper)} & \\shortstack{Broker\\\\(fitted)} \\\\",
+           "Insurer & Commission & Unassisted & \\shortstack{Agent\\\\(gatekeeper)} & \\shortstack{Agent\\\\(fitted)} \\\\",
            "\\hline")
 for (k in ord) {
   lines <- c(lines, sprintf("%d & %.1f & %.3f & %.3f & %.3f \\\\",

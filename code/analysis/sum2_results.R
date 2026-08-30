@@ -245,7 +245,7 @@ if (nrow(coefs_structural) > 0) {
     "FPL_250to400_av"    = "FPL 250--400\\% $\\times$ AV",
     "FPL_400plus_av"     = "FPL 400+\\% $\\times$ AV",
     "assisted_av"        = "Navigator $\\times$ AV",
-    "broker_av"          = "Broker $\\times$ AV",
+    "broker_av"          = "Agent $\\times$ AV",
     "perc_0to17_bronze"  = "Age 0--17 $\\times$ Bronze",
     "perc_18to34_bronze" = "Age 18--34 $\\times$ Bronze",
     "perc_35to54_bronze" = "Age 35--54 $\\times$ Bronze",
@@ -284,11 +284,11 @@ if (nrow(coefs_structural) > 0) {
     "HN_bronze"          = "Health Net $\\times$ Bronze",
     "assisted_silver"    = "Navigator $\\times$ Silver",
     "assisted_bronze"    = "Navigator $\\times$ Bronze",
-    "broker_silver"      = "Broker $\\times$ Silver",
-    "broker_bronze"      = "Broker $\\times$ Bronze",
+    "broker_silver"      = "Agent $\\times$ Silver",
+    "broker_bronze"      = "Agent $\\times$ Bronze",
     "assisted_premium"   = "Navigator $\\times$ premium",
-    "broker_premium"     = "Broker $\\times$ premium",
-    "commission_broker"  = "Commission $\\times$ broker",
+    "broker_premium"     = "Agent $\\times$ premium",
+    "commission_broker"  = "Commission $\\times$ agent",
     "lambda"             = "$\\lambda$ (nesting parameter)"
   )
 
@@ -693,7 +693,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     RPc <- UNINS_RISK_PROT[["central"]]; MRc <- UNINS_MORT_REDUX[["central"]]
     VSLc <- UNINS_VSL[["central"]]
     se_scen <- c(zero_tau0.00  = "Remove assistance ($\\tau$=0)",
-                 zero_tau1.00  = "Brokers to navigators ($\\tau$=1)",
+                 zero_tau1.00  = "Agents to navigators ($\\tau$=1)",
                  uniform       = "Uniform commission",
                  aligned       = "Aligned commissions",
                  endog_tau1.00 = "Navigator expansion",
@@ -753,7 +753,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       geom_point(size = 3, color = "#2C3E50") +
       geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
       labs(
-        x = expression(tau ~ "(broker" %->% "navigator substitution rate)"),
+        x = expression(tau ~ "(agent" %->% "navigator substitution rate)"),
         y = "Change in consumer surplus ($/member/year)"
       ) +
       scale_x_continuous(breaks = tau_results$tau) +

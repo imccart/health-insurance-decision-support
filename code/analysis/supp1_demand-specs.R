@@ -194,7 +194,7 @@ rows <- list(
   list(lab = "Mean own-price elasticity",           v = avg_elast, f = "%.2f"),
   list(lab = "$\\lambda$ (nesting parameter)",        v = lambda_v,  f = "%.2f"),
   list(lab = "Navigator effect on silver (pp)",       v = nav_mfx,   f = "%.1f"),
-  list(lab = "Broker effect on silver (pp)",          v = brk_mfx,   f = "%.1f"),
+  list(lab = "Agent effect on silver (pp)",          v = brk_mfx,   f = "%.1f"),
   list(lab = "Commission $\\times$ broker",           v = comm_v,    f = "%.3f")
 )
 lines <- c("\\begin{tabular}{lcccc}", "\\hline\\hline",

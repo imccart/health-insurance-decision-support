@@ -227,7 +227,7 @@ att_any_new   <- compute_att(hh_po, "any_assist")
 att_agent_new <- compute_att(hh_po, "agent")
 att_nav_new   <- compute_att(hh_po, "navigator")
 dom_sample_tab <- tibble(
-  Channel           = c("Any Assistance", "Agent/Broker", "Navigator"),
+  Channel           = c("Any Assistance", "Agent", "Navigator"),
   ATT_all_enrollees = c(att_any$att, att_agent$att, att_nav$att),
   ATT_new_enrollees = c(att_any_new$att, att_agent_new$att, att_nav_new$att)
 )
@@ -280,7 +280,7 @@ if (B > 0) {
 # figures). Saved to CSV so the paper can quote the baseline
 # rates and intervals without re-running this script.
 att_summary <- tibble(
-  Channel = c("Any Assistance", "Agent/Broker", "Navigator"),
+  Channel = c("Any Assistance", "Agent", "Navigator"),
   Observed_rate  = c(att_any$obs_rate, att_agent$obs_rate, att_nav$obs_rate),
   Predicted_rate = c(att_any$pred_rate, att_agent$pred_rate, att_nav$pred_rate),
   ATT = c(att_any$att, att_agent$att, att_nav$att),

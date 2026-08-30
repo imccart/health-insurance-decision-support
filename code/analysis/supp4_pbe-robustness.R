@@ -75,9 +75,9 @@ cat("\n  -> results/pbe_robustness.csv\n")
 lab <- c(premium = "Premium",
          av = "Actuarial value (AV)",
          assisted_av = "Navigator $\\times$ AV",
-         broker_av = "Broker $\\times$ AV",
+         broker_av = "Agent $\\times$ AV",
          assisted_premium = "Navigator $\\times$ premium",
-         broker_premium = "Broker $\\times$ premium",
+         broker_premium = "Agent $\\times$ premium",
          commission_broker = "Commission $\\times$ broker",
          lambda = "$\\lambda$ (nesting parameter)")
 rownames(comp) <- comp$term

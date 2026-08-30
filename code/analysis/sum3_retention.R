@@ -24,10 +24,10 @@ cat("  enrolled HH-years:", nrow(enr), " off-year rows:", nrow(un), "\n")
 stopifnot(uniqueN(enr, by = c("household_id", "year")) == nrow(enr),
           uniqueN(un,  by = c("household_id", "year")) == nrow(un))
 
-enr[, channel := fcase(broker == 1L | agent == 1L, "Broker",
+enr[, channel := fcase(broker == 1L | agent == 1L, "Agent",
                        navigator == 1L,            "Navigator",
                        default = "Unassisted")]
-chan_levels <- c("Broker", "Navigator", "Unassisted")
+chan_levels <- c("Agent", "Navigator", "Unassisted")
 
 # 1. Channel transitions across consecutive enrolled years ------------------
 setorder(enr, household_id, year)
@@ -83,7 +83,7 @@ tab_trans <- trans_wide %>%
          n_pairs = formatC(n_pairs, format = "d", big.mark = ",")) %>%
   select(channel, all_of(chan_levels), n_pairs)
 kbl_trans <- kable(tab_trans, format = "latex", booktabs = TRUE, linesep = "",
-                   col.names = c("Channel in $t$", "Broker", "Navigator", "Unassisted", "HH-year pairs"),
+                   col.names = c("Channel in $t$", "Agent", "Navigator", "Unassisted", "HH-year pairs"),
                    align = c("l", "r", "r", "r", "r"), escape = FALSE) %>%
   add_header_above(c(" " = 1, "Channel in $t+1$ (percent)" = 3, " " = 1), escape = FALSE)
 writeLines(as.character(kbl_trans), "results/tables/channel_transitions.tex")
@@ -92,11 +92,11 @@ tab_ret <- ret %>%
   mutate(retained = fmt_pct(retained), n = formatC(n, format = "d", big.mark = ",")) %>%
   select(sample, channel, retained, n) %>%
   pivot_wider(names_from = channel, values_from = c(retained, n)) %>%
-  select(sample, retained_Broker, retained_Navigator, retained_Unassisted,
-         n_Broker, n_Navigator, n_Unassisted)
+  select(sample, retained_Agent, retained_Navigator, retained_Unassisted,
+         n_Agent, n_Navigator, n_Unassisted)
 kbl_ret <- kable(tab_ret, format = "latex", booktabs = TRUE, linesep = "",
-                 col.names = c("Sample", "Broker", "Navigator", "Unassisted",
-                               "Broker", "Navigator", "Unassisted"),
+                 col.names = c("Sample", "Agent", "Navigator", "Unassisted",
+                               "Agent", "Navigator", "Unassisted"),
                  align = c("l", rep("r", 6)), escape = FALSE) %>%
   add_header_above(c(" " = 1, "Retained next year (percent)" = 3, "Household-years" = 3))
 writeLines(as.character(kbl_ret), "results/tables/channel_retention.tex")

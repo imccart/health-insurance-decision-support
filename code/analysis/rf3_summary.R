@@ -214,8 +214,8 @@ if (file.exists(new_file)) {
 ap_labels <- c(premium         = "Premium",
                assisted_silver = "Navigator $\\times$ Silver",
                assisted_bronze = "Navigator $\\times$ Bronze",
-               broker_silver   = "Broker $\\times$ Silver",
-               broker_bronze   = "Broker $\\times$ Bronze",
+               broker_silver   = "Agent $\\times$ Silver",
+               broker_bronze   = "Agent $\\times$ Bronze",
                cf_silver       = "CF $\\times$ Silver",
                cf_bronze       = "CF $\\times$ Bronze")
 
