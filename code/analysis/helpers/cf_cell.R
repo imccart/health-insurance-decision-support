@@ -294,7 +294,8 @@ build_scenario_data <- function(comm_sc, tau = NULL, broker_remain = FALSE, defu
 #   spec$kind   "exog" (fixed dollar commissions) or "endog" (each insurer in
 #               spec$prefixes scales its schedule by a year-level k_f)
 #   spec$comm   "observed", "zero", "uniform" (cell mean of observed positive
-#               commissions), "scale" (observed x spec$sc), "aligned"
+#               commissions), "scale" (observed x spec$sc), "flatbar" (a flat
+#               fee per insurer at spec$levels, named by prefix), "aligned"
 #               (proportional to the plan's mean non-commission utility, holding
 #               the cell's commission budget), "flat" (flat-fee mandate basis)
 #   spec$tau, spec$broker_remain, spec$defund: household conversions
@@ -310,6 +311,11 @@ cf_cell_scenario <- function(label, spec) {
     uniform  = setNames(rep(cl$mean_comm_pmpm, length(pn)), pn),
     scale    = setNames(cl$comm_obs * spec$sc, pn),
     flat     = cl$comm_obs,
+    flatbar  = {
+      lv <- spec$levels[cl$prefix]
+      lv[is.na(lv)] <- 0
+      setNames(unname(lv), pn)
+    },
     aligned  = {
       cd_nc <- as.data.table(copy(cl$cell_data_base))
       for (cn in intersect(COMM_TERMS, names(cd_nc))) cd_nc[[cn]] <- 0

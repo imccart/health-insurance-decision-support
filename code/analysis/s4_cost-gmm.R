@@ -3,16 +3,17 @@
 ## Author:        Ian McCarthy
 ## Date Created:  2026-03-31
 ## Description:   Two-step GMM for the cost side with demand held fixed: the
-##                risk-score coefficients (alpha), the claims coefficients
-##                (gamma), and beta, the administrative saving per commission
-##                dollar. Five moment blocks:
+##                risk-score coefficients (alpha) and the claims coefficients
+##                (gamma). Moment blocks:
 ##                  M1: risk-score regression on the SRRT plan scores
 ##                  M2: claims regression on the rate-filing plan-years
 ##                  M3: plan-year pricing FOC residuals (cell-level instruments)
-##                  M4: commission conditions MB = (1 - beta) MC per insurer-year
-##                  M5: the MLR relation of administrative cost to commissions
-##                Writes the GMM coefficients, beta, the commission residuals by
-##                insurer-year, and the statewide transfer sums for cf1.
+##                beta, the administrative saving per commission dollar, is the
+##                per-carrier substitution rate from the national MLR filings
+##                (data-build step 9), held fixed; the commission conditions
+##                MB = (1 - beta) MC are evaluated at it as diagnostics.
+##                Writes the GMM coefficients, beta by insurer-year, the
+##                commission residuals, and the statewide transfer sums for cf1.
 
 # Dependencies: tidyverse, data.table, helpers (loaded by _supply.R)
 
@@ -28,17 +29,14 @@ rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 rs_srrt      <- read_csv("data/output/plan_risk_scores.csv", show_col_types = FALSE)
 rs_srrt_year <- read_csv("data/output/plan_risk_scores_year.csv", show_col_types = FALSE)
 supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
-# Commission substitution: starting value of beta, the administrative saving per
-# commission dollar (data-build step 9, within-insurer MLR relation); the
-# insurers' administrative cost per member rides in the FOC cells (s3)
+# Commission substitution: beta, the administrative saving per commission
+# dollar. Per-carrier values from the national MLR filings (data-build step 9),
+# bounded and varying with filer size; the pooled within-insurer slope is the
+# default for carriers outside the table. The insurers' administrative cost
+# level enters through the FOC cells (s3).
 BETA0 <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
-# M5: the MLR relation itself as a moment. Sales and G&A cost per member on
-# commission outlay per member, both within insurer and year (two-way demeaned,
-# member-month weights), so beta is identified by the filings as well as by the
-# commission conditions.
-mlr_admin <- read_csv("data/output/mlr_admin.csv", show_col_types = FALSE) %>%
-  filter(!is.na(mm), is.finite(sales_ga_pmpm), is.finite(commission_pmpm))
-cat("  MLR administrative-cost rows:", nrow(mlr_admin), "\n")
+beta_carrier <- read_csv("data/output/commission_beta_carrier.csv", show_col_types = FALSE)
+cat("  per-carrier substitution rates:", nrow(beta_carrier), "carriers\n")
 
 # --- FOC inputs per cell (moment 3) ---
 foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
@@ -270,14 +268,13 @@ cat("  Below share floor", SHARE_FLOOR_FOC, "(dropped from the plan-year sums):"
 # M3 instruments: plan characteristics at the cell level (HMO varies across
 # regions within some plan-years), aggregated with the residual to the plan-year
 
-# M4: the insurer commission condition MB_fy = (1 - beta) MC_fy per insurer-year,
-# evaluated at the observed schedules and interacted with insurer indicators.
-# beta is the administrative saving per commission dollar (a broker enrollee's
-# onboarding and servicing the agent takes over), estimated with the cost
-# parameters; its starting value is the within-insurer MLR relation (step 9).
-# N_Z_COMM is set below once the insurer set is known from comm_struct.
+# The insurer commission condition MB_fy = (1 - beta) MC_fy per insurer-year,
+# evaluated at the observed schedules as a diagnostic. beta is the
+# administrative saving per commission dollar (a broker enrollee's onboarding
+# and servicing the agent takes over), fixed at the per-carrier rates from the
+# national MLR filings (step 9).
 
-# Per-cell insurer structure for M4 (theta-independent pieces)
+# Per-cell insurer structure for the commission conditions (theta-independent pieces)
 comm_struct <- lapply(foc_cells, function(fc) {
   if (is.null(fc$comm_D) || is.null(fc$comm_qB)) return(NULL)
   pn <- fc$plan_ids; pref <- sub("_.*", "", pn)
@@ -292,58 +289,16 @@ comm_struct <- lapply(foc_cells, function(fc) {
          dem = sum(d$demand[m], na.rm = TRUE))      # predicted enrollment of the insurer's plans
   })
 })
-COMM_FIRMS <- sort(unique(unlist(lapply(comm_struct, function(cs)
-  vapply(cs, function(x) x$firm, character(1))))))
-# --- The commission block's parameter: beta by insurer characteristics ---
-# beta_fy = Z_BETA bcoef, with the insurer-year's log members, broker share of
-# its enrollment, and broker enrollees per agent in its regions (FOIA roster,
-# data-build step 6), each standardized over the commissioned insurer-years so
-# the intercept is the average insurer's beta. Estimated in stage 4 from the
-# commission conditions and the MLR relation with the cost coefficients held.
-broker_density <- read_csv("data/output/broker_density.csv", show_col_types = FALSE) %>%
-  mutate(bpa = total_broker_enrollees / n_agents) %>% select(region, year, bpa)
-fy_rows <- rbindlist(lapply(foc_cells, function(fc) {
-  pref <- sub("_.*", "", fc$plan_ids)
-  d <- as.data.frame(fc$demo_shares); dem <- d$demand[match(fc$plan_ids, d$plan_id)]
-  qb <- if (!is.null(fc$comm_qB)) fc$comm_qB else rep(NA_real_, length(pref))
-  data.table(firm = pref, year = fc$year, region = fc$region,
-             members = fc$N * dem, brokers = fc$N * qb)
-}))
-fy_rows <- merge(fy_rows, as.data.table(broker_density), by = c("region", "year"), all.x = TRUE)
-fy_cov <- fy_rows[, .(members = sum(members, na.rm = TRUE), brokers = sum(brokers, na.rm = TRUE),
-                      bpa = sum(members * bpa, na.rm = TRUE) / sum(members[!is.na(bpa)], na.rm = TRUE)),
-                  by = .(firm, year)]
-fy_cov[, key := paste(firm, year, sep = "_")]
-fy_cov[, `:=`(z_size = log(members), z_bshare = brokers / members, z_bpa = bpa)]
+# --- The commission block's parameter: per-carrier substitution rates ---
+# beta_f from data-build step 9, constant within carrier across years. The
+# commission conditions are evaluated at these fixed values as diagnostics.
+YEARS_FOC <- sort(unique(vapply(foc_cells, function(fc) fc$year, numeric(1))))
+BETA_FY <- unlist(lapply(YEARS_FOC, function(y)
+  setNames(beta_carrier$beta, paste(beta_carrier$insurer_prefix, y, sep = "_"))))
+BETA_FY_DEFAULT <- BETA0
 COMM_KEYS <- sort(unique(unlist(lapply(seq_along(foc_cells), function(ci) {
   cs <- comm_struct[[ci]]; if (is.null(cs)) return(NULL)
   paste(vapply(cs, function(x) x$firm, character(1)), foc_cells[[ci]]$year, sep = "_") }))))
-zstd <- function(z, ref) (z - mean(z[ref], na.rm = TRUE)) / sd(z[ref], na.rm = TRUE)
-ref <- fy_cov$key %in% COMM_KEYS
-fy_cov[, `:=`(z_size = zstd(z_size, ref), z_bshare = zstd(z_bshare, ref), z_bpa = zstd(z_bpa, ref))]
-for (v in c("z_size", "z_bshare", "z_bpa")) fy_cov[!is.finite(get(v)), (v) := 0]
-Z_BETA <- as.matrix(fy_cov[, .(1, z_size, z_bshare, z_bpa)]); rownames(Z_BETA) <- fy_cov$key
-BETA_TERMS <- c("(Intercept)", "log_members", "broker_share", "broker_enrollees_per_agent")
-colnames(Z_BETA) <- BETA_TERMS
-cat("  beta covariates: ", nrow(Z_BETA), " insurer-years (", sum(ref), " with commission conditions)\n")
-# The MLR rows carry the same covariates (insurer-years without cells drop out)
-mlr_admin <- mlr_admin %>% mutate(key = paste(insurer_prefix, year, sep = "_")) %>%
-  filter(key %in% rownames(Z_BETA))
-mlr_dm <- fixest::demean(X = as.matrix(mlr_admin[, c("sales_ga_pmpm", "commission_pmpm")]),
-                         f = mlr_admin[, c("insurer_prefix", "year")], weights = mlr_admin$mm)
-a_mlr <- mlr_dm[, 1]; c_mlr <- mlr_dm[, 2]
-w_mlr <- mlr_admin$mm / mean(mlr_admin$mm)
-VAR_C_MLR <- sum(w_mlr * c_mlr^2) / sum(w_mlr)
-Z_MLR <- Z_BETA[mlr_admin$key, , drop = FALSE]
-cat("  MLR rows with covariates (M5):", nrow(Z_MLR), "\n")
-BCOEF <- NULL; BETA_FY <- NULL; BETA_FY_DEFAULT <- NULL
-set_beta <- function(bcoef) {
-  BCOEF <<- bcoef
-  BETA_FY <<- setNames(as.vector(Z_BETA %*% bcoef), rownames(Z_BETA))
-  BETA_FY_DEFAULT <<- bcoef[1]
-  invisible(NULL)
-}
-set_beta(c(BETA0, 0, 0, 0))
 # (1 - beta) for each plan of a cell, by the plan's insurer-year
 cs_of <- function(fc) {
   b <- BETA_FY[paste(sub("_.*", "", fc$plan_ids), fc$year, sep = "_")]
@@ -351,15 +306,13 @@ cs_of <- function(fc) {
   1 - unname(b)
 }
 
-N_Z_COMM <- length(COMM_FIRMS)                     # insurer indicators
-N_Z_MLR  <- ncol(Z_MLR)                            # the MLR relation, by covariate
 # M3: one moment per plan-year with at least one plan-cell above the share floor
 PY_OK <- rep(FALSE, N_PY)
 for (fc in foc_cells) PY_OK[fc$py_idx[fc$shares >= SHARE_FLOOR_FOC]] <- TRUE
 N_M3 <- sum(PY_OK)
 # The GMM moments are the claims equation (M2) and the plan-year pricing
-# conditions (M3). The commission conditions (M4)
-# and the MLR relation (M5) are evaluated at the fixed beta as diagnostics.
+# conditions (M3). The commission conditions are evaluated at the fixed
+# per-carrier beta as diagnostics.
 N_MOMENTS <- ncol(Z_cl) + N_M3
 IDX_M2 <- seq_len(ncol(Z_cl))
 IDX_M3 <- ncol(Z_cl) + seq_len(N_M3)
@@ -384,7 +337,7 @@ gamma0 <- unname(gamma0_raw)
 theta0 <- gamma0
 cat("  Starting values (OLS):\n")
 cat("    gamma:", round(gamma0, 4), "\n")
-cat("    beta (start, MLR):", round(BETA0, 4), "\n")
+cat("    beta (pooled MLR, default for unmatched carriers):", round(BETA0, 4), "\n")
 
 # =========================================================================
 # MOMENT FUNCTION
@@ -523,29 +476,18 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     }
   }
 
-  # M4: commission condition MB = (1 - beta) MC per insurer-year at the observed
-  # schedules: phi = MB/MC - (1 - beta), interacted with insurer indicators.
-  # r4 = MB/MC - 1 is kept for the diagnostic.
+  # Commission-condition diagnostic at the fixed beta: r4 = MB/MC - 1 and the
+  # residual phi = r4 + beta_f of the condition MB = (1 - beta) MC.
   keys <- names(MB_fy)
   ok4 <- is.finite(MB_fy) & is.finite(MC_fy) & MC_fy > 0 & qB_fy > 0
   keys4 <- keys[ok4]
-  firm4 <- sub("_.*", "", keys4)
   r4 <- MB_fy[ok4] / MC_fy[ok4] - 1
   cbar <- MC_fy[ok4] / qB_fy[ok4]
-  # A parameter step that makes every MB non-finite leaves no M4 rows; return a
-  # large moment vector so the optimizer rejects the step.
+  # A parameter step that makes every MB non-finite leaves no commission rows;
+  # return a large moment vector so the optimizer rejects the step.
   if (length(keys4) == 0) return(rep(1e3, N_MOMENTS))
   b4 <- BETA_FY[keys4]; b4[is.na(b4)] <- BETA_FY_DEFAULT
   phi4 <- r4 + unname(b4)
-  Z4 <- 1 * outer(firm4, COMM_FIRMS, "==")
-  M4_mat <- Z4 * phi4
-  g_comm <- colMeans(M4_mat)
-
-  # --- M5: the MLR administrative-cost relation, a_tilde = -beta_f c_tilde + e,
-  #     beta_f from the same covariates, instrumented by c_tilde x covariates ---
-  beta_mlr <- as.vector(Z_MLR %*% BCOEF)
-  M5_mat <- (w_mlr * c_mlr * (a_mlr + beta_mlr * c_mlr) / VAR_C_MLR) * Z_MLR
-  g_mlr <- colMeans(M5_mat)
 
   g <- c(g_cl, g_foc)
   if (!return_contributions) return(g)
@@ -565,7 +507,6 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
        # treated as independent
        blocks  = list(list(mat = M2_mat, n = nrow(M2_mat)),
                       list(mat = M3_mat, n = nrow(M3_mat))),
-       g_comm  = g_comm, g_mlr = g_mlr, M4_mat = M4_mat, M5_mat = M5_mat,
        # Plan-year FOC residuals: per member (share units) and in dollars
        foc_py  = data.frame(key = PY_KEYS[PY_OK], G_per_member = M3_num[PY_OK] / w_py[PY_OK],
                             G_dollars = e_dollars_py[PY_OK],
@@ -677,55 +618,11 @@ result2 <- optim(
 cat("  Converged:", result2$convergence == 0, "\n")
 cat("  Objective:", format(result2$value, digits = 6), "\n")
 
-# =========================================================================
-# STAGE 4: THE COMMISSION BLOCK, beta by insurer characteristics
-# =========================================================================
-# bcoef from the commission conditions (M4, insurer indicators) and the MLR
-# relation (M5, covariate instruments), two-step GMM with the cost coefficients
-# held; then the cost GMM is re-run at the new beta and the block re-estimated,
-# twice, so each block's estimate is computed at the other's final values.
-
-beta_moments <- function(bcoef, gamma, contributions = FALSE) {
-  set_beta(bcoef)
-  cc <- compute_g_bar(gamma, return_contributions = TRUE)
-  if (contributions) return(cc)
-  c(colMeans(cc$M4_mat), colMeans(cc$M5_mat))
-}
-estimate_beta <- function(bstart, gamma) {
-  n4 <- N_Z_COMM + N_Z_MLR
-  obj <- function(b, W) { g <- beta_moments(b, gamma); as.numeric(t(g) %*% W %*% g) }
-  r1 <- optim(bstart, obj, W = diag(n4), method = "BFGS", control = list(maxit = 500, reltol = 1e-10))
-  cc <- beta_moments(r1$par, gamma, contributions = TRUE)
-  S4 <- moment_cov_blocks(list(list(mat = cc$M4_mat, n = nrow(cc$M4_mat)),
-                               list(mat = cc$M5_mat, n = nrow(cc$M5_mat))), n4)
-  d4 <- sqrt(diag(S4)); S4c <- S4 / tcrossprod(d4)
-  S4c_inv <- if (is.na(rcond(S4c)) || rcond(S4c) < 1e-12) solve(S4c + diag(1e-6, n4)) else solve(S4c)
-  W4 <- S4c_inv / tcrossprod(d4)
-  r2 <- optim(r1$par, obj, W = W4, method = "BFGS", control = list(maxit = 500, reltol = 1e-10))
-  set_beta(r2$par)
-  list(bcoef = r2$par, W = W4, value = r2$value)
-}
-cat("\n--- Stage 4: beta by insurer characteristics (commission conditions + MLR relation) ---\n")
-stage4 <- estimate_beta(BCOEF, result2$par)
-cat("  bcoef:", paste(BETA_TERMS, round(stage4$bcoef, 4), collapse = "; "), "\n")
-for (cycle in 1:2) {
-  cat(sprintf("\n--- Cycle %d: cost GMM at the new beta, then the commission block ---\n", cycle))
-  set_beta(stage4$bcoef)
-  result2 <- optim(par = result2$par, fn = gmm_objective, W = W2, method = "BFGS",
-                   control = list(maxit = 2000, reltol = 1e-12))
-  cat("  cost objective:", format(result2$value, digits = 6), " gamma[2] =", round(result2$par[2], 4), "\n")
-  stage4 <- estimate_beta(stage4$bcoef, result2$par)
-  cat("  bcoef:", paste(BETA_TERMS, round(stage4$bcoef, 4), collapse = "; "), "\n")
-}
-set_beta(stage4$bcoef)
-
 alpha_gmm <- ALPHA_FIXED
 gamma_gmm <- result2$par[1:N_GAMMA]
-beta_gmm <- BCOEF
 
 cat("\n  alpha (fixed OLS):", round(alpha_gmm, 4), "\n")
 cat("  gamma (GMM):", round(gamma_gmm, 4), "\n")
-cat("  beta coefficients:", round(beta_gmm, 4), "\n")
 
 g2 <- compute_g_bar(result2$par)
 cat("  g_bar at Step 2:\n")
@@ -786,26 +683,24 @@ cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
     " composition shares:", round(alpha_gmm[-(1:4)], 3), "\n")
 
 # =========================================================================
-# M4 DIAGNOSTIC: commission condition residuals at the GMM solution
+# COMMISSION DIAGNOSTIC: condition residuals at the GMM solution
 # =========================================================================
 # Per insurer-year: mu_hat = MB/MC - 1 (the steering return net of the outlay),
 # the observed commission per broker enrollee (comm_bar), and the residual of the
 # condition MB = (1 - beta) MC (phi = mu_hat + beta). beta is written for the
 # counterfactual.
 
-cat("\n--- M4: commission condition MB = (1 - beta) MC at the GMM solution ---\n")
+cat("\n--- Commission conditions MB = (1 - beta) MC at the GMM solution ---\n")
 contr2 <- compute_g_bar(result2$par, return_contributions = TRUE)
 comm_fy <- contr2$comm_fy %>%
   tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE)
 cat("  insurer-year conditions:", nrow(comm_fy),
     " | distinct insurers:", n_distinct(comm_fy$firm), "\n")
-cat("  beta coefficients (standardized covariates):", paste(BETA_TERMS, round(BCOEF, 3), collapse = "; "), "\n")
 beta_fy_df <- tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
   tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE) %>%
   filter(paste(firm, year, sep = "_") %in% COMM_KEYS)
 cat("  beta by insurer (mean over years):\n")
 print(beta_fy_df %>% group_by(firm) %>% summarise(beta = round(mean(beta), 3), .groups = "drop"), n = Inf)
-cat("  commission condition moments:", round(contr2$g_comm, 4), " | MLR moments:", round(contr2$g_mlr, 4), "\n")
 cat("  mu_hat = MB/MC - 1: mean", round(mean(comm_fy$mu_hat), 3),
     " sd", round(sd(comm_fy$mu_hat), 3), " | residual phi: mean", round(mean(comm_fy$phi), 3),
     " sd", round(sd(comm_fy$phi), 3), "\n")
@@ -816,7 +711,6 @@ print(comm_fy %>% group_by(firm) %>%
 write_csv(tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
             tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE),
           file.path(TEMP_DIR, "commission_beta.csv"))
-write_csv(tibble(term = BETA_TERMS, estimate = BCOEF), file.path(TEMP_DIR, "commission_beta_coefs.csv"))
 write_csv(comm_fy %>% select(firm, year, MB, MC, mu_hat, comm_bar, phi),
           file.path(TEMP_DIR, "commission_foc_fit.csv"))
 cat("  Saved commission_beta.csv and commission_foc_fit.csv\n")

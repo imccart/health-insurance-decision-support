@@ -60,6 +60,7 @@ source("code/analysis/s2_demand.R")          # writes demand_spec.csv, estimates
 source("code/analysis/s3_pricing.R")
 source("code/analysis/s4_cost-gmm.R")
 source("code/analysis/s5_se.R")
+source("code/analysis/s6_commission-bounds.R")   # commission revealed-preference bounds
 
 # cf: counterfactuals -----------------------------------------------------
 source("code/analysis/cf1_estimate.R")       # solve equilibria by year (writes premium_cf)

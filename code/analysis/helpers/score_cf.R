@@ -144,7 +144,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     comm[is.na(comm)] <- 0
     names(comm) <- plan_ids_cell
     tt <- rows$tau[1]; if (is.na(tt)) tt <- NULL
-    df <- if (grepl("^defund_", lab)) as.numeric(sub("^defund_", "", lab)) else NULL
+    df <- if (grepl("^defund_", lab)) as.numeric(sub("^defund_([0-9.]+).*$", "\\1", lab)) else NULL
     cd <- build_scenario_data(cell_data_base, comm, tau = tt,
                               broker_remain = grepl("^endog_tau", lab), defund = df)
     p_vec <- setNames(rows$premium_cf, rows$plan_id)[plan_ids_cell]

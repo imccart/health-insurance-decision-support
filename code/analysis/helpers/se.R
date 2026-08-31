@@ -59,11 +59,10 @@ demand_sandwich_se <- function(cells, theta, fd_rel = 1e-5) {
 # V = (G'WG)^-1 G'W S W G (G'WG)^-1. gbar_fn(theta) returns averaged moments;
 # gbar_fn(theta, return_contributions = TRUE) returns the contribution blocks
 # (see moment_cov_blocks). Meat S is block-diagonal: M1 (SRRT rows), M2 (PUF rows),
-# M3 (plan-year FOC rows), M4 (insurer-year commission conditions), M5 (MLR
-# insurer-years), with the cross-block covariance set to zero (distinct data
-# sources). CONDITIONAL on the demand estimates (no Newey-McFadden first-step
-# correction; full propagation is in the CF bootstrap). param_names labels the rows
-# in (alpha, gamma, beta) order.
+# M3 (plan-year FOC rows), with the cross-block covariance set to zero
+# (distinct data sources). CONDITIONAL on the demand estimates (no
+# Newey-McFadden first-step correction; full propagation is in the CF
+# bootstrap). param_names labels the rows in (alpha, gamma) order.
 # Block-diagonal moment covariance from the per-observation contribution blocks
 # (each element list(mat, n); rows are the block's observations, columns its
 # moments, blocks in moment order and treated as independent).

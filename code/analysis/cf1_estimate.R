@@ -3,13 +3,14 @@
 ## Author:        Ian McCarthy
 ## Description:   Structural counterfactuals, one year at a time. For each year
 ##                the 19 region cells sit on their own workers (helpers/
-##                cf_cell.R); the master solves the plan-year base premiums and
-##                the insurer-year commission scales jointly (helpers/cf_year.R)
-##                with the pricing and commission conditions held at their
-##                observed-point residuals, so the baseline is the observed
-##                premiums and commissions and every scenario is a move away
-##                from it. Writes results/counterfactual_results.csv. Sourced
-##                by _analysis.R.
+##                cf_cell.R); the master solves the plan-year base premiums to
+##                the model's premium equilibrium (helpers/cf_year.R) with
+##                commissions exogenous in every scenario. The baseline holds
+##                the observed schedules; scenarios with a commission response
+##                run at the observed schedules (the point) and at the
+##                revealed-preference band edges (0.75x and 1.25x), which
+##                bound the response. Writes results/counterfactual_results.csv.
+##                Sourced by _analysis.R.
 
 # PHASE 1: Load counterfactual-specific data ------------------------------
 
@@ -43,10 +44,11 @@ demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 STRUCTURAL_SPEC <- demand_spec$all
 
 # Scenario grids
-TAU_GRID       <- c(0, 0.25, 0.5, 0.75, 1.0)   # commission ban, brokers -> navigators
-ENDOG_TAU_GRID <- c(0.5, 1.0)                  # navigator expansion, commissions endogenous
-DEFUND_GRID    <- c(0.5, 1.0)                  # navigators -> brokers, commissions endogenous
+TAU_GRID       <- c(0, 0.25, 0.5, 0.75, 1.0)   # commission ban, agents -> navigators
+ENDOG_TAU_GRID <- c(0.5, 1.0)                  # navigator expansion, commissions at observed
+DEFUND_GRID    <- c(0.5, 1.0)                  # navigators -> agents, commissions at observed
 SCALE_GRID     <- c(0.25, 0.5, 0.75)           # commission levels scaled down
+BAND_EDGES     <- c(0.75, 1.25)                # band-edge runs bounding the commission response
 
 CF_YEAR_DIR <- file.path(TEMP_DIR, "cf_years")
 if (dir.exists(CF_YEAR_DIR)) unlink(CF_YEAR_DIR, recursive = TRUE)
@@ -120,8 +122,8 @@ for (y in years) {
   solve_ids <- share_y$plan_id[share_y$share >= SHARE_FLOOR_FOC & share_y$plan_id %in% names(P_obs)]
   cat("  plan-years:", length(P_obs), "; priced in the solve:", length(solve_ids), "\n")
 
-  # Observed point: the held pricing residuals e_jy, the commission calibration
-  # per insurer-year, and the baseline rows
+  # Observed point: the pricing-residual fit diagnostic and the insurers'
+  # observed mean commissions
   spec_obs <- list(kind = "exog", comm = "observed", calib = TRUE)
   invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline", spec_obs))
   pieces_obs <- cf_year_evaluate(cl, P_obs, NULL)
@@ -131,147 +133,127 @@ for (y in years) {
   ag_obs <- cf_year_aggregate(pieces_obs)
   e_target <- ag_obs$G
   N_year <- sum(vapply(inits[active], function(cs) cs$N, numeric(1)))
-  # The pricing residual in dollars is the margin correction the commission
-  # benefit uses (both conditions see the same margin); re-evaluate the observed
-  # point with it in place for the commission calibration
   e_dollars <- ag_obs$G / ag_obs$omega_w
   metal_of <- sr_y %>% distinct(plan_id, metal) %>% { setNames(.$metal, .$plan_id) }
   cat("  pricing residual in dollars per member-month, mean by metal:",
       paste(names(tapply(e_dollars, metal_of[names(e_dollars)], mean)),
             round(tapply(e_dollars, metal_of[names(e_dollars)], mean)), collapse = ", "), "\n")
 
-  # Endogenous-insurer gate at the year level: positive commissions and a broker
-  # pool at or above the share floor. The commission condition is MB = (1 - beta) MC
-  # (its gap at observed commissions, b_obs, is reported as a fit statistic);
-  # mu = -beta in the output's markup convention MB = (1 + mu) MC.
+  # Insurers with commissions in the year: positive outlay and an agent pool at
+  # or above the share floor. Their observed mean commission per agent member
+  # sets the flat-mandate level.
   firms <- names(ag_obs$MC)
   gate <- firms[ag_obs$MC[firms] > 0 & is.finite(ag_obs$MB[firms]) &
                 ag_obs$qB[firms] / N_year >= SHARE_FLOOR_FOC]
-  beta_y <- BETA_LOOKUP[paste(gate, y, sep = "_")]
-  beta_y[is.na(beta_y)] <- mean(BETA_LOOKUP)
-  beta_y <- setNames(unname(beta_y), gate)
-  mu_y <- -beta_y
   etabar_y <- ag_obs$MC[gate] / ag_obs$qB[gate]
-  comm_scale <- 1 - beta_y                       # (1 - beta) by insurer
-  endog_native <- function(prefixes) {
-    if (length(prefixes) == 0) return(NULL)
-    list(prefixes = prefixes, comm_scale = comm_scale[prefixes],
-         b_obs = 1 - ag_obs$MB[prefixes] / (comm_scale[prefixes] * ag_obs$MC[prefixes]))
-  }
-  cat("  commission conditions:", length(gate), "insurers endogenous;",
-      "pricing residual at observed premiums |e| =", signif(sqrt(sum(e_target[solve_ids]^2)), 3),
-      "; commission gap at observed commissions in [", if (length(gate)) round(min(endog_native(gate)$b_obs), 2) else NA, ",",
-      if (length(gate)) round(max(endog_native(gate)$b_obs), 2) else NA, "]\n")
+  cat("  pricing residual at observed premiums |e| =",
+      signif(sqrt(sum(e_target[solve_ids]^2)), 3), ";",
+      length(gate), "insurers with commissions\n")
 
-  # Baseline: the model's own equilibrium, residuals at zero. The best-response
-  # iteration carries the system from the observed premiums to the fixed point;
-  # the year's Jacobian in the base premiums is then computed there (numerical),
-  # the baseline is polished with it, and every scenario starts from it.
+  # Baseline: the model's premium equilibrium at the observed commissions. The
+  # best-response iteration carries the system from the observed premiums to
+  # the fixed point; the year's Jacobian in the base premiums is then computed
+  # there (numerical), the baseline is polished with it, and every scenario
+  # starts from it.
   rows_y <- list()
   save_rows <- function(label, rows) {
     if (is.null(rows) || nrow(rows) == 0) return(invisible(NULL))
     data.table::fwrite(rows, file.path(CF_YEAR_DIR, sprintf("year_%d_%s.csv", y, label)))
     rows_y[[label]] <<- rows
   }
-  zero_target <- setNames(rep(0, length(P_obs)), names(P_obs))
-  k_one <- setNames(rep(1, length(gate)), gate)
   invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline",
-                                  if (length(gate)) list(kind = "endog", comm = "observed", prefixes = gate)
-                                  else list(kind = "exog", comm = "observed")))
+                                  list(kind = "exog", comm = "observed")))
   # Warm start from a saved fixed point of an earlier run of this year, if any
   fp_file <- file.path(CF_YEAR_DIR, sprintf("fixed_point_%d.csv", y))
-  P_start <- P_obs; k_start <- k_one
+  P_start <- P_obs
   if (file.exists(fp_file)) {
     fp_saved <- read_csv(fp_file, show_col_types = FALSE)
     P_start[fp_saved$id[fp_saved$kind == "P"]] <- fp_saved$value[fp_saved$kind == "P"]
-    kk <- fp_saved[fp_saved$kind == "k", ]; k_start[intersect(kk$id, gate)] <- kk$value[match(intersect(kk$id, gate), kk$id)]
     cat("  baseline warm start from", basename(fp_file), "\n")
   }
-  fp <- solve_cf_year_fixed_point(yr, "baseline", solve_ids, P_start, k_start, endog_native(gate))
+  fp <- solve_cf_year_fixed_point(yr, "baseline", solve_ids, P_start)
   if (is.null(fp)) { cat("  baseline iteration failed; year skipped\n"); parallel::stopCluster(cl); next }
   cat(sprintf("  baseline fixed point: %d iterations, converged %s, %.1f min\n", fp$iter, fp$converged, fp$elapsed))
-  write_csv(bind_rows(tibble(kind = "P", id = names(fp$P), value = unname(fp$P)),
-                      if (length(gate)) tibble(kind = "k", id = names(fp$k), value = unname(fp$k))), fp_file)
-  J_P_year <- cf_year_jacobian_P(yr, solve_ids, fp$P, fp$k, zero_target, endog_native(gate), NULL,
-                                 residual_scale = 0)
+  write_csv(tibble(kind = "P", id = names(fp$P), value = unname(fp$P)), fp_file)
+  J_P_year <- cf_year_jacobian_P(yr, solve_ids, fp$P)
   if (is.null(J_P_year)) { cat("  jacobian evaluation failed; year skipped\n"); parallel::stopCluster(cl); next }
   data.table::fwrite(data.table::data.table(row = rownames(J_P_year), J_P_year),
                      file.path(CF_YEAR_DIR, sprintf("jacobian_%d.csv", y)))
 
-  run_scenario <- function(label, tau, spec, P_init, k_init = NULL, endog = NULL, set_scenario = TRUE) {
+  run_scenario <- function(label, tau, spec, P_init, comm_scale = 1, set_scenario = TRUE) {
     if (set_scenario) invisible(parallel::clusterCall(cl, cf_cell_scenario, label, spec))
-    res <- solve_cf_year(yr, label, solve_ids, P_init, k_init, zero_target, endog, NULL,
-                         residual_scale = 0, J_P = J_P_year, tol_dollars = 5, tol_b = 0.025)
+    res <- solve_cf_year(yr, label, solve_ids, P_init, J_P_year, tol_dollars = 5)
     if (is.null(res)) { cat("  ", label, "- did not converge\n"); return(NULL) }
     P_full <- P_obs; P_full[names(res$P)] <- res$P
     cat(sprintf("   %s - converged (termcd %d, %d iterations, %d evaluations, %.1f min)\n",
                 label, res$sol$termcd, res$sol$iter, res$n_eval, res$elapsed))
-    save_rows(label, cf_year_rows(yr, label, tau, res$pieces, P_full, res$k, endog, mu_y,
+    save_rows(label, cf_year_rows(yr, label, tau, res$pieces, P_full, comm_scale,
                                   res$sol$termcd, res$sol$iter))
-    list(P = P_full, k = res$k)
+    list(P = P_full)
   }
 
   # Baseline polish with the Jacobian at the fixed point (the scenario is
   # already set on the workers)
-  base <- run_scenario("baseline", NA_real_, NULL, fp$P, fp$k, endog_native(gate), set_scenario = FALSE)
+  base <- run_scenario("baseline", NA_real_, NULL, fp$P, set_scenario = FALSE)
   if (is.null(base)) { cat("  baseline did not converge; year skipped\n"); parallel::stopCluster(cl); next }
   P_base <- base$P
-  k_base <- if (length(gate)) setNames(unname(base$k[gate]), gate) else NULL
   gap <- P_base[names(P_obs)] - P_obs
   cat("  model baseline vs observed base premium, mean by metal ($):",
       paste(names(tapply(gap, metal_of[names(gap)], mean)),
             round(tapply(gap, metal_of[names(gap)], mean)), collapse = ", "), "\n")
-  if (length(gate)) cat("  model baseline commission scale vs observed:",
-                        paste(gate, round(k_base, 2), collapse = " "), "\n")
 
-  # Commission ban with the broker-to-navigator gradient (chained warm starts)
+  # Commission ban with the agent-to-navigator gradient (chained warm starts)
   P_warm <- P_base
   for (tau in TAU_GRID) {
     out <- run_scenario(paste0("zero_tau", sprintf("%.2f", tau)), tau,
-                        list(kind = "exog", comm = "zero", tau = tau), P_warm)
+                        list(kind = "exog", comm = "zero", tau = tau), P_warm, comm_scale = 0)
     if (!is.null(out)) P_warm <- out$P
   }
-  run_scenario("uniform", NA_real_, list(kind = "exog", comm = "uniform"), P_base)
+  run_scenario("uniform", NA_real_, list(kind = "exog", comm = "uniform"), P_base,
+               comm_scale = NA_real_)
   for (sc in SCALE_GRID)
     run_scenario(paste0("scale_", sprintf("%.2f", sc)), NA_real_,
-                 list(kind = "exog", comm = "scale", sc = sc), P_base)
-  run_scenario("aligned", NA_real_, list(kind = "exog", comm = "aligned"), P_base)
+                 list(kind = "exog", comm = "scale", sc = sc), P_base, comm_scale = sc)
+  run_scenario("aligned", NA_real_, list(kind = "exog", comm = "aligned"), P_base,
+               comm_scale = NA_real_)
 
-  # Navigator expansion with endogenous commissions: the endogenous set is
-  # re-gated on the scenario's broker pool at the warm point
-  if (length(gate) > 0) {
-    P_e <- P_base; k_e <- k_base
-    for (tau in ENDOG_TAU_GRID) {
-      label <- paste0("endog_tau", sprintf("%.2f", tau))
-      spec <- list(kind = "endog", comm = "observed", tau = tau, broker_remain = TRUE, prefixes = gate)
-      invisible(parallel::clusterCall(cl, cf_cell_scenario, label, spec))
-      pz <- cf_year_evaluate(cl, P_e, k_e)
-      agz <- cf_year_aggregate(pz)
-      gate_s <- gate[!is.na(agz$qB[gate]) & agz$qB[gate] / N_year >= SHARE_FLOOR_FOC]
-      if (length(gate_s) > 0) {
-        spec$prefixes <- gate_s
-        out <- run_scenario(label, tau, spec, P_e, k_e[gate_s], endog_native(gate_s))
-      } else {
-        out <- run_scenario(label, tau, list(kind = "exog", comm = "observed", tau = tau,
-                                             broker_remain = TRUE), P_e)
-      }
-      if (!is.null(out)) { P_e <- out$P; if (!is.null(out$k)) k_e[names(out$k)] <- out$k }
+  # Scenarios with a commission response: the point run holds the observed (or
+  # mandated) schedules, and the band-edge runs, the whole schedule at each
+  # multiplier in BAND_EDGES, bound the insurers' response within the
+  # revealed-preference bands
+  run_banded <- function(label, tau, spec_point, P_init) {
+    out <- run_scenario(label, tau, spec_point, P_init)
+    for (bk in BAND_EDGES) {
+      spec_b <- spec_point
+      if (identical(spec_b$comm, "flatbar")) spec_b$levels <- spec_point$levels * bk
+      else { spec_b$comm <- "scale"; spec_b$sc <- bk }
+      run_scenario(paste0(label, "_k", sprintf("%.2f", bk)), tau, spec_b,
+                   if (!is.null(out)) out$P else P_init, comm_scale = bk)
     }
+    out
+  }
 
-    # Flat-fee mandate: every endogenous insurer re-chooses a flat dollar level
-    # (basis $1 per plan, so k is the level; start at the observed mean commission)
-    run_scenario("flat_mandate", NA_real_,
-                 list(kind = "endog", comm = "flat", prefixes = gate),
-                 P_base, etabar_y[gate] * k_base, endog_native(gate))
+  # Navigator expansion: a fraction tau of agent-assisted households become
+  # navigator-assisted, the rest stay agent-assisted
+  P_e <- P_base
+  for (tau in ENDOG_TAU_GRID) {
+    out <- run_banded(paste0("endog_tau", sprintf("%.2f", tau)), tau,
+                      list(kind = "exog", comm = "observed", tau = tau, broker_remain = TRUE), P_e)
+    if (!is.null(out)) P_e <- out$P
+  }
 
-    # Navigator defunding: navigators become brokers, commissions endogenous
-    P_d <- P_base; k_d <- k_base
-    for (df in DEFUND_GRID) {
-      out <- run_scenario(paste0("defund_", sprintf("%.2f", df)), NA_real_,
-                          list(kind = "endog", comm = "observed", defund = df, prefixes = gate),
-                          P_d, k_d, endog_native(gate))
-      if (!is.null(out)) { P_d <- out$P; if (!is.null(out$k)) k_d[names(out$k)] <- out$k }
-    }
+  # Flat-fee mandate: every insurer with commissions pays its observed mean
+  # commission per agent member as a flat fee (a budget-neutral level)
+  if (length(gate) > 0)
+    run_banded("flat_mandate", NA_real_,
+               list(kind = "exog", comm = "flatbar", levels = etabar_y), P_base)
+
+  # Navigator defunding: navigators become agent-assisted at the observed schedules
+  P_d <- P_base
+  for (df in DEFUND_GRID) {
+    out <- run_banded(paste0("defund_", sprintf("%.2f", df)), NA_real_,
+                      list(kind = "exog", comm = "observed", defund = df), P_d)
+    if (!is.null(out)) P_d <- out$P
   }
 
   parallel::stopCluster(cl)
@@ -305,10 +287,10 @@ scen_summary <- cf_results %>%
 cat("\n"); print(scen_summary %>% mutate(across(where(is.numeric), ~round(., 2))), n = Inf)
 
 endog_scenarios <- cf_results %>%
-  filter(str_detect(scenario, "^endog_tau|^defund_") | scenario == "flat_mandate")
+  filter(str_detect(scenario, "^endog_tau|^defund_|^flat_mandate"))
 if (nrow(endog_scenarios) > 0) {
-  cat("\n--- Endogenous-Commission Scenarios: solved commission scale ---\n")
-  cat("    comm_scale = share-weighted mean solved k of endogenous insurers (1 = observed schedule)\n")
+  cat("\n--- Commission-response scenarios: point runs and band edges ---\n")
+  cat("    comm_scale = the commission multiplier applied (1 = the point run at observed schedules)\n")
   endog_summary <- endog_scenarios %>%
     group_by(scenario) %>%
     summarize(comm_scale = if (all(is.na(comm_scale_cf))) NA_real_ else
