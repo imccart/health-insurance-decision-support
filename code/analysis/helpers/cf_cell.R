@@ -4,9 +4,10 @@
 ## Description:   Worker-side pieces of the counterfactual: one region-year
 ##                cell's frozen state (cf_cell_init), its scenario data
 ##                (cf_cell_scenario), and the two-phase evaluation of the
-##                pricing and commission first-order conditions at a candidate
-##                premium and commission vector (cf_cell_eval). The solver
-##                itself lives in helpers/cf_year.R and runs on the master: it
+##                pricing first-order conditions at a candidate premium vector
+##                (cf_cell_eval); the commission schedule is set by the
+##                scenario. The solver itself lives in helpers/cf_year.R and
+##                runs on the master: it
 ##                calls these on every cell of a year through the cluster, so
 ##                the statewide transfer pool is exact and each plan is priced
 ##                once for the year. Relies on the structural helpers the
@@ -46,8 +47,8 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   set.seed(seed)
 
   # Commissions on the plans before the choice data are built. Percentage
-  # schedules (rate x premium) track candidate premiums in the endogenous
-  # scenarios.
+  # schedules (rate x premium) are dollarized at the observed premiums; the
+  # pct/rho flags carry their direct term in the pricing condition.
   comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
   pct_prefixes <- comm_yr$insurer_prefix[!is.na(comm_yr$is_pct) & comm_yr$is_pct]
   plans_cell <- plans_cell %>%
@@ -134,7 +135,6 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   .cf$cell <- list(
     r = r, y = y, N = N_cell, plan_ids = plan_ids_cell, prefix = plan_prefix,
     admin = admin_vec, beta = unname(beta_vec),
-    margin_shift = setNames(rep(0, length(plan_ids_cell)), plan_ids_cell),
     cell_data_base = cell_data_base, plan_attrs = plan_attrs, plans_cell = plans_cell,
     coefs = coefs, lambda = setNames(coefs$estimate, coefs$term)[["lambda"]],
     spec = STRUCTURAL_SPEC, rs_coefs = rs_coefs, claims_coefs = claims_coefs,
@@ -146,18 +146,6 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   list(r = r, y = y, N = N_cell, plan_ids = plan_ids_cell, prefix = plan_prefix,
        p_obs = p_obs, comm_obs = comm_obs, g = g_cell, share_obs = share_obs,
        pct = setNames(pct_plan, plan_ids_cell), rho = setNames(rho_obs, plan_ids_cell))
-}
-
-# cf_cell_set_margin_shift ---------------------------------------------------
-# The plan-year pricing residual in dollars (master, observed point): the margin
-# the insurer's pricing implies exceeds the model's margin by this amount, and
-# the commission benefit uses that pricing-consistent margin.
-cf_cell_set_margin_shift <- function(shift) {
-  cl <- .cf$cell
-  if (is.null(cl)) return(NULL)
-  s <- shift[cl$plan_ids]; s[is.na(s)] <- 0
-  .cf$cell$margin_shift <- setNames(unname(s), cl$plan_ids)
-  TRUE
 }
 
 # current_benchmark -------------------------------------------------------
@@ -210,23 +198,10 @@ update_premiums <- function(dt, p_vec) {
   recompute_prem_interactions(dt, cl$spec)
 }
 
-# apply_commissions --------------------------------------------------------
-# Rewrite the commission utility column for a per-plan eta vector. Uses the
-# `broker` column, which build_scenario_data finalizes after the tau conversion,
-# so converted households stay at zero.
-apply_commissions <- function(dt, eta_vec) {
-  for (pn in names(eta_vec)) {
-    idx <- which(dt$plan_id == pn)
-    if (length(idx) == 0) next
-    set(dt, i = idx, j = "commission_broker", value = eta_vec[[pn]] * dt$broker[idx])
-  }
-  dt
-}
-
 # build_scenario_data ------------------------------------------------------
 # tau: share of broker households converted to navigators (highest p_nav
 #   first); broker_remain = TRUE keeps the non-switched brokers as brokers
-#   (endogenous-commission scenarios) instead of converting them to Unassisted.
+#   (the navigator-expansion scenarios) instead of converting them to Unassisted.
 # defund: share of navigator households converted to brokers (lowest p_nav
 #   first). Runs before the commission write so new brokers pick up the
 #   scenario schedule.
@@ -291,15 +266,13 @@ build_scenario_data <- function(comm_sc, tau = NULL, broker_remain = FALSE, defu
 
 # cf_cell_scenario ----------------------------------------------------------
 # Installs a scenario on the worker: its cell data and commission basis.
-#   spec$kind   "exog" (fixed dollar commissions) or "endog" (each insurer in
-#               spec$prefixes scales its schedule by a year-level k_f)
 #   spec$comm   "observed", "zero", "uniform" (cell mean of observed positive
 #               commissions), "scale" (observed x spec$sc), "flatbar" (a flat
 #               fee per insurer at spec$levels, named by prefix), "aligned"
 #               (proportional to the plan's mean non-commission utility, holding
-#               the cell's commission budget), "flat" (flat-fee mandate basis)
+#               the cell's commission budget)
 #   spec$tau, spec$broker_remain, spec$defund: household conversions
-# Returns the per-plan commission vector at k = 1 (for the master's records).
+# Returns the per-plan commission vector (for the master's records).
 cf_cell_scenario <- function(label, spec) {
   cl <- .cf$cell
   .cf$scen <- NULL; .cf$ev <- NULL
@@ -310,7 +283,6 @@ cf_cell_scenario <- function(label, spec) {
     zero     = setNames(rep(0, length(pn)), pn),
     uniform  = setNames(rep(cl$mean_comm_pmpm, length(pn)), pn),
     scale    = setNames(cl$comm_obs * spec$sc, pn),
-    flat     = cl$comm_obs,
     flatbar  = {
       lv <- spec$levels[cl$prefix]
       lv[is.na(lv)] <- 0
@@ -332,28 +304,18 @@ cf_cell_scenario <- function(label, spec) {
     stop("unknown commission basis ", spec$comm))
   cd <- build_scenario_data(comm_sc, tau = spec$tau, broker_remain = isTRUE(spec$broker_remain),
                             defund = spec$defund)
-  endog <- if (identical(spec$kind, "endog")) {
-    flat <- identical(spec$comm, "flat")
-    list(prefixes = spec$prefixes,
-         idx = lapply(spec$prefixes, function(f) which(cl$prefix == f)),
-         eta_base = comm_sc,
-         w_flat = if (flat) setNames(rep(1, length(pn)), pn) else comm_sc,
-         rho = if (flat) rep(0, length(pn)) else cl$rho,
-         pct = if (flat) rep(FALSE, length(pn)) else cl$pct)
-  } else NULL
-  .cf$scen <- list(label = label, dt_base = cd, comm = comm_sc, endog = endog,
+  .cf$scen <- list(label = label, dt_base = cd, comm = comm_sc,
                    calib = isTRUE(spec$calib))
   comm_sc
 }
 
 # cf_cell_eval --------------------------------------------------------------
 # Phase 1: at the cell premiums implied by the plan-year base premiums P (p_c =
-# P g_c, observed for plans not in P) and the insurer scales k (endogenous
-# scenarios; eta_j = k_f w_j(p)), rebuild the choice data and compute shares,
-# elasticities, demographic shares, predicted risk scores, the broker
-# elasticities, and (endogenous or calibration) the commission derivatives.
-# Returns the cell record for ra_state_totals(); the rest stays in .cf$ev.
-cf_cell_eval_p1 <- function(P, k = NULL) {
+# P g_c, observed for plans not in P), rebuild the choice data and compute
+# shares, elasticities, demographic shares, predicted risk scores, the broker
+# elasticities, and (calibration) the commission derivatives. Returns the cell
+# record for ra_state_totals(); the rest stays in .cf$ev.
+cf_cell_eval_p1 <- function(P) {
   cl <- .cf$cell; sc <- .cf$scen
   if (is.null(cl) || is.null(sc)) return(NULL)
   pn <- cl$plan_ids
@@ -362,17 +324,7 @@ cf_cell_eval_p1 <- function(P, k = NULL) {
   p_vec[inP] <- P[pn[inP]] * cl$g[inP]
 
   eta_cur <- sc$comm
-  if (!is.null(sc$endog)) {
-    en <- sc$endog
-    w_full <- ifelse(en$pct, en$rho * p_vec, en$w_flat)
-    eta_cur <- en$eta_base
-    for (fi in seq_along(en$prefixes)) {
-      kf <- if (!is.null(k) && en$prefixes[fi] %in% names(k)) k[[en$prefixes[fi]]] else 1
-      eta_cur[en$idx[[fi]]] <- kf * w_full[en$idx[[fi]]]
-    }
-  }
   dt <- update_premiums(copy(sc$dt_base), p_vec)
-  if (!is.null(sc$endog)) dt <- apply_commissions(dt, eta_cur)
 
   util <- compute_utility(dt, cl$coefs)
   bench <- .cf$bench_cur
@@ -388,7 +340,7 @@ cf_cell_eval_p1 <- function(P, k = NULL) {
     compute_broker_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
                                             cl$coefs, spec = cl$spec, V_base = util$V_base),
     error = function(e) NULL)
-  ck <- if (!is.null(sc$endog) || sc$calib) tryCatch(
+  ck <- if (sc$calib) tryCatch(
     compute_commission_derivatives(dt, util$V, cl$lambda, cl$coefs, V_base = util$V_base),
     error = function(e) NULL) else NULL
   rs <- predict_risk_scores(cl$rs_coefs, cl$plan_chars, demo)
@@ -430,17 +382,15 @@ cf_cell_eval_p2 <- function(totals, own) {
   }
 
   # Commission pieces per insurer: MB_f = margin x d qB / d k + RA response,
-  # MC_f = outlay, qB_f = broker enrollment; weights w = the plan's commission at
-  # k = 1 (observed schedule, or the flat basis). Pct direct term rho_j qB_j per
-  # plan for the premium FOC of endogenous pct insurers.
+  # MC_f = outlay, qB_f = broker enrollment; weights w = the plan's commission
+  # under the scenario's schedule. Pct direct term rho_j qB_j per plan.
   MB <- MC <- qB <- setNames(numeric(0), character(0))
   direct <- numeric(J)
   if (!is.null(ev$comm_D)) {
     ra_eta <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$comm_D, cl$own_mat)
-    margin <- ev$p - mc - cs * ev$eta + cl$margin_shift
-    en <- sc$endog
-    w_basis <- if (is.null(en)) sc$comm else ifelse(en$pct, en$rho * ev$p, en$w_flat)
-    firms <- if (is.null(en)) unique(cl$prefix[sc$comm > 0]) else en$prefixes
+    margin <- ev$p - mc - cs * ev$eta
+    w_basis <- sc$comm
+    firms <- unique(cl$prefix[sc$comm > 0])
     for (f in firms) {
       ii <- which(cl$prefix == f)
       w_f <- numeric(J); w_f[ii] <- w_basis[ii]
@@ -448,9 +398,7 @@ cf_cell_eval_p2 <- function(totals, own) {
       MB[f] <- sum(margin[ii] * dq[ii]) + sum(w_basis[ii] * ra_eta[ii])
       MC[f] <- sum(ev$comm_qB[ii] * w_basis[ii])
       qB[f] <- sum(ev$comm_qB[ii])
-      pct_ii <- if (is.null(en)) cl$pct[ii] else en$pct[ii]
-      rho_ii <- if (is.null(en)) cl$rho[ii] else en$rho[ii]
-      direct[ii] <- ifelse(pct_ii, cs[ii] * rho_ii * ev$comm_qB[ii], 0)
+      direct[ii] <- ifelse(cl$pct[ii], cs[ii] * cl$rho[ii] * ev$comm_qB[ii], 0)
     }
   }
   list(plan_ids = pn, N = cl$N, g = cl$g, resid = setNames(resid, pn), direct = setNames(direct, pn),

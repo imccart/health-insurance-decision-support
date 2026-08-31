@@ -124,7 +124,7 @@ for (y in years) {
 
   # Observed point: the pricing-residual fit diagnostic and the insurers'
   # observed mean commissions
-  spec_obs <- list(kind = "exog", comm = "observed", calib = TRUE)
+  spec_obs <- list(comm = "observed", calib = TRUE)
   invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline", spec_obs))
   pieces_obs <- cf_year_evaluate(cl, P_obs, NULL)
   if (is.null(pieces_obs) || !all(!vapply(pieces_obs[active], is.null, logical(1)))) {
@@ -162,7 +162,7 @@ for (y in years) {
     rows_y[[label]] <<- rows
   }
   invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline",
-                                  list(kind = "exog", comm = "observed")))
+                                  list(comm = "observed")))
   # Warm start from a saved fixed point of an earlier run of this year, if any
   fp_file <- file.path(CF_YEAR_DIR, sprintf("fixed_point_%d.csv", y))
   P_start <- P_obs
@@ -206,15 +206,15 @@ for (y in years) {
   P_warm <- P_base
   for (tau in TAU_GRID) {
     out <- run_scenario(paste0("zero_tau", sprintf("%.2f", tau)), tau,
-                        list(kind = "exog", comm = "zero", tau = tau), P_warm, comm_scale = 0)
+                        list(comm = "zero", tau = tau), P_warm, comm_scale = 0)
     if (!is.null(out)) P_warm <- out$P
   }
-  run_scenario("uniform", NA_real_, list(kind = "exog", comm = "uniform"), P_base,
+  run_scenario("uniform", NA_real_, list(comm = "uniform"), P_base,
                comm_scale = NA_real_)
   for (sc in SCALE_GRID)
     run_scenario(paste0("scale_", sprintf("%.2f", sc)), NA_real_,
-                 list(kind = "exog", comm = "scale", sc = sc), P_base, comm_scale = sc)
-  run_scenario("aligned", NA_real_, list(kind = "exog", comm = "aligned"), P_base,
+                 list(comm = "scale", sc = sc), P_base, comm_scale = sc)
+  run_scenario("aligned", NA_real_, list(comm = "aligned"), P_base,
                comm_scale = NA_real_)
 
   # Scenarios with a commission response: the point run holds the observed (or
@@ -238,7 +238,7 @@ for (y in years) {
   P_e <- P_base
   for (tau in ENDOG_TAU_GRID) {
     out <- run_banded(paste0("endog_tau", sprintf("%.2f", tau)), tau,
-                      list(kind = "exog", comm = "observed", tau = tau, broker_remain = TRUE), P_e)
+                      list(comm = "observed", tau = tau, broker_remain = TRUE), P_e)
     if (!is.null(out)) P_e <- out$P
   }
 
@@ -246,13 +246,13 @@ for (y in years) {
   # commission per agent member as a flat fee (a budget-neutral level)
   if (length(gate) > 0)
     run_banded("flat_mandate", NA_real_,
-               list(kind = "exog", comm = "flatbar", levels = etabar_y), P_base)
+               list(comm = "flatbar", levels = etabar_y), P_base)
 
   # Navigator defunding: navigators become agent-assisted at the observed schedules
   P_d <- P_base
   for (df in DEFUND_GRID) {
     out <- run_banded(paste0("defund_", sprintf("%.2f", df)), NA_real_,
-                      list(kind = "exog", comm = "observed", defund = df), P_d)
+                      list(comm = "observed", defund = df), P_d)
     if (!is.null(out)) P_d <- out$P
   }
 

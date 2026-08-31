@@ -124,15 +124,16 @@ cat("  -> data/output/mlr_admin.csv, mlr_admin_beta.csv\n")
 cat("Estimating per-carrier substitution rates from the national filings...\n")
 nat <- bind_rows(lapply(2014:2018, read_mlr_year, all_states = TRUE)) %>%
   filter(!is.na(mm), mm > 20000) %>%
-  mutate(state = ifelse(state == "District of Columbia", "DC",
-                        ifelse(state %in% state.name, state.abb[match(state, state.name)], state)),
+  mutate(state = case_when(state == "District of Columbia" ~ "DC",
+                           state %in% state.name ~ state.abb[match(state, state.name)],
+                           TRUE ~ state),
          sales_ga_pmpm = (direct_sales + other_ga) / mm,
          commission_pmpm = commissions / mm,
          unit = paste(COMPANY_NAME, state, sep = " | ")) %>%
   filter(is.finite(sales_ga_pmpm), is.finite(commission_pmpm), commission_pmpm >= 0) %>%
   mutate(z_size = as.numeric(scale(log(mm)))) %>%
   group_by(unit) %>% mutate(z_u = mean(z_size)) %>% ungroup()
-cat("  national filer-years:", nrow(nat), " filers:", length(unique(nat$unit)), "\n")
+cat("  national filer-years:", nrow(nat), " filers:", n_distinct(nat$unit), "\n")
 
 nat_dm <- demean(X = as.matrix(nat[, c("sales_ga_pmpm", "commission_pmpm")]),
                  f = nat[, c("unit", "year")], weights = nat$mm)
@@ -172,7 +173,7 @@ beta_carrier <- carrier_z %>%
   group_by(insurer_prefix) %>%
   summarize(z = mean(z_u), .groups = "drop") %>%
   mutate(beta = plogis(g_hat[1] + g_hat[2] * z),
-         se = sapply(z, function(zz) sd(plogis(g_boot[1, ] + g_boot[2, ] * zz), na.rm = TRUE)))
+         se = map_dbl(z, ~ sd(plogis(g_boot[1, ] + g_boot[2, ] * .x), na.rm = TRUE)))
 # Carriers absent from the national CA subset (a filing recorded under another
 # state label, or filer-years excluded by the estimation filters) get the
 # profile evaluated at the size implied by their California member-months
@@ -184,7 +185,7 @@ if (length(missing_pref) > 0) {
     group_by(insurer_prefix) %>%
     summarize(z = (mean(log(mm)) - lm_mean) / lm_sd, .groups = "drop") %>%
     mutate(beta = plogis(g_hat[1] + g_hat[2] * z),
-           se = sapply(z, function(zz) sd(plogis(g_boot[1, ] + g_boot[2, ] * zz), na.rm = TRUE)))
+           se = map_dbl(z, ~ sd(plogis(g_boot[1, ] + g_boot[2, ] * .x), na.rm = TRUE)))
   cat("  carriers filled from California member-months:", paste(fill$insurer_prefix, collapse = ", "), "\n")
   beta_carrier <- bind_rows(beta_carrier, fill) %>% arrange(insurer_prefix)
 }

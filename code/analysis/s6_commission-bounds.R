@@ -36,7 +36,7 @@ cat("  cells:", length(cell_files_s6), "| lambda", round(LAMBDA_S6, 4),
     "| commission coefficient", round(BETA_COMM_S6, 4), "\n")
 
 profit_cell_s6 <- function(fp) {
-  m <- regmatches(basename(fp), regexec("^cell_(.+)_(\\d{4})_data\\.csv$", basename(fp)))[[1]]
+  m <- str_match(basename(fp), "^cell_(.+)_(\\d{4})_data\\.csv$")
   r <- m[2]; y <- as.integer(m[3])
   cd <- fread(fp)
   if (!"hh_weight" %in% names(cd)) cd[, hh_weight := weight]
