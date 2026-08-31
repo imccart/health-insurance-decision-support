@@ -50,9 +50,12 @@ DEFUND_GRID    <- c(0.5, 1.0)                  # navigators -> agents, commissio
 SCALE_GRID     <- c(0.25, 0.5, 0.75)           # commission levels scaled down
 BAND_EDGES     <- c(0.75, 1.25)                # band-edge runs bounding the commission response
 
+# Per-scenario row files are cleared each run; fixed_point_<y>.csv persists as
+# the warm start for the next run's baseline iteration.
 CF_YEAR_DIR <- file.path(TEMP_DIR, "cf_years")
-if (dir.exists(CF_YEAR_DIR)) unlink(CF_YEAR_DIR, recursive = TRUE)
-dir.create(CF_YEAR_DIR, recursive = TRUE)
+if (!dir.exists(CF_YEAR_DIR)) dir.create(CF_YEAR_DIR, recursive = TRUE)
+old_rows <- list.files(CF_YEAR_DIR, pattern = "^year_", full.names = TRUE)
+if (length(old_rows) > 0) invisible(file.remove(old_rows))
 
 cat("  Loading HH data for counterfactuals...\n")
 hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
