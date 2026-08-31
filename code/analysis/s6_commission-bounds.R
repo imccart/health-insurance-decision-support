@@ -30,6 +30,22 @@ sr_s6 <- read_csv("results/supply_results.csv", show_col_types = FALSE) %>%
 
 K_GRID_S6 <- c(0, 0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5)
 
+# Schedule revision history, for the adjustment-cost brackets: a firm-year is a
+# revision when its schedule differs from the prior year's; k_keep is the scale
+# that reproduces the prior schedule in the current year (NA when the schedule
+# type switched). 2014 has no prior year and enters neither bracket.
+comm_hist <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE) %>%
+  arrange(insurer_prefix, year) %>%
+  group_by(insurer_prefix) %>%
+  mutate(rate_prev = lag(rate), pct_prev = lag(is_pct),
+         known = !is.na(rate_prev),
+         revised = known & (rate != rate_prev | is_pct != pct_prev),
+         k_keep = if_else(revised & is_pct == pct_prev & rate > 0, rate_prev / rate, NA_real_)) %>%
+  ungroup() %>%
+  select(firm = insurer_prefix, year, known, revised, k_keep)
+K_EXTRA <- comm_hist %>% filter(!is.na(k_keep)) %>%
+  { setNames(as.list(.$k_keep), paste(.$firm, .$year, sep = "_")) }
+
 CELL_DIR_S6 <- file.path(TEMP_DIR, "choice_cells")
 cell_files_s6 <- list.files(CELL_DIR_S6, pattern = "^cell_.*_data\\.csv$", full.names = TRUE)
 cat("  cells:", length(cell_files_s6), "| lambda", round(LAMBDA_S6, 4),
@@ -64,7 +80,10 @@ profit_cell_s6 <- function(fp) {
   out <- list()
   for (f in firms) {
     beta_f <- if (f %in% names(BETA_F)) BETA_F[[f]] else BETA_DEFAULT_S6
-    for (k in K_GRID_S6) {
+    k_set <- K_GRID_S6
+    ek <- K_EXTRA[[paste(f, y, sep = "_")]]
+    if (!is.null(ek)) k_set <- sort(unique(c(k_set, ek)))
+    for (k in k_set) {
       if (nrow(B) > 0) {
         B[, V_k := V + fifelse(prefix == f, BETA_COMM_S6 * (k - 1) * commission_broker, 0)]
         B[, w := exp(V_k / LAMBDA_S6 - max(V_k / LAMBDA_S6)), by = household_number]
@@ -94,7 +113,7 @@ parallel::clusterEvalQ(cl_s6, {
   source("code/analysis/helpers/supply.R"); setDTthreads(1)
 })
 parallel::clusterExport(cl_s6, c("profit_cell_s6", "coefs_s6", "LAMBDA_S6", "BETA_COMM_S6",
-                                 "BETA_F", "BETA_DEFAULT_S6", "sr_s6", "K_GRID_S6"))
+                                 "BETA_F", "BETA_DEFAULT_S6", "sr_s6", "K_GRID_S6", "K_EXTRA"))
 res_s6 <- rbindlist(parallel::parLapplyLB(cl_s6, cell_files_s6, function(fp)
   tryCatch(profit_cell_s6(fp), error = function(e) {
     cat("  ERR", basename(fp), ":", conditionMessage(e), "\n"); NULL })))
@@ -132,3 +151,35 @@ print(bounds %>% group_by(firm) %>%
                   mean_band_pct = round(mean(band_pct), 2), .groups = "drop") %>%
         arrange(mean_dzero_m) %>% as.data.frame(), row.names = FALSE)
 cat("  -> results/commission_profit_curves.csv, commission_bounds.csv\n")
+
+# Adjustment-cost brackets. An unchanged schedule reveals that the best
+# feasible deviation was not worth the revision cost, so kappa is at least the
+# forgone gain; an actual revision reveals that the move beat the cost, so
+# kappa is at most the gain of the move over keeping the prior schedule.
+# Feasible moves are scales in [0.5, 1.5], the range of observed revisions.
+base_k1 <- curves %>% filter(k == 1) %>% select(firm, year, profit1 = profit)
+feas <- curves %>% filter(k >= 0.5, k <= 1.5) %>%
+  inner_join(base_k1, by = c("firm", "year")) %>%
+  group_by(firm, year) %>%
+  summarise(best_gain = max(profit - profit1), .groups = "drop")
+rev_gain <- curves %>%
+  inner_join(comm_hist %>% filter(revised, !is.na(k_keep)), by = c("firm", "year")) %>%
+  filter(near(k, k_keep)) %>%
+  inner_join(base_k1, by = c("firm", "year")) %>%
+  transmute(firm, year, gain_of_move = profit1 - profit)
+kappa <- full_join(
+  feas %>% inner_join(comm_hist %>% filter(known, !revised), by = c("firm", "year")) %>%
+    group_by(firm) %>%
+    summarise(kappa_lo = max(pmax(best_gain, 0)), n_inaction = n(), .groups = "drop"),
+  rev_gain %>% group_by(firm) %>%
+    summarise(kappa_hi = min(gain_of_move), n_revisions = n(), .groups = "drop"),
+  by = "firm") %>%
+  mutate(consistent = is.na(kappa_lo) | is.na(kappa_hi) | kappa_lo <= kappa_hi)
+write_csv(kappa, "results/commission_kappa.csv")
+cat("\n  adjustment-cost brackets (annual market dollars):\n")
+print(kappa %>% mutate(across(c(kappa_lo, kappa_hi), ~ round(.x / 1e6, 1))) %>%
+        rename(kappa_lo_m = kappa_lo, kappa_hi_m = kappa_hi) %>%
+        arrange(firm) %>% as.data.frame(), row.names = FALSE)
+cat("  firms with kappa_lo <= kappa_hi (menu-cost model consistent):",
+    sum(kappa$consistent, na.rm = TRUE), "of", nrow(kappa), "\n")
+cat("  -> results/commission_kappa.csv\n")

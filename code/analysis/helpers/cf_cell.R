@@ -348,6 +348,7 @@ cf_cell_eval_p1 <- function(P) {
 
   .cf$ev <- list(p = p_vec, eta = eta_cur, dt = dt, V = util$V, V_base = util$V_base,
                  shares = se$shares[pn], elast = se$elast_mat[pn, pn], demo = demo, rs = rs_vec,
+                 qB_plan = if (!is.null(br)) unname(br$broker_shares[pn]) else rep(0, length(pn)),
                  broker_elast = if (!is.null(br)) br$broker_elast_mat[pn, pn] else NULL,
                  comm_D = if (!is.null(ck)) ck$D[pn, pn] else NULL,
                  comm_qB = if (!is.null(ck)) ck$qB[pn] else NULL)
@@ -401,7 +402,15 @@ cf_cell_eval_p2 <- function(totals, own) {
       direct[ii] <- ifelse(cl$pct[ii], cs[ii] * cl$rho[ii] * ev$comm_qB[ii], 0)
     }
   }
+  # Insurer variable profit and agent enrollment in the cell (monthly, sample
+  # units): margin on all members less the net commission outlay on agent members
+  qBp <- if (!is.null(ev$qB_plan)) ev$qB_plan else rep(0, J)
+  prof_plan <- cl$N * ((ev$p - mc) * ev$shares - cs * ev$eta * qBp)
+  firm_profit <- tapply(prof_plan, cl$prefix, sum)
+  firm_qB <- tapply(cl$N * qBp, cl$prefix, sum)
+
   list(plan_ids = pn, N = cl$N, g = cl$g, resid = setNames(resid, pn), direct = setNames(direct, pn),
        MB = MB, MC = MC, qB = qB, shares = ev$shares, mc = mc, claims = mc_res$predicted_claims[pn],
+       firm_profit = firm_profit, firm_qB = firm_qB,
        eta = ev$eta, p = ev$p, omega_own = setNames(diag(Omega), pn))
 }

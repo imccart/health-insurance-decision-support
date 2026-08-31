@@ -54,7 +54,7 @@ BAND_EDGES     <- c(0.75, 1.25)                # band-edge runs bounding the com
 # the warm start for the next run's baseline iteration.
 CF_YEAR_DIR <- file.path(TEMP_DIR, "cf_years")
 if (!dir.exists(CF_YEAR_DIR)) dir.create(CF_YEAR_DIR, recursive = TRUE)
-old_rows <- list.files(CF_YEAR_DIR, pattern = "^year_", full.names = TRUE)
+old_rows <- list.files(CF_YEAR_DIR, pattern = "^(year|firms)_", full.names = TRUE)
 if (length(old_rows) > 0) invisible(file.remove(old_rows))
 
 cat("  Loading HH data for counterfactuals...\n")
@@ -192,6 +192,8 @@ for (y in years) {
                 label, res$sol$termcd, res$sol$iter, res$n_eval, res$elapsed))
     save_rows(label, cf_year_rows(yr, label, tau, res$pieces, P_full, comm_scale,
                                   res$sol$termcd, res$sol$iter))
+    data.table::fwrite(cf_year_firm_rows(yr, label, res$pieces),
+                       file.path(CF_YEAR_DIR, sprintf("firms_%d_%s.csv", y, label)))
     list(P = P_full)
   }
 
@@ -275,6 +277,13 @@ cf_results <- bind_rows(year_results)
 if (nrow(cf_results) == 0) stop("No counterfactual results")
 write_csv(cf_results, "results/counterfactual_results.csv")
 cat("  Written", nrow(cf_results), "rows to results/counterfactual_results.csv\n")
+
+firm_files <- list.files(CF_YEAR_DIR, pattern = "^firms_", full.names = TRUE)
+if (length(firm_files) > 0) {
+  cf_firms <- bind_rows(lapply(firm_files, read_csv, show_col_types = FALSE))
+  write_csv(cf_firms, "results/cf_firm_profits.csv")
+  cat("  Written", nrow(cf_firms), "insurer-scenario rows to results/cf_firm_profits.csv\n")
+}
 
 # =========================================================================
 # PHASE 4: Summary

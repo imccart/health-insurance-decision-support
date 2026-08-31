@@ -193,6 +193,23 @@ solve_cf_year <- function(yr, label, solve_ids, P_init, J_P, tol_dollars = 1) {
        n_eval = st$n_eval, elapsed = as.numeric(difftime(Sys.time(), st$t0, units = "mins")))
 }
 
+# cf_year_firm_rows ----------------------------------------------------------
+# Insurer-year profit and agent enrollment at a solution, summed over the
+# cells' phase-2 pieces (monthly, sample units; scale by 12 / SAMPLE_FRAC for
+# annual market dollars). Feeds the commission adjustment-cost analysis.
+cf_year_firm_rows <- function(yr, label, pieces) {
+  prof <- qb <- setNames(numeric(0), character(0))
+  for (pc in pieces) {
+    if (is.null(pc) || is.null(pc$firm_profit)) next
+    for (f in names(pc$firm_profit)) {
+      prof[f] <- (if (is.na(prof[f])) 0 else prof[f]) + pc$firm_profit[[f]]
+      qb[f]   <- (if (is.na(qb[f])) 0 else qb[f]) + pc$firm_qB[[f]]
+    }
+  }
+  tibble(year = yr$y, scenario = label, firm = names(prof),
+         profit_month = unname(prof), agent_members = unname(qb[names(prof)]))
+}
+
 # cf_year_rows --------------------------------------------------------------
 # Per-cell result rows in the counterfactual_results layout from the pieces at
 # a solution. P_full: base premiums (solved plans; observed for the rest).
