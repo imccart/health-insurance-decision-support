@@ -129,7 +129,7 @@ for (y in years) {
   # observed mean commissions
   spec_obs <- list(comm = "observed", calib = TRUE)
   invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline", spec_obs))
-  pieces_obs <- cf_year_evaluate(cl, P_obs, NULL)
+  pieces_obs <- cf_year_evaluate(cl, P_obs)
   if (is.null(pieces_obs) || !all(!vapply(pieces_obs[active], is.null, logical(1)))) {
     cat("  observed-point evaluation failed; year skipped\n"); parallel::stopCluster(cl); next
   }
