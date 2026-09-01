@@ -135,6 +135,7 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
     spec = STRUCTURAL_SPEC, rs_coefs = rs_coefs, claims_coefs = claims_coefs,
     p_obs = p_obs, plan_avs = plan_avs, comm_obs = comm_obs, g = g_cell, share_obs = share_obs,
     own_mat = own_mat, benchmark_plan = benchmark_plan,
+    silver_ids = intersect(plan_attrs$plan_id[plan_attrs$metal == "Silver"], plan_ids_cell),
     plan_chars = plan_chars_cell, reins_vec = reins_vec, gcf = ra_gcf(r, y),
     mean_comm_pmpm = mean_comm_pmpm
   )
@@ -145,9 +146,8 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
 # current_benchmark -------------------------------------------------------
 # The ACA benchmark at a candidate posted-premium vector: the 2nd cheapest
 # Silver plan in the cell at those premiums (the cheapest if there is one).
-current_benchmark <- function(p_vec) {
-  cl <- .cf$cell
-  sil <- cl$plan_attrs$plan_id[cl$plan_attrs$metal == "Silver"]
+current_benchmark <- function(cl, p_vec) {
+  sil <- cl$silver_ids
   sil <- sil[sil %in% names(p_vec)]
   if (length(sil) == 0) return(NA_character_)
   sil <- sil[order(p_vec[sil])]
@@ -161,15 +161,13 @@ current_benchmark <- function(p_vec) {
 # per-$100. The APTC moves with the benchmark premium, the 2nd-cheapest silver
 # re-picked at the candidate premiums: subsidy = max(0, premiumSLC(p) - zeta),
 # anchored to the data-build value at the observed benchmark so the observed
-# point reproduces it exactly. The benchmark in use is kept in .cf$bench_cur
-# for the share derivatives.
-update_premiums <- function(dt, p_vec) {
-  cl <- .cf$cell
+# point reproduces it exactly. Takes the cell object explicitly (shared with
+# the cf2/cf3 scorer); returns the data plus the benchmark in use, which the
+# share derivatives need.
+update_premiums <- function(cl, dt, p_vec) {
   rf_i <- dt$rating_factor / RATING_FACTOR_AGE40
-  bench_cur <- current_benchmark(p_vec)
-  .cf$bench_cur <- bench_cur
-  if (!is.na(bench_cur) && !is.na(cl$benchmark_plan) &&
-      !isTRUE(getOption("cf.fixed.subsidy", FALSE))) {
+  bench_cur <- current_benchmark(cl, p_vec)
+  if (!is.na(bench_cur) && !is.na(cl$benchmark_plan)) {
     d_bench       <- p_vec[[bench_cur]] - cl$p_obs[[cl$benchmark_plan]]
     premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
     sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
@@ -189,7 +187,8 @@ update_premiums <- function(dt, p_vec) {
     set(dt, i = idx, j = "premium", value = oop / dt$hh_size[idx] / 100)
     set(dt, i = idx, j = "kink_m", value = as.numeric(gap > 0))
   }
-  recompute_prem_interactions(dt, cl$spec)
+  dt <- recompute_prem_interactions(dt, cl$spec)
+  list(dt = dt, bench = bench_cur)
 }
 
 # build_scenario_data ------------------------------------------------------
@@ -199,8 +198,7 @@ update_premiums <- function(dt, p_vec) {
 # defund: share of navigator households converted to brokers (lowest p_nav
 #   first). Runs before the commission write so new brokers pick up the
 #   scenario schedule.
-build_scenario_data <- function(comm_sc, tau = NULL, broker_remain = FALSE, defund = NULL) {
-  cl <- .cf$cell
+build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, defund = NULL) {
   cd <- as.data.table(copy(cl$cell_data_base))
 
   if (!is.null(defund) && "any_agent" %in% names(cd)) {
@@ -296,7 +294,7 @@ cf_cell_scenario <- function(label, spec) {
       setNames(as.numeric(if (denom > 0) w_val * (budget / denom) else cl$comm_obs), pn)
     },
     stop("unknown commission basis ", spec$comm))
-  cd <- build_scenario_data(comm_sc, tau = spec$tau, broker_remain = isTRUE(spec$broker_remain),
+  cd <- build_scenario_data(cl, comm_sc, tau = spec$tau, broker_remain = isTRUE(spec$broker_remain),
                             defund = spec$defund)
   .cf$scen <- list(label = label, dt_base = cd, comm = comm_sc,
                    calib = isTRUE(spec$calib))
@@ -318,10 +316,10 @@ cf_cell_eval_p1 <- function(P) {
   p_vec[inP] <- P[pn[inP]] * cl$g[inP]
 
   eta_cur <- sc$comm
-  dt <- update_premiums(copy(sc$dt_base), p_vec)
+  up <- update_premiums(cl, copy(sc$dt_base), p_vec)
+  dt <- up$dt; bench <- up$bench
 
   util <- compute_utility(dt, cl$coefs)
-  bench <- .cf$bench_cur
   se <- tryCatch(
     compute_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
                                      cl$coefs, spec = cl$spec, V_base = util$V_base),

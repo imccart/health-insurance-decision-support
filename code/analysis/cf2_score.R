@@ -58,6 +58,7 @@ if (!is.null(cl)) {
     source("code/analysis/helpers/covariates.R"); source("code/analysis/helpers/choice.R")
     source("code/analysis/helpers/supply.R"); source("code/analysis/helpers/ra.R")
     source("code/analysis/helpers/estimate_demand.R")
+    source("code/analysis/helpers/cf_cell.R")
     source("code/analysis/helpers/welfare.R")
     data.table::setDTthreads(1)
   })

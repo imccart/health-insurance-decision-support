@@ -8,8 +8,11 @@
 ##                and government subsidy (and writes per-household welfare to hh_dir).
 ##                Reads CELL_DIR, supply_results,
 ##                coefs, lambda, STRUCTURAL_SPEC, COMM_TERMS, CS_TABLE, and
-##                SPENDING_SCHEDULE from the caller's environment. The scenario builder
-##                and consumer-surplus function are frozen copies of helpers/cf_cell.R.
+##                SPENDING_SCHEDULE from the caller's environment. Scenario
+##                rebuilds and premium re-leveling use the shared machinery in
+##                helpers/cf_cell.R (build_scenario_data, update_premiums) on a
+##                cell object built from the cached CSV; the consumer-surplus
+##                function is the scorer's own.
 
 score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   fp <- file.path(CELL_DIR, sprintf("cell_%s_%s_data.csv", r, y))
@@ -20,87 +23,21 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   if (nrow(sr_cell) == 0 || nrow(cf_cell) == 0) return(NULL)
 
   inside <- cell_data_base[cell_data_base$plan_id != "Uninsured", ]
-  pa <- inside[!duplicated(inside$plan_id), ]
   plan_ids_cell <- sort(intersect(unique(inside$plan_id), sr_cell$plan_id))
   if (length(plan_ids_cell) < 3) return(NULL)
-  pa <- pa[match(plan_ids_cell, pa$plan_id), ]
-  p_obs    <- setNames(pa$premium_posted, plan_ids_cell)
-  sil <- pa[pa$silver == 1, ]; sil <- sil[order(sil$premium_posted), ]
-  silver_ids <- sil$plan_id
-  benchmark_plan <- if (nrow(sil) < 2) sil$plan_id[1] else sil$plan_id[2]   # at observed premiums
-
-  # --- frozen closures (copies of helpers/cf_cell.R) ---
-  # The benchmark (2nd cheapest silver) is re-picked at the candidate premiums,
-  # as in the solve; the subsidy is anchored to the data-build value at the
-  # observed benchmark.
-  update_premiums <- function(dt, p_vec) {
-    rf_i <- dt$rating_factor / RATING_FACTOR_AGE40
-    sc <- silver_ids[silver_ids %in% names(p_vec)]
-    bench_cur <- if (length(sc) == 0) NA_character_ else { sc <- sc[order(p_vec[sc])]; if (length(sc) == 1) sc[1] else sc[2] }
-    if (!is.na(bench_cur) && !is.na(benchmark_plan)) {
-      d_bench       <- p_vec[[bench_cur]] - p_obs[[benchmark_plan]]
-      premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
-      sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
-      dt[, subsidy_cf := fifelse(subsidized == 1L, sub_endog, adj_subsidy)]
-      dt[, sub_interior := as.numeric(subsidized == 1L & (premiumSLC_cf - SLC_contribution) > 0)]
-    } else { dt[, subsidy_cf := adj_subsidy]; dt[, sub_interior := 0] }
-    dt[, kink_m := 1]
-    for (pn in names(p_vec)) {
-      idx <- which(dt$plan_id == pn); if (length(idx) == 0) next
-      premium_hh <- (p_vec[pn] / RATING_FACTOR_AGE40) * dt$rating_factor[idx]
-      gap <- premium_hh - dt$subsidy_cf[idx]
-      oop <- pmax(gap, 0) - dt$penalty[idx] / 12
-      set(dt, i = idx, j = "premium", value = oop / dt$hh_size[idx] / 100)
-      set(dt, i = idx, j = "kink_m", value = as.numeric(gap > 0))
-    }
-    recompute_prem_interactions(dt, STRUCTURAL_SPEC)
-  }
-
-  build_scenario_data <- function(cell_data_base, comm_sc, tau = NULL,
-                                  broker_remain = FALSE, defund = NULL) {
-    cd <- as.data.table(copy(cell_data_base))
-    if (!is.null(defund) && "any_agent" %in% names(cd)) {
-      nav_hh <- cd[plan_id == "Uninsured" & assisted == 1L &
-                     (is.na(any_agent) | any_agent != 1L), .(household_number, p_nav)]
-      if (nrow(nav_hh) == 0)
-        nav_hh <- unique(cd[assisted == 1L & (is.na(any_agent) | any_agent != 1L),
-                            .(household_number, p_nav)], by = "household_number")
-      if (nrow(nav_hh) > 0) {
-        nav_hh <- nav_hh[order(p_nav)]
-        switch_ids <- nav_hh$household_number[seq_len(ceiling(defund * nrow(nav_hh)))]
-        cd[household_number %in% switch_ids, any_agent := 1L]
-      }
-    }
-    for (pn in plan_ids_cell) {
-      idx <- cd$plan_id == pn
-      if (sum(idx) > 0 && "commission_broker" %in% names(cd)) {
-        if ("any_agent" %in% names(cd))
-          cd$commission_broker[idx] <- comm_sc[pn] * fifelse(cd$any_agent[idx] == 1L, cd$assisted[idx], 0L)
-        else cd$commission_broker[idx] <- comm_sc[pn] * cd$assisted[idx]
-      }
-    }
-    if (!is.null(tau) && "any_agent" %in% names(cd)) {
-      agent_hh <- cd[plan_id == "Uninsured" & any_agent == 1, .(household_number, p_nav)]
-      if (nrow(agent_hh) == 0) { agent_hh <- cd[any_agent == 1, .(household_number, p_nav)]; agent_hh <- unique(agent_hh, by = "household_number") }
-      if (nrow(agent_hh) > 0) {
-        agent_hh <- agent_hh[order(-p_nav)]
-        n_switch <- ceiling(tau * nrow(agent_hh))
-        switch_ids <- agent_hh$household_number[seq_len(n_switch)]
-        cd[household_number %in% switch_ids, `:=`(commission_broker = 0, any_agent = 0L, channel_detail = "Navigator")]
-        if (tau < 1 && !broker_remain) {
-          remain_ids <- setdiff(agent_hh$household_number, switch_ids)
-          cd[household_number %in% remain_ids, `:=`(assisted = 0L, commission_broker = 0, any_agent = 0L, channel_detail = "Unassisted")]
-        }
-      }
-    }
-    if ("any_agent" %in% names(cd)) {
-      cd[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
-      cd[, broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
-    } else { cd[, nonbroker := assisted]; cd[, broker := 0L] }
-    cd[, `:=`(assisted_av = nonbroker*av, broker_av = broker*av,
-              assisted_premium = nonbroker*premium, broker_premium = broker*premium)]
-    cd
-  }
+  # Cell object for the shared scenario machinery: per-plan observed premiums
+  # as row means, matching cf_cell_init's plan_attrs
+  p_obs <- vapply(plan_ids_cell, function(pn)
+    mean(inside$premium_posted[inside$plan_id == pn], na.rm = TRUE), numeric(1))
+  sil_flag <- vapply(plan_ids_cell, function(pn)
+    inside$silver[match(pn, inside$plan_id)] == 1, logical(1))
+  silver_ids <- plan_ids_cell[!is.na(sil_flag) & sil_flag]
+  sil_sorted <- silver_ids[order(p_obs[silver_ids])]
+  benchmark_plan <- if (length(sil_sorted) == 0) NA_character_ else
+    if (length(sil_sorted) == 1) sil_sorted[1] else sil_sorted[2]   # at observed premiums
+  cl_score <- list(plan_ids = plan_ids_cell, p_obs = p_obs,
+                   silver_ids = silver_ids, benchmark_plan = benchmark_plan,
+                   spec = STRUCTURAL_SPEC, cell_data_base = cell_data_base)
 
   compute_consumer_surplus <- function(cell_data, coefs_cell, welfare_drop = character()) {
     lambda_cs <- setNames(coefs_cell$estimate, coefs_cell$term)[["lambda"]]
@@ -145,12 +82,12 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     names(comm) <- plan_ids_cell
     tt <- rows$tau[1]; if (is.na(tt)) tt <- NULL
     df <- if (grepl("^defund_", lab)) as.numeric(sub("^defund_([0-9.]+).*$", "\\1", lab)) else NULL
-    cd <- build_scenario_data(cell_data_base, comm, tau = tt,
+    cd <- build_scenario_data(cl_score, comm, tau = tt,
                               broker_remain = grepl("^endog_tau", lab), defund = df)
     p_vec <- setNames(rows$premium_cf, rows$plan_id)[plan_ids_cell]
     if (any(is.na(p_vec))) return(NULL)
     names(p_vec) <- plan_ids_cell
-    dt <- update_premiums(as.data.table(copy(cd)), p_vec)
+    dt <- update_premiums(cl_score, as.data.table(copy(cd)), p_vec)$dt
     espend <- household_spending(dt, SPENDING_SCHEDULE)   # per-row expected spending
 
     # Producer surplus (insurer margin net of commissions) and government cost, per
