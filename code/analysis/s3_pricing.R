@@ -54,9 +54,9 @@ rm(plan_demo)
 # observed enrollment demographics aggregated to that level
 rs_srrt <- read_csv("data/output/plan_risk_scores.csv", show_col_types = FALSE)
 # Insurers' non-commission administrative cost per member-month (MLR filings,
-# data-build step 9) and the starting value of the commission substitution
-# parameter beta (a commission dollar's administrative saving); both enter the
-# pricing and commission conditions. s4 estimates beta.
+# data-build step 9) and beta, the administrative saving per commission dollar
+# (per-carrier substitution rates, step 9); both enter the pricing and
+# commission conditions.
 mlr_admin <- read_csv("data/output/mlr_admin.csv", show_col_types = FALSE)
 ADMIN_LOOKUP <- setNames(mlr_admin$admin0_pmpm, paste(mlr_admin$insurer_prefix, mlr_admin$year, sep = "_"))
 BETA_ADMIN <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
@@ -233,7 +233,7 @@ for (i in seq_len(nrow(cells))) {
   broker_elast_mat <- broker_result$broker_elast_mat
   Omega_broker <- -own_mat * t(broker_elast_mat)  # same transpose as Omega
 
-  # Commission FOC inputs for the M4 GMM moment (s4): broker enrollment qB_j and the
+  # Commission-condition inputs for the s4 diagnostics: broker enrollment qB_j and the
   # broker commission-derivative matrix D[j,k] = dqB_j/deta_k. Both are fixed given the
   # demand estimates (they run through beta_comm, not the cost parameters), so we
   # precompute them here and the cost GMM evaluates the commission FOC at its own theta

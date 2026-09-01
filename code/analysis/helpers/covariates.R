@@ -1,9 +1,9 @@
 # covariates.R — Centralized covariate specification
 #
 # All possible demand covariates are defined here. The active spec is a
-# character vector of names selected from this menu, defined in _analysis.R.
-# Downstream code (Julia, supply, counterfactuals) reads the spec from
-# data/output/demand_spec.csv.
+# character vector of names selected from this menu (specs live in s2_demand.R
+# and rf2_choice-att.R). Downstream code reads the spec s2 writes to
+# TEMP_DIR/demand_spec.csv.
 
 # =========================================================================
 # Variable dictionary
@@ -194,7 +194,7 @@ get_covariate_menu <- function() {
 
 
 # =========================================================================
-# Spec I/O — write/read for Julia and 4_counterfactuals subprocesses
+# Spec I/O
 # =========================================================================
 
 write_demand_spec <- function(spec, asst, path) {
@@ -254,7 +254,7 @@ extensive_exclude_terms <- function(terms) {
 }
 
 # Returns character vector of raw demographic columns needed by the spec
-# (for exporting in cell CSVs so 4_counterfactuals can recompute interactions)
+# (exported in cell CSVs so the counterfactual workers can recompute interactions)
 get_raw_demo_cols <- function(spec) {
   prem_ints <- get_prem_interactions(spec)
   unique(unlist(prem_ints))
@@ -264,7 +264,7 @@ get_raw_demo_cols <- function(spec) {
 # =========================================================================
 # Generic premium interaction recomputation
 # =========================================================================
-# Used by 4_counterfactuals when prices change in equilibrium solving
+# Used by the counterfactual workers when prices change in the solve
 
 recompute_prem_interactions <- function(dt, spec) {
   prem_ints <- get_prem_interactions(spec)

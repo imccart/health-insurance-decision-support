@@ -4,18 +4,19 @@
 ## Date Created:  2026-03-31
 ## Description:   Two-step GMM for the cost side with demand held fixed: the
 ##                risk-score coefficients (alpha) and the claims coefficients
-##                (gamma). Moment blocks:
-##                  M1: risk-score regression on the SRRT plan scores
+##                (gamma); the risk-score equation is estimated once by
+##                weighted OLS on the SRRT plan scores and held fixed. GMM
+##                moment blocks:
 ##                  M2: claims regression on the rate-filing plan-years
 ##                  M3: plan-year pricing FOC residuals (cell-level instruments)
 ##                beta, the administrative saving per commission dollar, is the
 ##                per-carrier substitution rate from the national MLR filings
 ##                (data-build step 9), held fixed; the commission conditions
 ##                MB = (1 - beta) MC are evaluated at it as diagnostics.
-##                Writes the GMM coefficients, beta by insurer-year, the
-##                commission residuals, and the statewide transfer sums for cf1.
+##                Writes the GMM coefficients, beta by insurer-year, and the
+##                commission residuals.
 
-# Dependencies: tidyverse, data.table, helpers (loaded by _supply.R)
+# Dependencies: tidyverse, data.table, helpers (loaded by _analysis.R)
 
 # =========================================================================
 # LOAD DATA
@@ -41,7 +42,7 @@ cat("  per-carrier substitution rates:", nrow(beta_carrier), "carriers\n")
 # --- FOC inputs per cell (moment 3) ---
 foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
                          pattern = "^foc_.*\\.rds$", full.names = TRUE)
-if (length(foc_files) == 0) stop("No FOC input files found — run 2_pricing.R first")
+if (length(foc_files) == 0) stop("No FOC input files found — run s3_pricing.R first")
 
 foc_cells <- lapply(foc_files, readRDS)
 cat("  FOC cells loaded:", length(foc_cells), "\n")
@@ -352,16 +353,17 @@ cat("    beta (pooled MLR, default for unmatched carriers):", round(BETA0, 4), "
 # M3: one moment per plan-year, the marginal cost the observed price implies
 #     minus the model's, in dollars per member-month (the plan-year FOC residual
 #     divided by its own-price term)
-# M4: E[MB_ft / MC_ft - (1 - beta)] = 0        (commission condition per insurer-year)
+# The commission condition MB_ft = (1 - beta_f) MC_ft is evaluated per
+# insurer-year as a diagnostic, not a moment.
 #
 # FOC residual for plan j in cell c:
 #   foc_j = s_j + sum_k Omega_{jk} * (p_k - MC_k(alpha,gamma)) + sum_k Omega_broker_{jk} * comm_k
 # which should equal zero at the true parameters.
 
 # return_contributions = TRUE additionally returns the per-observation moment
-# contributions (the matrices whose column means make up g_bar): the M1 and M2
-# rows, the M3 plan-year rows, and the M4 insurer-year rows, plus the plan-year
-# FOC residuals. The default averaged return is unchanged, so the GMM objective
+# contributions (the matrices whose column means make up g_bar): the M2 rows
+# and the M3 plan-year rows, plus the plan-year FOC residuals and the
+# commission diagnostics. The default averaged return is unchanged, so the GMM objective
 # and the SE sandwich share one code path (cost_gmm_sandwich_se).
 compute_g_bar <- function(theta, return_contributions = FALSE) {
 
@@ -503,8 +505,7 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
                              A = sapply(foc_cells, function(fc) fc$A_own),
                              M = sapply(foc_cells, function(fc) fc$M_own)),
        # Moment blocks for the covariance: one row per observation of each block
-       # (PUF rows, plan-cells, insurer-years, MLR insurer-years); blocks are
-       # treated as independent
+       # (PUF rows and plan-years); blocks are treated as independent
        blocks  = list(list(mat = M2_mat, n = nrow(M2_mat)),
                       list(mat = M3_mat, n = nrow(M3_mat))),
        # Plan-year FOC residuals: per member (share units) and in dollars
@@ -574,10 +575,9 @@ cat("\n--- GMM Step 2 (optimal weighting: inverse moment covariance) ---\n")
 
 # Efficient two-step feasible GMM. The step-2 weight is the
 # inverse of the moment variance-covariance matrix S, estimated at the step-1
-# parameters. S is block-diagonal across the independent data sources: the risk-score
-# moments from the SRRT rows, the claims moments from the rate-filing plan-years, the
-# FOC moments from the equilibrium cells (one row per region-year), and the
-# commission FOC from the insurer-years, so the cross-block covariance is zero. This is the same S the sandwich uses for its meat, so
+# parameters. S is block-diagonal across the independent data sources: the
+# claims moments from the rate-filing plan-years and the pricing moments from
+# the plan-years, so the cross-block covariance is zero. This is the same S the sandwich uses for its meat, so
 # feeding S^{-1} back as the weight makes the estimator efficient and the sandwich
 # collapse to the correct (G' S^{-1} G)^{-1} variance. The earlier block-diagonal
 # SCALAR weight (diag / sum(moment^2)) was a crude stand-in; it over-credited the FOC
@@ -729,11 +729,6 @@ cat("  By insurer:\n")
 print(foc_py_gmm %>% group_by(insurer) %>%
         summarise(plan_years = n(), residual = round(mean(G_dollars), 1), .groups = "drop") %>%
         arrange(residual), n = Inf)
-# Statewide transfer sums and each cell's own contribution at the GMM solution
-# (the counterfactual holds the rest of the state at these values)
-write_csv(contr2$ra_state, file.path(TEMP_DIR, "ra_state_gmm.csv"))
-write_csv(contr2$ra_own, file.path(TEMP_DIR, "ra_state_cells_gmm.csv"))
-cat("  Saved ra_state_gmm.csv and ra_state_cells_gmm.csv\n")
 
 # =========================================================================
 # SAVE COEFFICIENTS
@@ -748,6 +743,6 @@ write_csv(rs_coefs_gmm, file.path(TEMP_DIR, "ra_rs_coefs_gmm.csv"))
 write_csv(cl_coefs_gmm, file.path(TEMP_DIR, "ra_claims_coefs_gmm.csv"))
 
 cat("  Saved GMM coefficients to", TEMP_DIR, "\n")
-# Standard errors are computed in 10_struc-se.R (reuses result2 / W2 / compute_g_bar).
+# Standard errors are computed in s5_se.R (reuses result2 / W2 / compute_g_bar).
 
 cat("\nCost-side GMM complete.\n")

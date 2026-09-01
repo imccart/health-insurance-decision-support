@@ -67,10 +67,6 @@ if (!is.null(cf_results)) {
                        "obj_prem", "obj_eoop", "obj_risk"))) %>%
       left_join(cf_welfare, by = c("region", "year", "scenario"))
 }
-boot_coefs <- tryCatch(
-  read_csv("results/choice_bootstrap_coef.csv", show_col_types = FALSE),
-  error = function(e) { cat("  choice_bootstrap_coef.csv not found\n"); NULL }
-)
 
 cat("  hh_full:", nrow(hh_full), "rows\n")
 cat("  supply_results:", nrow(supply_results), "rows\n")
@@ -728,18 +724,18 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     cat("  cf_bootstrap_draws.csv not found -- run cf3 to populate welfare SEs\n")
   }
 
-  # --- 5b. Welfare gradient figure (CS by tau) ---
-  tau_results <- cf_results %>%
+  # --- 5b. Welfare gradient figure (CS by tau), from the cell-level welfare
+  # rows (the plan-level join would weight each cell by its plan count) ---
+  if (!is.null(cf_welfare) && "cs_nocomm" %in% names(cf_welfare)) {
+  scen_tau <- cf_results %>% distinct(scenario, tau)
+  tau_results <- cf_welfare %>%
+    inner_join(scen_tau, by = "scenario") %>%
     filter(str_detect(scenario, "^zero_tau")) %>%
     group_by(tau) %>%
-    summarize(
-      mean_cs = mean(cs_nocomm, na.rm = TRUE),
-      mean_premium_chg = weighted.mean(premium_change, share_obs, na.rm = TRUE),
-      .groups = "drop"
-    )
+    summarize(mean_cs = mean(cs_nocomm, na.rm = TRUE), .groups = "drop")
 
   # Baseline CS for the reference line
-  obs_cs <- cf_results %>%
+  obs_cs <- cf_welfare %>%
     filter(scenario == "baseline") %>%
     summarize(cs = mean(cs_nocomm, na.rm = TRUE)) %>%
     pull(cs)
@@ -761,6 +757,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
     ggsave("results/figures/cf_welfare_gradient.png", p_tau, width = 7, height = 5)
     cat("  Wrote results/figures/cf_welfare_gradient.png\n")
+  }
   }
 
   # --- 5c. Premium change by scenario figure ---

@@ -58,7 +58,7 @@ demand_sandwich_se <- function(cells, theta, fd_rel = 1e-5) {
 # --- Cost GMM: sandwich for the two-step estimator -------------------------
 # V = (G'WG)^-1 G'W S W G (G'WG)^-1. gbar_fn(theta) returns averaged moments;
 # gbar_fn(theta, return_contributions = TRUE) returns the contribution blocks
-# (see moment_cov_blocks). Meat S is block-diagonal: M1 (SRRT rows), M2 (PUF rows),
+# (see moment_cov_blocks). Meat S is block-diagonal: M2 (PUF rows) and
 # M3 (plan-year FOC rows), with the cross-block covariance set to zero
 # (distinct data sources). CONDITIONAL on the demand estimates (no
 # Newey-McFadden first-step correction; full propagation is in the CF

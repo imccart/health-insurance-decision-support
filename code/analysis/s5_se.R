@@ -22,6 +22,13 @@ loaded   <- load_all_cells(file.path(TEMP_DIR, "choice_cells"), covars, filter_a
 cells_se <- normalize_weights(loaded$cells)
 rm(loaded); gc(verbose = FALSE)
 
+# The estimator maximized the two-part likelihood, with the assistance and
+# commission terms excluded from the enrollment margin; the sandwich must
+# evaluate that same likelihood
+excl_se <- match(read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$assisted, covars)
+excl_se <- excl_se[!is.na(excl_se)]
+for (ci in seq_along(cells_se)) cells_se[[ci]]$excl_idx <- excl_se
+
 dse <- demand_sandwich_se(cells_se, theta_d)
 cat(sprintf("  max |gradient| at optimum = %.3g\n", dse$max_grad))
 write.csv(dse$se, "results/choice_coefficients_structural_se.csv", row.names = FALSE)

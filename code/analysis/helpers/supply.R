@@ -9,7 +9,7 @@
 # build_structural --------------------------------------------------------
 #
 # Single structural choice-data builder, shared by the structural pipeline
-# (demand in 1_demand.R, supply in 2_pricing.R, counterfactuals in 4_counterfactuals.R).
+# (s2 demand, s3 pricing, and the counterfactual workers).
 # Uses NET premium (matches the structural demand price); retains premium_posted
 # for the markup FOC and the posted->net chain rule. Returns
 # list(cell_data, plan_attrs). Callers must use the SAME seed and SAMPLE_FRAC

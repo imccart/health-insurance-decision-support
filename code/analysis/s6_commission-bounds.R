@@ -118,6 +118,7 @@ res_s6 <- rbindlist(parallel::parLapplyLB(cl_s6, cell_files_s6, function(fp)
   tryCatch(profit_cell_s6(fp), error = function(e) {
     cat("  ERR", basename(fp), ":", conditionMessage(e), "\n"); NULL })))
 parallel::stopCluster(cl_s6)
+if (nrow(res_s6) == 0) stop("s6: no cells returned; check the worker error messages above")
 cat("  cells returned:", uniqueN(res_s6[, .(region, year)]), "of", length(cell_files_s6), "\n")
 
 # Insurer-year curves, annual market dollars (12 months, / SAMPLE_FRAC)

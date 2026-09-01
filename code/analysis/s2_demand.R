@@ -4,7 +4,7 @@
 ## Date Created:  2026-03-16
 ## Date Edited:   2026-03-24
 ## Description:   Structural demand estimation.
-##                Phase 1 (R): build cell CSVs from parquet partitions.
+##                Phase 1 (R): build cell CSVs from the analysis data.
 ##                Phase 2 (R): two-part nested logit via estimate_demand.R.
 ##                See notes/optimizer.md for algorithm details.
 

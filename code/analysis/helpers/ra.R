@@ -406,11 +406,3 @@ compute_ra_foc <- function(risk_scores, shares, plan_avs, ra_env,
 
   setNames(ra_foc, pn)
 }
-
-
-# Expected OOP ------------------------------------------------------------
-
-#' Compute expected out-of-pocket costs for welfare decomposition.
-#' E[OOP_j] = (1 - AV_j) * predicted_claims_j
-#' Population-weighted: E[OOP] = sum(shares_j * E[OOP_j])
-#'

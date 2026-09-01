@@ -128,7 +128,7 @@ parallel::clusterEvalQ(cl, {
 })
 parallel::clusterExport(cl, c("run_one_boot", "cf_base", "supply_results",
   "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK", "CELL_DIR", "COMM_TERMS",
-  "SPENDING_SCHEDULE", "UNINS_SCHED"))
+  "SPENDING_SCHEDULE", "UNINS_SCHED", "TEMP_DIR"))
 message("  Parallel: ", n_workers, " workers; ", length(tasks), " cells/draw")
 
 # Draw loop ---------------------------------------------------------------
