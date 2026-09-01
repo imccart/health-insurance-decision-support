@@ -2,7 +2,7 @@
 #
 # Mean total health expenditure by age x income (% FPL) cells, MEPS 2018 Full
 # Year Consolidated file (HC-209), survey-weighted. Output feeds
-# welfare_objective.R's household_spending() (the objective money-metric spending
+# helpers/welfare.R's household_spending() (the objective money-metric spending
 # level). POVLEV18 is continuous percent-of-poverty, so the 250% FPL cut is exact
 # (the categorical POVCAT18 breaks only at 100/125/200/400).
 #

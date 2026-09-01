@@ -38,9 +38,7 @@ source("code/analysis/helpers/estimate_demand.R")
 source("code/analysis/helpers/se.R")
 source("code/analysis/helpers/cf_cell.R")
 source("code/analysis/helpers/cf_year.R")
-source("code/analysis/helpers/cf_headline.R")
-source("code/analysis/helpers/welfare_objective.R")
-source("code/analysis/helpers/welfare_engine.R")
+source("code/analysis/helpers/welfare.R")
 
 
 # build: shared data construction -----------------------------------------

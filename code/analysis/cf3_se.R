@@ -53,7 +53,7 @@ Vd        <- read_vcov("results/choice_coefficients_structural_vcov.csv")
 mu_d      <- setNames(coefs_hat$estimate, coefs_hat$term)[rownames(Vd)]
 
 # Headline statistics from one CF result set: summarize_cf_headline() in
-# helpers/cf_headline.R (shared with cf4_se-comm).
+# helpers/welfare.R.
 
 # Per-draw share worse off (money + navigator rulers) for the key scenarios, from the
 # per-household files this draw wrote. Fixed-length named vector, NA where missing.
@@ -121,8 +121,7 @@ parallel::clusterEvalQ(cl, {
   source("code/analysis/helpers/supply.R")
   source("code/analysis/helpers/ra.R")
   source("code/analysis/helpers/estimate_demand.R")
-  source("code/analysis/helpers/welfare_objective.R")
-  source("code/analysis/helpers/welfare_engine.R")
+  source("code/analysis/helpers/welfare.R")
   source("code/analysis/helpers/score_cf.R")
   data.table::setDTthreads(1)
 })

@@ -512,8 +512,8 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   cf_welf <- read_csv("results/counterfactual_welfare.csv", show_col_types = FALSE)
 
   # Objective welfare band: rebuild low/central/high from cf2's components with the
-  # uninsured-cost constants (from welfare_objective.R). Per member per year.
-  if (!exists("UNINS_RISK_PROT")) source("code/analysis/helpers/welfare_objective.R")
+  # uninsured-cost constants (from helpers/welfare.R). Per member per year.
+  if (!exists("UNINS_RISK_PROT")) source("code/analysis/helpers/welfare.R")
   obj_band <- function(cm, cs) cm$ins - cm$oop - UNINS_RISK_PROT[[cs]] * cm$shu -
     UNINS_MORT_REDUX[[cs]] * UNINS_VSL[[cs]] * cm$mort - DISTRESS_COST * cm$cat
 

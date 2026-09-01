@@ -21,7 +21,7 @@
 # qB; populated only when the scenario computes commission derivatives) from
 # the cells' phase-2 pieces.
 cf_year_aggregate <- function(pieces) {
-  G_num <- G_den <- Jd <- Ow <- setNames(numeric(0), character(0))
+  G_num <- G_den <- Ow <- setNames(numeric(0), character(0))
   MB <- MC <- qB <- setNames(numeric(0), character(0))
   for (ci in seq_along(pieces)) {
     pc <- pieces[[ci]]
@@ -32,7 +32,6 @@ cf_year_aggregate <- function(pieces) {
     add <- function(v, pn, x) { v[setdiff(pn, names(v))] <- 0; v[pn] <- v[pn] + x; v }
     G_num <- add(G_num, pn, w * res)
     G_den <- add(G_den, pn, w)
-    Jd    <- add(Jd, pn, -2 * w * pc$g * pc$omega_own)
     Ow    <- add(Ow, pn, w * pc$omega_own)
     for (f in names(pc$MB)) {
       MB[f] <- (if (is.na(MB[f])) 0 else MB[f]) + pc$N * pc$MB[[f]]
@@ -41,9 +40,8 @@ cf_year_aggregate <- function(pieces) {
     }
   }
   G <- G_num / G_den
-  Jdiag <- Jd / G_den
   omega_w <- Ow / G_den                      # own-price term: G / omega_w is the residual in dollars
-  list(G = G, Jdiag = Jdiag, omega_w = omega_w, MB = MB, MC = MC, qB = qB)
+  list(G = G, omega_w = omega_w, MB = MB, MC = MC, qB = qB)
 }
 
 # cf_year_evaluate ----------------------------------------------------------
@@ -232,7 +230,7 @@ cf_year_rows <- function(yr, label, tau, pieces, P_full, comm_scale = 1,
       commission_pmpm = unname(pc$eta[pn]),
       markup_cf = unname(pc$p[pn] - pc$mc[pn]),
       nleqslv_termcd = termcd, nleqslv_iter = iter,
-      comm_scale_cf = comm_scale, mu_comm = NA_real_,
+      comm_scale_cf = comm_scale,
       base_premium_cf = unname(P_full[pn]))
   }
   bind_rows(rows)

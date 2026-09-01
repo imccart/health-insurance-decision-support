@@ -46,11 +46,9 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   if (is.null(hhs_raw) || nrow(hhs_raw) == 0) { cat("No HH data for cell", r, y, "\n"); return(NULL) }
   set.seed(seed)
 
-  # Commissions on the plans before the choice data are built. Percentage
-  # schedules (rate x premium) are dollarized at the observed premiums; the
-  # pct/rho flags carry their direct term in the pricing condition.
+  # Commissions on the plans before the choice data are built; percentage
+  # schedules (rate x premium) are dollarized at the observed premiums.
   comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
-  pct_prefixes <- comm_yr$insurer_prefix[!is.na(comm_yr$is_pct) & comm_yr$is_pct]
   plans_cell <- plans_cell %>%
     mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
     left_join(comm_yr, by = "insurer_prefix") %>%
@@ -82,9 +80,6 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   plan_prefix <- sub("_.*", "", plan_ids_cell)
   own_mat <- outer(plan_prefix, plan_prefix, "==") * 1L
   dimnames(own_mat) <- list(plan_ids_cell, plan_ids_cell)
-  pct_plan <- plan_prefix %in% pct_prefixes
-  rho_obs  <- ifelse(pct_plan & p_obs > 0, comm_obs / p_obs, 0)
-
   # 2nd cheapest Silver by observed posted premium (the ACA benchmark at the
   # observed point; the counterfactual re-picks it at the candidate premiums)
   silver <- plan_attrs[plan_attrs$metal == "Silver", ]
@@ -139,13 +134,12 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
     coefs = coefs, lambda = setNames(coefs$estimate, coefs$term)[["lambda"]],
     spec = STRUCTURAL_SPEC, rs_coefs = rs_coefs, claims_coefs = claims_coefs,
     p_obs = p_obs, plan_avs = plan_avs, comm_obs = comm_obs, g = g_cell, share_obs = share_obs,
-    own_mat = own_mat, pct = pct_plan, rho = rho_obs, benchmark_plan = benchmark_plan,
+    own_mat = own_mat, benchmark_plan = benchmark_plan,
     plan_chars = plan_chars_cell, reins_vec = reins_vec, gcf = ra_gcf(r, y),
     mean_comm_pmpm = mean_comm_pmpm
   )
   list(r = r, y = y, N = N_cell, plan_ids = plan_ids_cell, prefix = plan_prefix,
-       p_obs = p_obs, comm_obs = comm_obs, g = g_cell, share_obs = share_obs,
-       pct = setNames(pct_plan, plan_ids_cell), rho = setNames(rho_obs, plan_ids_cell))
+       p_obs = p_obs, comm_obs = comm_obs, g = g_cell, share_obs = share_obs)
 }
 
 # current_benchmark -------------------------------------------------------
@@ -358,9 +352,8 @@ cf_cell_eval_p1 <- function(P) {
 
 # Phase 2: with the year's statewide sums (totals, own) from the master, the
 # transfers, marginal cost, the RA derivative, the per-plan pricing FOC residual
-# (share units per member; exogenous form, with the pct direct term reported
-# separately), and the per-insurer commission pieces MB_f, MC_f, qB_f in the
-# cell's share units.
+# (share units per member), and the per-insurer commission pieces MB_f, MC_f,
+# qB_f in the cell's share units.
 cf_cell_eval_p2 <- function(totals, own) {
   cl <- .cf$cell; sc <- .cf$scen; ev <- .cf$ev
   if (is.null(cl) || is.null(sc) || is.null(ev)) return(NULL)
@@ -384,9 +377,8 @@ cf_cell_eval_p2 <- function(totals, own) {
 
   # Commission pieces per insurer: MB_f = margin x d qB / d k + RA response,
   # MC_f = outlay, qB_f = broker enrollment; weights w = the plan's commission
-  # under the scenario's schedule. Pct direct term rho_j qB_j per plan.
+  # under the scenario's schedule.
   MB <- MC <- qB <- setNames(numeric(0), character(0))
-  direct <- numeric(J)
   if (!is.null(ev$comm_D)) {
     ra_eta <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$comm_D, cl$own_mat)
     margin <- ev$p - mc - cs * ev$eta
@@ -399,7 +391,6 @@ cf_cell_eval_p2 <- function(totals, own) {
       MB[f] <- sum(margin[ii] * dq[ii]) + sum(w_basis[ii] * ra_eta[ii])
       MC[f] <- sum(ev$comm_qB[ii] * w_basis[ii])
       qB[f] <- sum(ev$comm_qB[ii])
-      direct[ii] <- ifelse(cl$pct[ii], cs[ii] * cl$rho[ii] * ev$comm_qB[ii], 0)
     }
   }
   # Insurer variable profit and agent enrollment in the cell (monthly, sample
@@ -409,7 +400,7 @@ cf_cell_eval_p2 <- function(totals, own) {
   firm_profit <- tapply(prof_plan, cl$prefix, sum)
   firm_qB <- tapply(cl$N * qBp, cl$prefix, sum)
 
-  list(plan_ids = pn, N = cl$N, g = cl$g, resid = setNames(resid, pn), direct = setNames(direct, pn),
+  list(plan_ids = pn, N = cl$N, g = cl$g, resid = setNames(resid, pn),
        MB = MB, MC = MC, qB = qB, shares = ev$shares, mc = mc, claims = mc_res$predicted_claims[pn],
        firm_profit = firm_profit, firm_qB = firm_qB,
        eta = ev$eta, p = ev$p, omega_own = setNames(diag(Omega), pn))

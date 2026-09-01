@@ -20,8 +20,7 @@ demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 STRUCTURAL_SPEC <- demand_spec$all
 COMM_TERMS <- c("commission_broker")
 
-source("code/analysis/helpers/welfare_objective.R")
-source("code/analysis/helpers/welfare_engine.R")
+source("code/analysis/helpers/welfare.R")
 CS_TABLE <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors = FALSE)
 # Age/income spending schedule (NULL falls back to flat MEAN_SPENDING).
 SPENDING_SCHEDULE <- load_spending_schedule()
@@ -59,7 +58,7 @@ if (!is.null(cl)) {
     source("code/analysis/helpers/covariates.R"); source("code/analysis/helpers/choice.R")
     source("code/analysis/helpers/supply.R"); source("code/analysis/helpers/ra.R")
     source("code/analysis/helpers/estimate_demand.R")
-    source("code/analysis/helpers/welfare_objective.R"); source("code/analysis/helpers/welfare_engine.R")
+    source("code/analysis/helpers/welfare.R")
     data.table::setDTthreads(1)
   })
   parallel::clusterExport(cl, c("score_cf_cell", "coefs", "lambda", "supply_results", "cfres",
