@@ -163,27 +163,150 @@ Column (3) shows the same pattern as the control-function column of the dominate
 \end{minipage}
 \end{table}
 
-\section{Choice Probabilities and Pricing Formulas}
-\label{app:formulas}
+\section{Model Formulas}\label{app:formulas}
 
-We collect here the derivatives that underlie the demand model and the insurer first-order conditions in the main text, in the notation used there. Household $i$ in market $m$ and year $t$ chooses among the exchange plans $j \in J_{mt}$ and the outside option, with deterministic utilities $V_{ijt}$ and $V_{i0t} = \alpha_{it}\, \rho_{it}$, nesting parameter $\lambda$, and household price coefficient $\alpha_{it}$.
+This appendix summarizes the formulas used in our model.   Household $i$ in market $m$ and year $t$ chooses among the exchange plans $j \in J_{mt}$ and the outside option, with deterministic utilities $V_{ijt}$ and $V_{i0t} = \alpha_{it}\, \rho_{it}$, nesting parameter $\lambda$, and household price coefficient $\alpha_{it}$.
 
-\paragraph{Choice probabilities.} Let $I_{it} = \log \sum_{k \in J_{mt}} e^{V_{ikt}/\lambda}$ denote the inclusive value of the exchange nest. The within-nest and nest probabilities are
+\paragraph{Choice probabilities.} The choice probabilities are given in equation~(\ref{eqn:choice_probs}) as
+
+\begin{equation*}
+	q_{ijt}({\bf p},{\bf y}) =  \frac{e^{V_{ijt}({\bf p},{\bf y})/\lambda}\left(\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}\right)^{\lambda-1}}{e^{V_{i0t}} + \left(\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}\right)^{\lambda}},
+\end{equation*}
+
+
+\noindent Let $I_{it}({\bf p},{\bf y}) \equiv \log \sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}$ denote the inclusive value of the exchange nest. The within-nest and nest probabilities are
 \begin{equation}
 \label{eqn:app-shares}
-s^{\,g}_{ijt} = \frac{e^{V_{ijt}/\lambda}}{\sum_{k \in J_{mt}} e^{V_{ikt}/\lambda}}, \qquad
-s^{\,\mathrm{nest}}_{it} = \frac{e^{\lambda I_{it}}}{e^{\lambda I_{it}} + e^{V_{i0t}}},
+q'_{ijt}({\bf p},{\bf y}) = \frac{e^{V_{ijt}({\bf p},{\bf y})/\lambda}}{\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}}, \qquad
+q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y}) = \frac{e^{\lambda I_{it}({\bf p},{\bf y})}}{e^{\lambda I_{it}({\bf p},{\bf y})} + e^{V_{i0t}}},
 \end{equation}
-and the plan choice probability is $q_{ijt} = s^{\,g}_{ijt}\, s^{\,\mathrm{nest}}_{it}$, which is the nested-logit expression in the main text. Market shares aggregate the household probabilities by size weight, $s_{jt} = \sum_i w_i\, q_{ijt}$.
+and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},{\bf y})\, q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})$, which is the nested-logit expression in the main text. Total plan demand is the sum of the choice probabilities, i.e.,  $q_{jt}({\bf p},{\bf y}) = \sum_{i \in I} \, q_{ijt}({\bf p},{\bf y})$.
 
-\paragraph{Price derivatives.} The price coefficient enters utility linearly, so $\partial V_{ijt}/\partial p_{ijt} = \alpha_{it}$. Differentiating the choice probability with respect to the utility of an arbitrary plan $l$ gives
+\paragraph{Price and commission derivatives.} The partial derivative of the choice probability with respect to the insurer's base premium is
+
+\begin{equation*}
+		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{l \in J_{mt}} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{ilt}({\bf p})}\frac{ \partial p_{ilt}({\bf p})}{\partial p_{jmt}}
+	\end{equation*}
+	
+	
+	\noindent for all plans $j,k$, where
+	
+
+	
+		\begin{eqnarray*}\label{demand_sensitivity_element}
+		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  p_{ijt}} = \begin{cases} 
+			\beta_i^p q_{ijt}({\bf p},{\bf y}) \left[\frac{1}{\lambda} + \frac{\lambda-1}{\lambda}q'_{ijt}({\bf p},{\bf y}) - q_{ijt}({\bf p},{\bf y})  \right]  & k = j \\		
+			\beta_i^p q_{ijt}({\bf p},{\bf y}) \left[\frac{\lambda-1}{\lambda}q'_{ikt}({\bf p},{\bf y}) - q_{ikt}({\bf p},{\bf y})  \right] & k \neq j  
+			
+		\end{cases}
+	\end{eqnarray*}
+
+
+    \begin{eqnarray*}\label{comm_sensitivity_element}
+		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  \kappa_f} = \begin{cases} 
+			\beta^y a_{it}^B  \, y_{jt}^0  \, q_{ijt}({\bf p},{\bf y}) \left[\frac{1}{\lambda} + \frac{\lambda-1}{\lambda}q'_{ijt}({\bf p},{\bf y}) - q_{ijt}({\bf p},{\bf y})  \right]  & k = j \\		
+			\beta_y a_{it}^B \, y_{jt}^0 \,  q_{ijt}({\bf p},{\bf y}) \left[\frac{\lambda-1}{\lambda}q'_{ikt}({\bf p},{\bf y}) - q_{ikt}({\bf p},{\bf y})  \right] & k \neq j  
+			
+		\end{cases}
+	\end{eqnarray*}
+    
+
+$$
+y_{jt} = \kappa_f y_{jt}^0
+$$
+
 \begin{equation}
-\label{eqn:app-dq}
-\frac{\partial q_{ijt}}{\partial V_{ilt}} = q_{ijt}\left[\frac{\mathbf{1}\{j=l\}}{\lambda} + \frac{\lambda-1}{\lambda}\, s^{\,g}_{ilt} - q_{ilt}\right].
+\label{eqn:utility}
+\begin{split}
+U_{ijt}({\bf p},{\bf y}) = {} & \alpha_{it}\, p_{ijt}({\bf p}) + \beta^{C}\, y_{jt}\, a_{it}^B
+        + \beta^{N}_{m(j)}\, a_{it}^N + \beta^{B}_{m(j)}\, a_{it}^B \\
+        & + \gamma_{m(j)}\, w_{it}
+        + \beta^{x}\, x_{ij} + \xi_{j} + \varepsilon_{ijt},
+\end{split}
 \end{equation}
-For a plan other than the benchmark, a change in its base premium moves only its own consumer premium, so $\partial q_{ijt}/\partial p_{lt} = \alpha_{it}\,\partial q_{ijt}/\partial V_{ilt}$. For the benchmark plan the subsidy chain rule applies, since raising the benchmark premium raises the subsidy available to every plan and so lowers the consumer premium of all competing plans while leaving the benchmark's own consumer premium unchanged for subsidized households. The market-share derivatives $\partial s_{jt}/\partial p_{lt}$ follow by aggregating Equation~\eqref{eqn:app-dq} across households.
 
-\paragraph{Pricing first-order condition.} Stacking the plan-level first-order conditions in the main text into matrix form yields the equilibrium markup $p - mc = \Omega^{-1}\!\left(s + \Omega^{B}\mathcal{C}\right)$, where $p$, $mc$, $s$, and $\mathcal{C}$ are the vectors of base premiums, marginal costs (net of risk adjustment and reinsurance), market shares, and commissions, the ownership matrix has elements $\Omega_{jl} = -\mathbf{1}\{f(j)=f(l)\}\,\partial s_l/\partial p_j$, and $\Omega^{B}$ is the analogous matrix built from agent-assisted demand derivatives only. Marginal cost is net of the risk-adjustment transfer, whose price sensitivity enters the condition through
+\begin{equation*}
+		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{l \in J_{mt}} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{ilt}({\bf p})}\frac{ \partial p_{ilt}({\bf p})}{\partial p_{jmt}}
+	\end{equation*}
+
+
+
+
+
+
+\paragraph{Profit terms.}  Total premium revenue collected by firm $f$ at time $t$ is given by
+
+\begin{equation*}
+		R_{ft}({\bf p},{\bf y}) = \sum_{i \in I, m \in M, k \in J_{fmt}} \mathbb{I}_{i,m,t} \sigma_{it} p_{kmt} q_{ikt}({\bf p},{\bf y})
+\end{equation*}
+
+\noindent where $\mathbb{I}_{i,m,t}$ indicates household $i$ lives in market $m$ at time $t$.  Total claims incurred by firm $f$ at time $t$ is given by
+
+\begin{equation*}
+		C_{ft}({\bf p},{\bf y}) = \sum_{m \in M, k \in J_{fmt}}  c_{kmt}({\bf p},{\bf y}) q_{kmt}({\bf p},{\bf y})
+\end{equation*}
+
+\noindent where $q_{kmt}({\bf p},{\bf y}) = \sum_{i \in I} \mathbb{I}_{i,m,t} q_{ikt}({\bf p},{\bf y})$.  Total commissions paid by firm $f$ at time $t$ is given by
+
+\begin{equation*}
+    Y_{ft}({\bf p},{\bf y}) = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^B \, y_{jt}  \, q_{ijt}({\bf p},{\bf y}) 
+\end{equation*}
+
+\noindent In our notation, the official risk adjustment transfer  $RA_{ft}({\bf p}_t)$ as derived by \citet{Pope2014} equals
+	
+	
+	
+		\begin{equation*}\label{ra_formula}
+			RA_{ft}({\bf p},{\bf y}) = \sum_{m \in M, k \in J_{fmt}} \left[\widehat{c}_{kmt}({\bf p},{\bf y}) - \widetilde{c}_{kmt}({\bf p},{\bf y})\right] q_{kmt}({\bf p},{\bf y}) 
+		\end{equation*}
+		
+
+	
+	
+	\noindent where the plan's expected average claims with adverse selection $\widehat{c}_{jmt}({\bf p}_t)$ and the plan's expected average claims without adverse selection $\widetilde{c}_{jmt}({\bf p}_t)$ are given by 
+    
+        \begin{equation*}
+            \widehat{c}_{kmt}({\bf p},{\bf y}) = \frac{\widehat{h}_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})} \, \nu\overline{p}
+        \end{equation*}
+
+        \begin{equation*}
+            \widetilde{c}_{jmt}({\bf p},{\bf y}) = \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})} \, \nu\overline{p}
+        \end{equation*}
+    
+    
+    \noindent The average statewide premium is $\overline{p}$ and the expected percentage of collected premiums that is spent on claims is $\nu$.\footnote{From 2014-2017, $\nu$ was set to 100\% in the ACA transfer formula.  Starting in 2018, $\nu$ was set to 86\%.}  The cost factor $\widehat{h}_{jmt}({\bf p},{\bf y}) \equiv \mathrm{IDF}_j\mathrm{GCF}_{mt}r_{jmt}({\bf p},{\bf y})$ is the product of the plan's induced demand factor,  geographic cost factor, and risk score. The cost factor $\widetilde{h}_{jmt}({\bf p},{\bf y}) \equiv \mathrm{AV}_j\mathrm{IDF}_j\mathrm{GCF}_{mt}a_{jmt}({\bf p},{\bf y})$ is the product of the plan's AV, induced demand factor, geographic cost factor, and average ACA age rating factor $a_{jmt}({\bf p},{\bf y}) \equiv  \frac{\sum_{i \in I} \left(\mathbb{I}_{i,m,t} \right) a_{it} q_{ijt}({\bf p},{\bf y})}{q_{jmt}({\bf p},{\bf y})}$  across the plan's enrollees, where $a_{it}$ is the household's CMS age rating factor. The induced demand factor accounts for expected moral hazard associated with lower cost sharing when enrolled in a more generous plan. CMS sets $\mathrm{IDF}_j$ equal to 1 for bronze plans, 1.03 for silver plans, 1.08 for gold plans, and 1.15 for platinum plans.  The geographic cost factors account for regional differences in the cost of doing business (e.g., input prices, provider market power, etc.)  CMS publishes geographic cost factors in its risk adjustment reports.  The plan risk score is defined in equation~\ref{eqn:risk_score_estimation}.  The ACA's transitional reinsurance program, active between 2014-2016, helps to offset the cost of an insurer's high-spending enrollees.  Because we lack the individual-level claims data to precisely calculate reinsurance payments, we instead calculate the actuarial value of the reinsurance contract $\iota_{ft}$ using CMS rate filings.  Reinsurance received is then
+
+    	\begin{equation*}\label{reins_formula}
+			RI_{ft}({\bf p},{\bf y}) = \iota_{ft} C_{ft}({\bf p},{\bf y})
+		\end{equation*}
+
+    \noindent Finally, variable administrative cost is given by
+
+        \begin{equation*}
+            VC_{ft}({\bf p},{\bf y}) = vc_{ft} q_{ft}({\bf p},{\bf y})
+        \end{equation*}
+    
+    \noindent where $vc_{ft}$ is per-capita variable administrative cost and $q_{ft}({\bf p},{\bf y}) = \sum_{k \in J_f} q_{kmt}({\bf p},{\bf y})$ is firm demand.
+    
+
+
+
+
+\paragraph{Premium first-order conditions.} The partial derivative of firm revenue with respect to the base premium is
+
+    \begin{equation*}
+		\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial p_{jmt}}  =   \sum_{i \in I, k \in J_{fmt}} \mathbb{I}_{i,m,t} \sigma_{it} \left(    q_{ijt}({\bf p},{\bf y}) \, \, +   p_{kmt} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}}\right)
+	\end{equation*}
+
+\noindent The partial derivative of firm claims with respect to the base premium is
+
+	\begin{equation*}
+		\frac{\partial C_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} =   \sum_{k \in J_{fmt}}  \left[ c_{kmt}({\bf p},{\bf y})\frac{ \partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}   +  q_{kmt}({\bf p},{\bf y})\frac{ \partial c_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}  \right] 	
+	\end{equation*}
+
+
+
+Stacking the plan-level first-order conditions in the main text into matrix form yields the equilibrium markup $p - mc = \Omega^{-1}\!\left(s + \Omega^{B}\mathcal{C}\right)$, where $p$, $mc$, $s$, and $\mathcal{C}$ are the vectors of base premiums, marginal costs (net of risk adjustment and reinsurance), market shares, and commissions, the ownership matrix has elements $\Omega_{jl} = -\mathbf{1}\{f(j)=f(l)\}\,\partial s_l/\partial p_j$, and $\Omega^{B}$ is the analogous matrix built from agent-assisted demand derivatives only. Marginal cost is net of the risk-adjustment transfer, whose price sensitivity enters the condition through
 \begin{equation}
 \label{eqn:app-ra-deriv}
 \frac{\partial RA_k}{\partial s_m} = \left(-\frac{r_k\, r_m}{S_r^{2}} + \frac{u_k\, u_m}{S_u^{2}}\right)\bar{p}_t, \qquad
@@ -192,6 +315,13 @@ For a plan other than the benchmark, a change in its base premium moves only its
 where $r_k$ is plan $k$'s risk score, $u_k$ its actuarial value scaled by a moral-hazard factor, $S_r = \sum_k r_k s_k$ and $S_u = \sum_k u_k s_k$ are the enrollment-weighted risk and utilization totals, and $\bar{p}_t$ is the market average premium. Evaluating the first-order condition at observed premiums and shares and solving for $mc$ recovers plan-level marginal cost, the inversion described in the main text.
 
 \paragraph{Commission first-order condition.} Differentiating the same variable profit with respect to insurer $f$'s commission scale $k_f$ gives the commission first-order condition in the main text. Its left-hand side is the marginal benefit of a higher commission, the additional variable profit from the agent-assisted enrollment the commission attracts, which operates through the steering coefficient $\beta^{C}$ and the derivatives $\partial q^{B}_{jt}/\partial k_f$, together with the induced change in risk-adjustment transfers. Its right-hand side is the marginal outlay $\sum_{j} w_{jt}\, q^{B}_{jt}$ scaled by the per-insurer wedge $\mu_f$. Calibrating $\mu_f$ so that the observed schedule satisfies this condition makes the observed premiums and commissions a joint fixed point, the commission-side counterpart to recovering marginal cost from the pricing condition.
+
+
+
+\begin{equation*}
+		\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{i \in I, m \in M, k \in J_{fmt}} \mathbb{I}_{i,m,t} \sigma_{it} p_{kmt} q_{ikt}({\bf p},{\bf y})
+\end{equation*}
+
 
 \section{Demand Specification Sensitivity}
 \label{app:demand-spec}
