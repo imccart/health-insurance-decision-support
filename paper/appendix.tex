@@ -182,7 +182,7 @@ q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y}) = \frac{e^{\lambda I_{it}({\bf p},{\bf
 \end{equation}
 and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},{\bf y})\, q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})$, which is the nested-logit expression in the main text. Total plan demand is the sum of the choice probabilities, i.e.,  $q_{jt}({\bf p},{\bf y}) = \sum_{i \in I} \, q_{ijt}({\bf p},{\bf y})$.
 
-\paragraph{Price and commission derivatives.} The partial derivative of the choice probability with respect to the insurer's base premium is
+\paragraph{Price and commission derivatives.} The partial derivative of demand with respect to the insurer's base premium is
 
 \begin{equation*}
 		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{l \in J_{mt}} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{ilt}({\bf p})}\frac{ \partial p_{ilt}({\bf p})}{\partial p_{jmt}}
@@ -201,33 +201,17 @@ and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},
 		\end{cases}
 	\end{eqnarray*}
 
+\noindent The partial derivative of demand with respect to the commission is
 
     \begin{eqnarray*}\label{comm_sensitivity_element}
-		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  \kappa_f} = \begin{cases} 
-			\beta^y a_{it}^B  \, y_{jt}^0  \, q_{ijt}({\bf p},{\bf y}) \left[\frac{1}{\lambda} + \frac{\lambda-1}{\lambda}q'_{ijt}({\bf p},{\bf y}) - q_{ijt}({\bf p},{\bf y})  \right]  & k = j \\		
-			\beta_y a_{it}^B \, y_{jt}^0 \,  q_{ijt}({\bf p},{\bf y}) \left[\frac{\lambda-1}{\lambda}q'_{ikt}({\bf p},{\bf y}) - q_{ikt}({\bf p},{\bf y})  \right] & k \neq j  
+		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  y_{jt}} = \begin{cases} 
+			\beta^y a_{it}^B   \, q_{ijt}({\bf p},{\bf y}) \left[\frac{1}{\lambda} + \frac{\lambda-1}{\lambda}q'_{ijt}({\bf p},{\bf y}) - q_{ijt}({\bf p},{\bf y})  \right]  & k = j \\		
+			\beta_y a_{it}^B  \,  q_{ijt}({\bf p},{\bf y}) \left[\frac{\lambda-1}{\lambda}q'_{ikt}({\bf p},{\bf y}) - q_{ikt}({\bf p},{\bf y})  \right] & k \neq j  
 			
 		\end{cases}
 	\end{eqnarray*}
     
 
-$$
-y_{jt} = \kappa_f y_{jt}^0
-$$
-
-\begin{equation}
-\label{eqn:utility}
-\begin{split}
-U_{ijt}({\bf p},{\bf y}) = {} & \alpha_{it}\, p_{ijt}({\bf p}) + \beta^{C}\, y_{jt}\, a_{it}^B
-        + \beta^{N}_{m(j)}\, a_{it}^N + \beta^{B}_{m(j)}\, a_{it}^B \\
-        & + \gamma_{m(j)}\, w_{it}
-        + \beta^{x}\, x_{ij} + \xi_{j} + \varepsilon_{ijt},
-\end{split}
-\end{equation}
-
-\begin{equation*}
-		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{l \in J_{mt}} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{ilt}({\bf p})}\frac{ \partial p_{ilt}({\bf p})}{\partial p_{jmt}}
-	\end{equation*}
 
 
 
@@ -303,24 +287,145 @@ U_{ijt}({\bf p},{\bf y}) = {} & \alpha_{it}\, p_{ijt}({\bf p}) + \beta^{C}\, y_{
 	\begin{equation*}
 		\frac{\partial C_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} =   \sum_{k \in J_{fmt}}  \left[ c_{kmt}({\bf p},{\bf y})\frac{ \partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}   +  q_{kmt}({\bf p},{\bf y})\frac{ \partial c_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}  \right] 	
 	\end{equation*}
+    
+\noindent where
+
+\begin{equation*}
+	\frac{\partial c_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} 
+	= \mu_t^r \frac{c_{kmt}({\bf p},{\bf y})}{ q_{kmt}({\bf p},{\bf y})}  \sum_{d \in D} \gamma_t^d \left[\frac{\partial q_{dkmt}({\bf p},{\bf y})}{\partial p_{jmt}} - s_{dkmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} \right] 
+\end{equation*}
+
+\noindent The partial derivative of total firm commissions with respect to the base premium is
+
+\begin{equation*}
+    \frac{ \partial Y_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^B \, y_{jt}  \, \frac{ \partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}
+\end{equation*}
+
+\noindent 	Define $ rs_{kmt}({\bf p},{\bf y}) \equiv \frac{\widehat{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$ and $us_{kmt}({\bf p},{\bf y}) \equiv \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$.  Let $R_t({\bf p},{\bf y}) \equiv  \sum_{f \in F} R_{ft}({\bf p},{\bf y})$ be total premiums collected. The partial derivative of the risk adjustment transfer with respect to the base premium is
+
+\begin{footnotesize}
+		
+		\begin{equation*}
+			\frac{\partial RA_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} = \nu \sum_{k \in J_{fmt}}  \left[\frac{\partial R_t({\bf p},{\bf y})}{\partial p_{jmt}}\left( rs_{kmt}({\bf p},{\bf y}) - us_{kmt}({\bf p},{\bf y})  \right)  +   R_t({\bf p},{\bf y}) \left( \frac{\partial rs_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} - \frac{\partial  us_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} \right) \right]
+		\end{equation*}
+		
+	\end{footnotesize}
 
 
+\noindent where
+	
+	
+	
+	
+	
+	
+	
+	\begin{footnotesize}
+		
+		
+		\begin{eqnarray*}
+			\frac{ \partial rs_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} &=& \left(\sum_{n\in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y}) q_{lnt}({\bf p},{\bf y})\right)^{-1}\left[\left(\widehat{h}_{kmt}({\bf p},{\bf y})\frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} + q_{kmt}({\bf p},{\bf y})\frac{\partial \widehat{h}_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} \right) \right.\\
+			&& - \,\,\, \left. rs_{kmt}({\bf p},{\bf y}) \sum_{l \in J_{mt}}  \left(\widehat{h}_{lmt}({\bf p},{\bf y})\frac{\partial q_{lmt}({\bf p},{\bf y})}{\partial p_{jmt}} + q_{lmt}({\bf p},{\bf y})\frac{\partial \widehat{h}_{lmt}({\bf p},{\bf y})}{\partial p_{jmt}} \right)\right] 
+		\end{eqnarray*}	
+		
+	\end{footnotesize}
+	
+	
+	\begin{footnotesize}
+		
+		
+		\begin{eqnarray*}
+			\frac{ \partial us_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} &=& \left(\sum_{n\in M,l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y}) q_{lnt}({\bf p},{\bf y})\right)^{-1}\left[\left(\widetilde{h}_{kmt}({\bf p},{\bf y})\frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} + q_{kmt}({\bf p},{\bf y})\frac{\partial \widetilde{h}_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} \right) \right.\\
+			&& - \,\,\, \left. us_{kmt}({\bf p},{\bf y}) \sum_{l \in J_{mt}}  \left(\widetilde{h}_{lmt}({\bf p},{\bf y})\frac{\partial q_{lmt}({\bf p},{\bf y})}{\partial p_{jmt}} + q_{lmt}({\bf p},{\bf y})\frac{\partial\widetilde{h}_{lmt}({\bf p},{\bf y})}{\partial p_{jmt}} \right)\right] 
+		\end{eqnarray*}	
+		
+	\end{footnotesize}
 
-Stacking the plan-level first-order conditions in the main text into matrix form yields the equilibrium markup $p - mc = \Omega^{-1}\!\left(s + \Omega^{B}\mathcal{C}\right)$, where $p$, $mc$, $s$, and $\mathcal{C}$ are the vectors of base premiums, marginal costs (net of risk adjustment and reinsurance), market shares, and commissions, the ownership matrix has elements $\Omega_{jl} = -\mathbf{1}\{f(j)=f(l)\}\,\partial s_l/\partial p_j$, and $\Omega^{B}$ is the analogous matrix built from agent-assisted demand derivatives only. Marginal cost is net of the risk-adjustment transfer, whose price sensitivity enters the condition through
-\begin{equation}
-\label{eqn:app-ra-deriv}
-\frac{\partial RA_k}{\partial s_m} = \left(-\frac{r_k\, r_m}{S_r^{2}} + \frac{u_k\, u_m}{S_u^{2}}\right)\bar{p}_t, \qquad
-\frac{\partial RA_k}{\partial p_l} = \sum_m \frac{\partial RA_k}{\partial s_m}\,\frac{\partial s_m}{\partial p_l},
-\end{equation}
-where $r_k$ is plan $k$'s risk score, $u_k$ its actuarial value scaled by a moral-hazard factor, $S_r = \sum_k r_k s_k$ and $S_u = \sum_k u_k s_k$ are the enrollment-weighted risk and utilization totals, and $\bar{p}_t$ is the market average premium. Evaluating the first-order condition at observed premiums and shares and solving for $mc$ recovers plan-level marginal cost, the inversion described in the main text.
+\noindent and
+
+\begin{eqnarray*}
+		\frac{\partial \widehat{h}_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} &=& \mathrm{IDF}_k\mathrm{GCF}_{mt} \left[\frac{r_{kmt}({\bf p},{\bf y})}{q_{kmt}({\bf p},{\bf y})} \sum_{d \in D} \gamma^d \left[\frac{\partial q_{dkmt}({\bf p},{\bf y})}{\partial p_{jmt}} - s_{dkmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} \right] \right]
+	\end{eqnarray*}
+	
+	\vspace{-0.3in}
+	
+	\begin{eqnarray*}
+		\frac{\partial \widetilde{h}_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}} &=& \mathrm{AV}_k \mathrm{IDF}_k\mathrm{GCF}_{mt} \frac{\sum_{i \in I} \left(\mathbb{I}_{i,m,t} \right) a_{it} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}} - a_{kmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}}{q_{kmt}({\bf p},{\bf y})}
+	\end{eqnarray*}
+
 
 \paragraph{Commission first-order condition.} Differentiating the same variable profit with respect to insurer $f$'s commission scale $k_f$ gives the commission first-order condition in the main text. Its left-hand side is the marginal benefit of a higher commission, the additional variable profit from the agent-assisted enrollment the commission attracts, which operates through the steering coefficient $\beta^{C}$ and the derivatives $\partial q^{B}_{jt}/\partial k_f$, together with the induced change in risk-adjustment transfers. Its right-hand side is the marginal outlay $\sum_{j} w_{jt}\, q^{B}_{jt}$ scaled by the per-insurer wedge $\mu_f$. Calibrating $\mu_f$ so that the observed schedule satisfies this condition makes the observed premiums and commissions a joint fixed point, the commission-side counterpart to recovering marginal cost from the pricing condition.
 
-
+The partial derivative of firm revenue with respect to the commission is
 
 \begin{equation*}
-		\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{i \in I, m \in M, k \in J_{fmt}} \mathbb{I}_{i,m,t} \sigma_{it} p_{kmt} q_{ikt}({\bf p},{\bf y})
+		\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{i \in I, m \in M, k \in J_{fmt}} \mathbb{I}_{i,m,t} \sigma_{it} p_{kmt} \frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}}
 \end{equation*}
+
+\noindent The partial derivative of firm claims with respect to the commission is
+
+\begin{equation*}
+		\frac{\partial C_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{m \in M, k \in J_{fmt}}  \left[\frac{\partial c_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} q_{kmt}({\bf p},{\bf y}) + c_{kmt}({\bf p},{\bf y}) \frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}}\right]
+\end{equation*}
+
+\noindent where
+
+\begin{equation*}
+	\frac{\partial c_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} 
+	= \mu_t^r \frac{c_{kmt}({\bf p},{\bf y})}{ q_{kmt}({\bf p},{\bf y})}  \sum_{d \in D} \gamma_t^d \left[\frac{\partial q_{dkmt}({\bf p},{\bf y})}{\partial y_{jt}} - s_{dkmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} \right] 
+\end{equation*}
+
+\noindent The partial derivative of total firm commissions paid with respect to the commission is
+
+\begin{equation*}
+    \frac{\partial Y_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^B\left[  \, q_{ijt}({\bf p},{\bf y}) +  y_{jt}  \, \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} \right]
+\end{equation*}
+
+\noindent The partial derivative of the risk adjustment transfer with respect to the commission is is
+
+\begin{footnotesize}
+		
+		\begin{equation*}
+			\frac{\partial RA_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \nu \sum_{k \in J_{fmt}}  \left[\frac{\partial R_t({\bf p},{\bf y})}{\partial  y_{jt}}\left( rs_{kmt}({\bf p},{\bf y}) - us_{kmt}({\bf p},{\bf y})  \right)  +   R_t({\bf p},{\bf y}) \left( \frac{\partial rs_{kmt}({\bf p},{\bf y})}{\partial  y_{jt}} - \frac{\partial  us_{kmt}({\bf p},{\bf y})}{\partial  y_{jt}} \right) \right]
+		\end{equation*}
+		
+	\end{footnotesize}
+
+\noindent where
+
+\begin{footnotesize}
+		
+		
+		\begin{eqnarray*}
+			\frac{ \partial rs_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} &=& \left(\sum_{n\in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y}) q_{lnt}({\bf p},{\bf y})\right)^{-1}\left[\left(\widehat{h}_{kmt}({\bf p},{\bf y})\frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} + q_{kmt}({\bf p},{\bf y})\frac{\partial \widehat{h}_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} \right) \right.\\
+			&& - \,\,\, \left. rs_{kmt}({\bf p},{\bf y}) \sum_{l \in J_{mt}}  \left(\widehat{h}_{lmt}({\bf p},{\bf y})\frac{\partial q_{lmt}({\bf p},{\bf y})}{\partial y_{jt}} + q_{lmt}({\bf p},{\bf y})\frac{\partial \widehat{h}_{lmt}({\bf p},{\bf y})}{\partial y_{jt}} \right)\right] 
+		\end{eqnarray*}	
+		
+	\end{footnotesize}
+	
+	
+	\begin{footnotesize}
+		
+		
+		\begin{eqnarray*}
+			\frac{ \partial us_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} &=& \left(\sum_{n\in M,l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y}) q_{lnt}({\bf p},{\bf y})\right)^{-1}\left[\left(\widetilde{h}_{kmt}({\bf p},{\bf y})\frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} + q_{kmt}({\bf p},{\bf y})\frac{\partial \widetilde{h}_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} \right) \right.\\
+			&& - \,\,\, \left. us_{kmt}({\bf p},{\bf y}) \sum_{l \in J_{mt}}  \left(\widetilde{h}_{lmt}({\bf p},{\bf y})\frac{\partial q_{lmt}({\bf p},{\bf y})}{\partial y_{jt}} + q_{lmt}({\bf p},{\bf y})\frac{\partial\widetilde{h}_{lmt}({\bf p},{\bf y})}{\partial y_{jt}} \right)\right] 
+		\end{eqnarray*}	
+		
+	\end{footnotesize}
+
+\noindent and
+
+\begin{eqnarray*}
+		\frac{\partial \widehat{h}_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} &=& \mathrm{IDF}_k\mathrm{GCF}_{mt} \left[\frac{r_{kmt}({\bf p},{\bf y})}{q_{kmt}({\bf p},{\bf y})} \sum_{d \in D} \gamma^d \left[\frac{\partial q_{dkmt}({\bf p},{\bf y})}{\partial y_{jt}} - s_{dkmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} \right] \right]
+	\end{eqnarray*}
+	
+	\vspace{-0.3in}
+	
+	\begin{eqnarray*}
+		\frac{\partial \widetilde{h}_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} &=& \mathrm{AV}_k \mathrm{IDF}_k\mathrm{GCF}_{mt} \frac{\sum_{i \in I} \left(\mathbb{I}_{i,m,t} \right) a_{it} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}} - a_{kmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}}}{q_{kmt}({\bf p},{\bf y})}
+	\end{eqnarray*}
+
 
 
 \section{Demand Specification Sensitivity}
