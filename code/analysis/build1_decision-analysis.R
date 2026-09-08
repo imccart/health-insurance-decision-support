@@ -92,5 +92,4 @@ cat("  hh_full: ", nrow(hh_full), "HH-years (",
     sum(hh_full$insured == 0L), "uninsured )\n")
 
 fwrite(hh_full, "data/output/hh_full.csv")
-cat("  Saved: hh_full.csv\n")
 gc(verbose = FALSE)

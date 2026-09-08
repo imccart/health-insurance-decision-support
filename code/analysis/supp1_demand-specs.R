@@ -132,7 +132,7 @@ price_and_elast <- function(fit) {
   d <- as.data.table(dat)
   d[, `:=`(alpha_f = slope(FALSE), alpha_b = slope(TRUE), cellkey = paste(region, year))]
   d[, household_number := paste(cellkey, household_number)]   # unique across cells
-  ins <- nest_inside_rows(d, u$V, u$V_base, lambda)
+  ins <- nest_inside_rows(d, u$V, u$V_base, lambda, u$add_N, u$add_A)
   # Two-part own-price semi-elasticity: d log q_j / d premium_j =
   #   alpha_f (1 - s_jg)/lambda + alpha_b (1 - s_g) s_jg_b, times the premium
   ins[, elast := premium * (alpha_f * (1 - s_jg) / lambda_i + alpha_b * (1 - s_g) * s_jg_b)]
@@ -185,7 +185,6 @@ csv <- data.frame(
 )
 names(csv)[-1] <- paste0("col", seq_along(fits))
 write.csv(csv, "results/demand_spec_sensitivity.csv", row.names = FALSE)
-cat("  -> results/demand_spec_sensitivity.csv\n")
 
 # Bare tabular for \input in the appendix ---------------------------------
 lambda_v <- sapply(fits, function(f) f[["lambda"]])
@@ -205,5 +204,4 @@ for (r in rows) {
 }
 lines <- c(lines, "\\hline\\hline", "\\end{tabular}")
 writeLines(lines, "results/tables/demand_spec_sensitivity.tex")
-cat("  -> results/tables/demand_spec_sensitivity.tex\n")
 cat(paste(lines, collapse = "\n"), "\n")

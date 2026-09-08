@@ -11,7 +11,6 @@
 
 
 # Load raw enrollment ------------------------------------------------------
-cat("  Loading raw enrollment...\n")
 enroll <- fread("data/input/Covered California/pra_07192019.csv") %>%
   as_tibble()
 

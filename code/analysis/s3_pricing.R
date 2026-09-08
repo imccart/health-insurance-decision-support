@@ -25,7 +25,6 @@ STRUCTURAL_SPEC <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$all
 # Load coefficients and reference data
 # =========================================================================
 
-cat("\nLoading demand coefficients and reference data...\n")
 
 coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
 lambda <- coefs %>% filter(term == "lambda") %>% pull(estimate)
@@ -40,6 +39,7 @@ cat("\nEstimating RA regressions...\n")
 # Claims rows: rate filing PUF plan-years with observed plan-year demographics
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
+for (yy in 2015:2019) rsdata[[paste0("year_", yy)]] <- as.integer(rsdata$year == yy)
 rsdata <- rsdata %>%
   left_join(plan_demo, by = c("plan_id", "year")) %>%
   left_join(plan_choice %>%
@@ -83,7 +83,6 @@ ra_regs <- estimate_ra_regressions(rsdata, rs_srrt)
 # Save coefficients for counterfactual worker
 rs_coefs_df <- tibble(term = names(ra_regs$rs_coefs), estimate = ra_regs$rs_coefs)
 claims_coefs_df <- tibble(term = names(ra_regs$claims_coefs), estimate = ra_regs$claims_coefs)
-write_csv(rs_coefs_df, file.path(TEMP_DIR, "ra_rs_coefs.csv"))
 write_csv(claims_coefs_df, file.path(TEMP_DIR, "ra_claims_coefs.csv"))
 
 # Reinsurance factors by plan-year (for counterfactuals)
@@ -201,13 +200,15 @@ for (i in seq_len(nrow(cells))) {
   util_result <- compute_utility(cell_data, coefs)
   V <- util_result$V
   V_base <- util_result$V_base
+  add_N <- util_result$add_N
+  add_A <- util_result$add_A
 
   # -----------------------------------------------------------------------
   # Step 2: Compute shares and elasticities (all HH)
   # -----------------------------------------------------------------------
   se_result <- compute_shares_and_elasticities(
     cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
-    spec = STRUCTURAL_SPEC, V_base = V_base
+    spec = STRUCTURAL_SPEC, V_base = V_base, add_N = add_N, add_A = add_A
   )
   shares    <- se_result$shares
   elast_mat <- se_result$elast_mat
@@ -228,7 +229,7 @@ for (i in seq_len(nrow(cells))) {
   # -----------------------------------------------------------------------
   broker_result <- compute_broker_shares_and_elasticities(
     cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
-    spec = STRUCTURAL_SPEC, V_base = V_base
+    spec = STRUCTURAL_SPEC, V_base = V_base, add_N = add_N, add_A = add_A
   )
   broker_elast_mat <- broker_result$broker_elast_mat
   Omega_broker <- -own_mat * t(broker_elast_mat)  # same transpose as Omega
@@ -238,7 +239,8 @@ for (i in seq_len(nrow(cells))) {
   # demand estimates (they run through beta_comm, not the cost parameters), so we
   # precompute them here and the cost GMM evaluates the commission FOC at its own theta
   # using these plus the cost-implied marginal cost. [D %*% w_f]_j = dqB_j/dk_f.
-  comm_deriv <- compute_commission_derivatives(cell_data, V, lambda, coefs, V_base = V_base)
+  comm_deriv <- compute_commission_derivatives(cell_data, V, lambda, coefs,
+                                               V_base = V_base, add_N = add_N, add_A = add_A)
   comm_D  <- comm_deriv$D[plan_ids_cell, plan_ids_cell, drop = FALSE]
   comm_qB <- comm_deriv$qB[plan_ids_cell]
 
@@ -252,7 +254,7 @@ for (i in seq_len(nrow(cells))) {
     Platinum    = as.integer(unname(plan_metal) == "Platinum"),
     AV          = unname(pa$av),
     HMO         = unname(setNames(pa$hmo, pa$plan_id)[plan_ids_cell]),
-    trend       = y - 2014L,
+    !!!setNames(as.list(as.integer(2015:2019 == y)), CLAIMS_YEAR_TERMS),
     !!!setNames(lapply(CLAIMS_REGION_TERMS, function(rc)
       as.numeric(ifelse(is.na(plans[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans$plan_id))]), 0,
                         plans[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans$plan_id))]))),
@@ -271,7 +273,8 @@ for (i in seq_len(nrow(cells))) {
   )
 
   demo_shares <- tryCatch(
-    compute_demographic_shares(cell_data, V, lambda, V_base = V_base),
+    compute_demographic_shares(cell_data, V, lambda, V_base = V_base,
+                               add_N = add_N, add_A = add_A),
     error = function(e) NULL
   )
 
@@ -336,8 +339,6 @@ cell_recs <- lapply(pass1, function(cl) {
 })
 stopifnot(all(is.finite(sapply(cell_recs, function(x) x$gcf))))
 ra_state <- ra_state_totals(cell_recs)
-write_csv(ra_state$totals, file.path(TEMP_DIR, "ra_state.csv"))
-write_csv(ra_state$own, file.path(TEMP_DIR, "ra_state_cells.csv"))
 cat("  Statewide average premium (net of the admin share) by year:",
     paste(ra_state$totals$year, round(ra_state$totals$pbar), sep = ": ", collapse = ", "), "\n")
 rm(cell_recs)
@@ -462,7 +463,6 @@ foc_plan_year <- supply_results %>%
             omega_w = sum(w * omega_own) / sum(w), .groups = "drop") %>%
   mutate(G_per_member = G / w_sum, G_dollars = G_per_member / omega_w) %>%
   select(plan_id, year, metal, issuer, n_cells, members, G, G_per_member, G_dollars)
-write_csv(foc_plan_year, file.path(TEMP_DIR, "foc_plan_year.csv"))
 
 supply_results <- supply_results %>% select(-foc_resid, -omega_own, -members)
 write_csv(supply_results, "results/supply_results.csv")
@@ -522,7 +522,6 @@ p_markup_insurer <- plot_data %>%
   coord_flip() +
   labs(x = NULL, y = "Markup ($/month)") +
   theme_bw()
-cat("  Saving markup_insurer...\n")
 ggsave("results/figures/supply_markup_insurer.png", p_markup_insurer, width = 6, height = 4)
 
 # 2. Marginal cost vs posted premium
@@ -532,7 +531,6 @@ p_mc_premium <- plot_data %>%
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   labs(x = "Posted Premium ($/month)", y = "Marginal Cost ($/month)", color = "Metal") +
   theme_bw()
-cat("  Saving mc_vs_premium...\n")
 ggsave("results/figures/supply_mc_vs_premium.png", p_mc_premium, width = 7, height = 5)
 
 # 3. Commission cost vs margin by insurer
@@ -550,7 +548,6 @@ p_comm_margin <- plot_data %>%
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   labs(x = "Average Commission ($/month)", y = "Average Markup ($/month)") +
   theme_bw()
-cat("  Saving comm_vs_margin...\n")
 ggsave("results/figures/supply_comm_vs_margin.png", p_comm_margin, width = 6, height = 5)
 
 # 4. Lerner index by metal tier
@@ -562,10 +559,12 @@ p_lerner_metal <- plot_data %>%
   geom_boxplot(outlier.size = 0.5) +
   labs(x = "Metal Tier", y = "Lerner Index") +
   theme_bw()
-cat("  Saving lerner_metal...\n")
 ggsave("results/figures/supply_lerner_metal.png", p_lerner_metal, width = 6, height = 4)
 
-# 5. MC validation: FOC vs structural
+# 5. MC validation at the starting values: FOC inversion vs the start-value
+# structural cost. The paper's version of this figure is written by sum2 at the
+# GMM marginal cost; this one keeps its own filename so a partial rerun cannot
+# leave a start-value figure under the paper's name.
 p_mc_compare <- plot_data %>%
   filter(!is.na(mc_foc), !is.na(mc_structural)) %>%
   ggplot(aes(x = mc_structural, y = mc_foc, color = metal)) +
@@ -573,8 +572,6 @@ p_mc_compare <- plot_data %>%
   geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
   labs(x = "MC (Structural RA Model)", y = "MC (FOC Inversion)", color = "Metal") +
   theme_bw()
-cat("  Saving mc_foc_vs_structural...\n")
-ggsave("results/figures/supply_mc_foc_vs_structural.png", p_mc_compare, width = 7, height = 5)
+ggsave("results/figures/supply_mc_foc_vs_structural_startvals.png", p_mc_compare, width = 7, height = 5)
 
 cat("Figures saved to results/figures/.\n")
-cat("Supply-side estimation complete.\n")

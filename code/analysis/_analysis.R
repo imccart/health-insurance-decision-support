@@ -3,19 +3,12 @@
 ## Author:        Ian McCarthy
 ## Description:   Master driver for the full analysis. Loads the function
 ##                libraries in helpers/, then sources the pipeline steps in
-##                order. Steps are grouped by family; each family runs as one
-##                contiguous block:
+##                order. 
 ##                  build*  shared data construction (both branches need it)
 ##                  rf*     reduced-form (decision-support) analysis
 ##                  s*      structural demand + supply estimation
 ##                  cf*     counterfactuals
 ##                  sum*    summary tables and figures
-##                Convention: _name.R = a driver you run directly; family+N =
-##                step N of that family (sourced here in order); helpers/ =
-##                shared function libraries. Steps assume this preamble has
-##                loaded (run it first to run any single step on its own).
-##                supp1-supp6 are standalone supplementary analyses and are
-##                NOT part of this driver.
 
 # Parameters --------------------------------------------------------------
 TEMP_DIR     <- "D:/temp-research-data/health-insurance-decision-support"
@@ -25,7 +18,7 @@ N_BOOT       <- 50L   # reduced-form bootstrap reps (rf1-rf3); 0 to skip
 N_BOOT_CF    <- 30L   # CF welfare-SE bootstrap draws (cf3_se)
 
 # Packages ----------------------------------------------------------------
-pacman::p_load(tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit)
+pacman::p_load(tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit, nnet)
 
 # Helpers (function libraries, loaded once) -------------------------------
 source("code/data-build/_helpers.R")

@@ -100,5 +100,4 @@ kbl_ret <- kable(tab_ret, format = "latex", booktabs = TRUE, linesep = "",
                  align = c("l", rep("r", 6)), escape = FALSE) %>%
   add_header_above(c(" " = 1, "Retained next year (percent)" = 3, "Household-years" = 3))
 writeLines(as.character(kbl_ret), "results/tables/channel_retention.tex")
-cat("  Wrote results/tables/channel_transitions.tex and channel_retention.tex\n")
 rm(enr, un, hh, hh_ch, trans, raw, base_rows); gc(verbose = FALSE)

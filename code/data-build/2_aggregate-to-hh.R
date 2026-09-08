@@ -22,7 +22,6 @@
 # individual table. dplyr is reserved for small reference tables (slc_by_market,
 # poverty_guidelines_long, etc.).
 
-cat("  Loading individual enrollment...\n")
 enroll <- fread("data/output/enrollment_individual.csv")  # data.table
 
 
@@ -115,6 +114,10 @@ slc_by_market <- silver_candidates %>%
     .groups = "drop"
   ) %>%
   as.data.table()
+
+# Saved for step 5, which applies the same zip3 benchmark to the synthesized
+# off-year rows (region-level SLC is only a fallback there).
+fwrite(slc_by_market, "data/output/slc_by_market.csv")
 
 # DT join: pulls premiumSLC_base from slc_by_market into enroll
 enroll[slc_by_market, on = c("zip3", "region", "year"),

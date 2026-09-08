@@ -20,7 +20,6 @@ source("code/data-build/_helpers.R")
 cat("=== Starting data build ===\n\n")
 
 # Shared reference files (loaded once, available to all steps) -------------
-cat("Loading reference files...\n")
 
 plan_data <- read.csv("data/input/Covered California/plan_data.csv",
                        stringsAsFactors = FALSE)

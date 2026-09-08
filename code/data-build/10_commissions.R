@@ -24,7 +24,6 @@
 ## Output:        data/output/commission_lookup.csv  (insurer_prefix, year, rate, is_pct)
 ##                data/output/commission_filings.csv (the components)
 
-cat("Building commissions from the filings...\n")
 SRRT_DIR <- "data/input/Covered California/rate-filings-srrt"
 SRRT_PREFIX <- c(Anthem = "ANT", Blue_Shield = "BS", Chinese_Community = "CC", Health_Net_HMO = "HN",
                  Health_Net_PPO = "HN", Kaiser = "KA", LA_Care = "LA", Molina = "MOL", Oscar = "OSC",
@@ -126,4 +125,3 @@ if (nrow(missing) > 0) cat("  WARNING: enrolled insurer-years with no commission
                            paste(missing$insurer_prefix, missing$year, collapse = ", "), "\n")
 write_csv(comm, "data/output/commission_filings.csv")
 write_csv(lookup, "data/output/commission_lookup.csv")
-cat("  -> data/output/commission_lookup.csv, commission_filings.csv\n")

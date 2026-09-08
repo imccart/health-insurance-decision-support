@@ -16,7 +16,7 @@
 #' cell loop (OLS starting values for the cost GMM).
 #'
 #' @param rsdata   Rate filing PUF rows (plan-year): claims, member months, metal
-#'                 dummies, HMO, trend, insurer dummies, and the observed
+#'                 dummies, HMO, year dummies, insurer dummies, and the observed
 #'                 plan-year demographic shares
 #' @param rs_srrt  SRRT plan risk scores (insurer x metal x region x year) with
 #'                 the observed enrollment demographic shares at that level
@@ -30,11 +30,12 @@
 RS_DEMO_RAWCOL <- c(share_0to34 = "perc_0to34", share_male = "perc_male",
                     share_family = "family", share_minority = "perc_minority")
 RS_DEMO_TERMS <- names(RS_DEMO_RAWCOL)
-# Claims equation (Eq. 9): HMO, trend, big-four insurer indicators, and the
-# rating-area shares of the plan-year's enrollment (region 1 the base), which
-# stand in for market fixed effects.
+# Claims equation (Eq. 9): HMO, year dummies (2014 the base), big-four insurer
+# indicators, and the rating-area shares of the plan-year's enrollment (region
+# 1 the base), which stand in for market fixed effects.
 CLAIMS_REGION_TERMS <- paste0("share_ra", 2:19)
-CLAIMS_EXOG_TERMS <- c("HMO", "trend", "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
+CLAIMS_YEAR_TERMS <- paste0("year_", 2015:2019)
+CLAIMS_EXOG_TERMS <- c("HMO", CLAIMS_YEAR_TERMS, "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
                        CLAIMS_REGION_TERMS)
 
 estimate_ra_regressions <- function(rsdata, rs_srrt) {
@@ -99,12 +100,13 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
 #' @return Tibble: plan_id, share_18to34, share_35to54, share_male,
 #'   share_fpl250to400, share_fpl400plus, share_hispanic, demand
 
-compute_demographic_shares <- function(cell_data, V, lambda, V_base = NULL) {
+compute_demographic_shares <- function(cell_data, V, lambda, V_base = NULL,
+                                       add_N = NULL, add_A = NULL) {
 
   # Two-part nested-logit choice probabilities (same kernel as
-  # compute_shares_and_elasticities): P(insured) from the base inclusive value,
-  # P(j | insured) from the full utility.
-  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda)
+  # compute_shares_and_elasticities): P(insured) from the expected inclusive
+  # value over channel states, P(j | insured) from the full utility.
+  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda, add_N, add_A)
   ins_dt[, prob := q_j]
 
   # HH-level weight (hh_size from the choice-data builder)
@@ -272,7 +274,7 @@ ra_env_for_cell <- function(region, year, N, demo_shares, totals, own = NULL) {
 #' Predict plan-level claims from risk scores and claims regression.
 #'
 #' @param claims_coefs  Named coefficient vector from claims regression
-#' @param plan_chars    Tibble with plan_id, AV, HMO, trend, insurer dummies
+#' @param plan_chars    Tibble with plan_id, AV, HMO, year dummies, insurer dummies
 #' @param log_rs        Named vector of log predicted risk scores
 #' @return Named vector of predicted claims PMPM
 
@@ -283,7 +285,7 @@ predict_claims <- function(claims_coefs, plan_chars, log_rs) {
     claims_coefs[["log_risk_score"]] * log_rs[pn]
 
   # Every other term in claims_coefs present as a column of plan_chars (HMO,
-  # trend, insurer indicators, rating-area shares). An aliased (NA) coefficient
+  # year dummies, insurer indicators, rating-area shares). An aliased (NA) coefficient
   # contributes nothing.
   for (term in setdiff(names(claims_coefs), c("(Intercept)", "log_risk_score"))) {
     coef_t <- claims_coefs[[term]]
@@ -325,7 +327,7 @@ predict_mc_structural <- function(predicted_claims, ra_transfers, reins_factors)
 #' @param rs_coefs      Named vector of risk score regression coefficients
 #' @param claims_coefs  Named vector of claims regression coefficients
 #' @param plan_chars    Tibble with plan_id, Silver, Gold, Platinum, HMO,
-#'                      trend, Anthem, Blue_Shield, Health_Net, Kaiser
+#'                      year dummies, Anthem, Blue_Shield, Health_Net, Kaiser
 #' @param demo_shares   Tibble with plan_id and predicted demographic shares
 #'                      (share_18to34, share_35to54, share_male,
 #'                      share_fpl250to400, share_fpl400plus); NULL for AV-only

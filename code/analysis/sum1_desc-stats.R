@@ -263,4 +263,3 @@ tex_lines <- c(
 )
 writeLines(tex_lines, "results/tables/summary_stats.tex")
 
-cat("Summary statistics complete.\n")

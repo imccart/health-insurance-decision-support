@@ -11,7 +11,6 @@
 # Output:
 #   data/output/demand_households.csv
 
-cat("  Loading inputs...\n")
 cc_enrolled  <- fread("data/output/enrollment_hh.csv")   %>% as_tibble()
 cc_uninsured <- fread("data/output/cc_uninsured.csv")    %>% as_tibble()
 
@@ -38,10 +37,13 @@ cat(sprintf("  Demand dataset: %d HH-years (%d enrolled, %d uninsured)\n",
             sum(demand_hh$insured == 0L)))
 
 
-# Cheapest bronze + second-lowest-cost silver (region × year) --------------
-# Scaled by HH rating_factor for the affordability exemption and the
-# formula-subsidy calc below.
-cat("  Computing cheapest bronze and SLC per rating area × year...\n")
+# Cheapest bronze + benchmark (second-lowest-cost silver) ------------------
+# Cheapest bronze at region × year (mandate affordability). Benchmark at the
+# zip3 level from step 2 (availability-screened), applied to the off-year rows
+# here; enrolled rows keep the household premiumSLC step 2 already built from
+# the same table. Region-level second-lowest silver is only a fallback where
+# the zip3 market is missing (or a step-2 value came through as 0/NA).
+cat("  Computing cheapest bronze and benchmark per market × year...\n")
 plan_data <- read_csv("data/input/Covered California/plan_data.csv",
                        show_col_types = FALSE)
 
@@ -50,7 +52,9 @@ cheapest_br <- plan_data %>%
   group_by(year = ENROLLMENT_YEAR, region) %>%
   summarize(cheapest_br_base = min(Premium, na.rm = TRUE), .groups = "drop")
 
-slc <- plan_data %>%
+slc_zip3 <- fread("data/output/slc_by_market.csv") %>% as_tibble()
+
+slc_region <- plan_data %>%
   filter(metal_level == "Silver") %>%
   group_by(year = ENROLLMENT_YEAR, region) %>%
   summarize(slc_base = {
@@ -60,16 +64,26 @@ slc <- plan_data %>%
 
 demand_hh <- demand_hh %>%
   left_join(cheapest_br, by = c("year", "region")) %>%
-  left_join(slc,         by = c("year", "region")) %>%
+  left_join(slc_zip3,    by = c("zip3", "region", "year")) %>%
+  left_join(slc_region,  by = c("year", "region")) %>%
   mutate(cheapest_premium = cheapest_br_base / RATING_FACTOR_AGE40 * rating_factor,
-         premiumSLC       = slc_base         / RATING_FACTOR_AGE40 * rating_factor) %>%
-  select(-cheapest_br_base, -slc_base)
-rm(plan_data, cheapest_br, slc)
+         premiumSLC = case_when(
+           insured == 1L & is.finite(premiumSLC) & premiumSLC > 0
+             ~ premiumSLC,
+           is.finite(premiumSLC_base) ~ premiumSLC_base * rating_factor,
+           TRUE ~ slc_base / RATING_FACTOR_AGE40 * rating_factor
+         )) %>%
+  select(-cheapest_br_base, -premiumSLC_base, -slc_base)
+rm(plan_data, cheapest_br, slc_zip3, slc_region)
 
 
 # Formula subsidy (ACA) for everyone --------------------------------------
 # premiumSLC - SLC_contribution, floored at 0, for 138% <= FPL <= 400% HHs.
-# Matches the old-repo prepare.demand.data.R:732-734 construction.
+# The formula is the quote the household saw when choosing (the exchange
+# computes the advance credit from the same formula on attested income), and
+# it measures enrolled and off-year rows symmetrically; the observed APTC
+# additionally reflects credit elections and mid-year adjustments, which are
+# about tax reconciliation rather than the monthly price faced at choice.
 cat("  Computing formula subsidy...\n")
 fpl_lb_lookup <- setNames(FPL_BRACKETS$fpl_LB, FPL_BRACKETS$bracket)
 fpl_ub_lookup <- setNames(FPL_BRACKETS$fpl_UB, FPL_BRACKETS$bracket)
@@ -108,6 +122,9 @@ demand_hh <- demand_hh %>%
                             pmax(0, premiumSLC - SLC_contribution),
                             0)) %>%
   select(-subsidy_eligible_fpl, -fpl_LB, -fpl_UB, -perc_LB, -perc_UB)
+cat(sprintf("    subsidy: enrolled mean $%.0f, off-year mean $%.0f (formula, zip3 benchmark)\n",
+            mean(demand_hh$subsidy[demand_hh$insured == 1L], na.rm = TRUE),
+            mean(demand_hh$subsidy[demand_hh$insured == 0L], na.rm = TRUE)))
 # SLC_contribution (the income contribution cap zeta_it) and premiumSLC (the HH
 # benchmark premium) are RETAINED: the structural counterfactual endogenizes the
 # subsidy = pmax(0, premiumSLC(p) - SLC_contribution) as the benchmark price moves.
@@ -179,4 +196,3 @@ cat(sprintf("    penalty: mean $%.0f, %.1f%% zero\n",
 
 # Save ---------------------------------------------------------------------
 fwrite(demand_hh, "data/output/demand_households.csv")
-cat("Step 5 complete.\n")

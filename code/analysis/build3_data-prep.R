@@ -49,7 +49,7 @@ cat("  hh_full:", nrow(hh_full), "rows\n")
 
 hh_full <- hh_full %>%
   left_join(ipweights, by = "household_year") %>%
-  left_join(broker_density %>% select(region, year, n_agents),
+  left_join(broker_density %>% select(region, year, n_agents, agents_per_10k),
             by = c("region", "year"))
 
 n_before <- nrow(hh_full)
@@ -85,6 +85,30 @@ nav_model <- glm(
 hh_full$p_nav <- predict(nav_model, newdata = hh_full, type = "response")
 cat("  p_nav range:", round(range(hh_full$p_nav, na.rm = TRUE), 3), "\n")
 rm(nav_model)
+
+# Channel first stage (structural). Three-way multinomial over
+# Unassisted/Navigator/Agent fit on enrollees with the structural demographic
+# set, region-year agents per 10,000 residents, and year effects; predicted
+# probabilities for EVERY household-year. They are the weights over the
+# channel-state inclusive values in the enrollment margin (estimate_demand.R)
+# and carry no coefficients in the demand model.
+chan_model <- multinom(
+  factor(channel_detail, levels = c("Unassisted", "Navigator", "Agent")) ~
+    agents_per_10k + perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
+    perc_black + perc_hispanic + perc_asian + perc_other +
+    FPL_250to400 + FPL_400plus + household_size + factor(year),
+  data = hh_full %>% filter(insured == 1L), weights = weight,
+  maxit = 300, trace = FALSE
+)
+p_chan <- predict(chan_model, newdata = hh_full, type = "probs")
+hh_full$p_none_hat  <- p_chan[, "Unassisted"]
+hh_full$p_nav_hat   <- p_chan[, "Navigator"]
+hh_full$p_agent_hat <- p_chan[, "Agent"]
+cat(sprintf("  channel first stage: converged %s; mean p (none/nav/agent) = %.3f/%.3f/%.3f\n",
+            chan_model$convergence == 0,
+            mean(hh_full$p_none_hat), mean(hh_full$p_nav_hat),
+            mean(hh_full$p_agent_hat)))
+rm(chan_model, p_chan)
 
 # Plan-side prep ----------------------------------------------------------
 
@@ -220,7 +244,8 @@ hh_choice <- hh_full %>%
          household_size, weight, ipweight, v_hat, new_enrollee,
          perc_0to17, perc_18to34, perc_35to54,
          perc_black, perc_hispanic, perc_asian, perc_other, perc_male,
-         channel, channel_detail, any_agent, p_nav)
+         channel, channel_detail, any_agent, p_nav,
+         p_none_hat, p_nav_hat, p_agent_hat)
 
 fwrite(hh_choice, file.path(TEMP_DIR, "hh_choice.csv"))
 n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))

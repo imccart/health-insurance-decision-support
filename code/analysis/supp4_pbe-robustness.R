@@ -69,7 +69,6 @@ comp <- data.frame(term = key,
                    diff = unname(noPBE[key] - full[key]))
 comp[, 2:4] <- lapply(comp[, 2:4], round, 4)
 write.csv(comp, "results/pbe_robustness.csv", row.names = FALSE)
-cat("\n  -> results/pbe_robustness.csv\n")
 
 # Bare tabular for the appendix -------------------------------------------
 lab <- c(premium = "Premium",
@@ -87,6 +86,5 @@ for (t in names(lab))
   tl <- c(tl, sprintf("%s & %.3f & %.3f \\\\", lab[[t]], comp[t, "full"], comp[t, "no_PBE"]))
 tl <- c(tl, "\\hline\\hline", "\\end{tabular}")
 writeLines(tl, "results/tables/pbe_robustness.tex")
-cat("  -> results/tables/pbe_robustness.tex\n")
 
 print(comp, row.names = FALSE)

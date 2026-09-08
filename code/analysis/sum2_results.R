@@ -25,7 +25,6 @@ dir.create("results/figures", recursive = TRUE, showWarnings = FALSE)
 # 0. Load pipeline outputs
 # =========================================================================
 
-cat("Loading pipeline outputs...\n")
 
 hh_full  <- fread("data/output/hh_full.csv") %>% as_tibble()
 
@@ -186,7 +185,6 @@ p_flat <- ggplot(flat_comm, aes(x = year, y = rate, color = insurer, shape = ins
   theme(legend.position = "bottom")
 
 ggsave("results/figures/flat_comm.pdf", p_flat, width = 6, height = 4)
-cat("  Wrote results/figures/flat_comm.pdf\n")
 
 # Percentage commission insurers
 pct_comm <- comm %>%
@@ -210,7 +208,6 @@ p_pct <- ggplot(pct_comm, aes(x = year, y = rate_pct, color = insurer, shape = i
   theme(legend.position = "bottom")
 
 ggsave("results/figures/perc_comm.pdf", p_pct, width = 6, height = 4)
-cat("  Wrote results/figures/perc_comm.pdf\n")
 
 
 # =========================================================================
@@ -329,7 +326,6 @@ if (nrow(coefs_structural) > 0) {
 
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/demand_estimates.tex")
-  cat("  Wrote results/tables/demand_estimates.tex\n")
 } else {
   cat("  Skipped (no structural coefficients)\n")
 }
@@ -374,7 +370,11 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     "Valley"            = "Valley",
     "log_risk_score"    = "Log predicted risk score",
     "HMO"               = "HMO",
-    "trend"             = "Linear trend",
+    "year_2015"         = "Year 2015",
+    "year_2016"         = "Year 2016",
+    "year_2017"         = "Year 2017",
+    "year_2018"         = "Year 2018",
+    "year_2019"         = "Year 2019",
     "Kaiser"            = "Kaiser",
     "log_size"          = "Log insurer enrollment"
   )
@@ -405,9 +405,14 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
   sv <- cost_coefs %>% filter(equation == "commission")
   if (nrow(sv) > 0) {
     tab_lines <- c(tab_lines, "\\hline", "\\emph{Commission condition} & \\\\")
+    comm_labels <- c(beta_admin = "Administrative saving per commission dollar ($\\beta$)",
+                     wedge_leverage = "Cross-market wedge, leverage ($\\delta_1$)")
     for (i in seq_len(nrow(sv))) {
-      lab <- ifelse(sv$param[i] == "beta_admin", "Administrative saving per commission dollar ($\\beta$)",
-                    gsub("_", "\\\\_", sv$param[i]))
+      lab <- ifelse(sv$param[i] %in% names(comm_labels), comm_labels[sv$param[i]],
+             ifelse(grepl("^wedge_", sv$param[i]),
+                    sprintf("Cross-market wedge, %s ($\\delta_{0,f}$)",
+                            gsub("_", "\\\\_", sub("^wedge_", "", sv$param[i]))),
+                    gsub("_", "\\\\_", sv$param[i])))
       tab_lines <- c(tab_lines,
         sprintf("%s & %s \\\\", lab, formatC(sv$estimate[i], format = "f", digits = 3)),
         sprintf(" & (%s) \\\\", formatC(sv$se[i], format = "f", digits = 3)))
@@ -415,7 +420,6 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
   }
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/cost_estimates.tex")
-  cat("  Wrote results/tables/cost_estimates.tex\n")
 } else {
   cat("  Skipped (no cost GMM standard errors)\n")
 }
@@ -428,22 +432,30 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
 cat("\n--- Table: Supply-Side Results ---\n")
 
 if (nrow(supply_results) > 0) {
+  # Marginal cost at the GMM solution (s4's mc_gmm.csv), the final cost
+  # estimates; the mc_structural column in supply_results is s3's
+  # starting-value version and is not reported.
+  mc_gmm_df <- read_csv(file.path(TEMP_DIR, "mc_gmm.csv"), show_col_types = FALSE)
   sr <- supply_results %>%
+    inner_join(mc_gmm_df, by = c("region", "year", "plan_id")) %>%
+    mutate(markup = posted_premium - mc_gmm,
+           lerner_index = markup / posted_premium) %>%
     filter(!is.na(mc_foc), !is.na(posted_premium))
 
   # Summary by metal tier. Report MEDIANS, not means: the tier mean markup is
   # dragged down (platinum's mean is negative) by negative-net-of-transfer-MC
   # plans (Kaiser gold/platinum) and near-zero-share plan-cells, even though the
-  # typical plan in the tier carries a large positive markup. The median is the
-  # object s3_pricing.R prints and the paper prose reports.
+  # typical plan in the tier carries a large positive markup.
   supply_by_metal <- sr %>%
     group_by(metal) %>%
     summarize(
       n_plan_years = n(),
       med_premium = median(posted_premium, na.rm = TRUE),
       med_markup  = median(markup, na.rm = TRUE),
-      med_mc_foc  = median(mc_foc, na.rm = TRUE),
-      med_mc_str  = median(mc_structural, na.rm = TRUE),
+      # mc_foc excludes admin; adding it back (mc_gmm - mc_gmm_net) puts both
+      # MC columns on the full-cost basis the markup uses
+      med_mc_foc  = median(mc_foc + (mc_gmm - mc_gmm_net), na.rm = TRUE),
+      med_mc_str  = median(mc_gmm, na.rm = TRUE),
       med_lerner  = median(lerner_index, na.rm = TRUE),
       med_comm    = median(commission_pmpm, na.rm = TRUE),
       .groups = "drop"
@@ -472,19 +484,19 @@ if (nrow(supply_results) > 0) {
 
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/supply_results.tex")
-  cat("  Wrote results/tables/supply_results.tex\n")
 
-  # MC validation figure: FOC vs structural
-  if ("mc_structural" %in% names(sr)) {
-    sr_valid <- sr %>% filter(!is.na(mc_structural), mc_foc > 0, mc_structural > 0)
+  # MC validation figure: FOC inversion vs the GMM structural cost, both on the
+  # claims-net-of-transfers basis (mc_foc excludes admin, so mc_gmm_net is the
+  # comparable object)
+  if ("mc_gmm_net" %in% names(sr)) {
+    sr_valid <- sr %>% filter(!is.na(mc_gmm_net), mc_foc > 0, mc_gmm_net > 0)
     if (nrow(sr_valid) > 5) {
-      p_mc <- ggplot(sr_valid, aes(x = mc_structural, y = mc_foc)) +
+      p_mc <- ggplot(sr_valid, aes(x = mc_gmm_net, y = mc_foc)) +
         geom_point(alpha = 0.5, size = 1.5) +
         geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
         labs(x = "MC (Structural prediction)", y = "MC (FOC inversion)") +
         theme_minimal(base_size = 12)
       ggsave("results/figures/supply_mc_foc_vs_structural.png", p_mc, width = 6, height = 5)
-      cat("  Wrote results/figures/supply_mc_foc_vs_structural.png\n")
     }
   }
 } else {
@@ -555,21 +567,22 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   # Readable labels + display order. Every scenario the pipeline solves appears
   # here; add a row when a new scenario family is introduced in cf1_estimate.R.
   scen_levels <- c("baseline",
-                   "zero_tau0.00", "zero_tau0.25", "zero_tau0.50", "zero_tau0.75", "zero_tau1.00",
-                   "uniform", "aligned",
-                   "scale_0.25", "scale_0.50", "scale_0.75",
-                   "endog_tau0.50", "endog_tau1.00",
-                   "flat_mandate", "defund_0.50", "defund_1.00")
+                   "zero_tau0.00", "zero_tau0.50", "zero_tau1.00",
+                   "uniform_low", "uniform_low_k0.75", "uniform_low_k1.25",
+                   "aligned", "scale_0.50",
+                   "flat_mandate", "defund_0.50", "endog_tau0.50")
   scen_labels <- c(baseline = "Baseline",
-                   zero_tau0.00 = "Zero commission", zero_tau0.25 = "Zero commission",
-                   zero_tau0.50 = "Zero commission", zero_tau0.75 = "Zero commission",
+                   zero_tau0.00 = "Zero commission",
+                   zero_tau0.50 = "Zero commission",
                    zero_tau1.00 = "Zero commission",
-                   uniform = "Uniform commission", aligned = "Aligned commissions",
-                   scale_0.25 = "Scaled commission (25\\%)", scale_0.50 = "Scaled commission (50\\%)",
-                   scale_0.75 = "Scaled commission (75\\%)",
-                   endog_tau0.50 = "Navigator expansion", endog_tau1.00 = "Navigator expansion",
+                   uniform_low = "Low uniform commission",
+                   "uniform_low_k0.75" = "Low uniform commission (band low)",
+                   "uniform_low_k1.25" = "Low uniform commission (band high)",
+                   aligned = "Aligned commissions",
+                   scale_0.50 = "Scaled commission (50\\%)",
                    flat_mandate = "Flat-fee mandate",
-                   defund_0.50 = "Navigator defunding (50\\%)", defund_1.00 = "Navigator defunding (100\\%)")
+                   defund_0.50 = "Navigator defunding (50\\%)",
+                   endog_tau0.50 = "Agents to navigators (endog.\\ commissions)")
 
   missing_scen <- setdiff(unique(as.character(prem_summary$scenario)), scen_levels)
   if (length(missing_scen) > 0)
@@ -604,26 +617,25 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   }
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/counterfactual_results.tex")
-  cat("  Wrote results/tables/counterfactual_results.tex\n")
 
   # --- 5a1. Objective welfare band (low / central / high uninsured cost), annual $ ---
   # Multi-scenario families print under one label with the tau or scale value as an
   # indented sub-row.
   fam_label <- c(
-    zero_tau0.00 = "Zero commission", zero_tau0.25 = "Zero commission",
-    zero_tau0.50 = "Zero commission", zero_tau0.75 = "Zero commission",
+    zero_tau0.00 = "Zero commission",
+    zero_tau0.50 = "Zero commission",
     zero_tau1.00 = "Zero commission",
-    scale_0.25 = "Scaled commission", scale_0.50 = "Scaled commission",
-    scale_0.75 = "Scaled commission",
-    endog_tau0.50 = "Navigator expansion", endog_tau1.00 = "Navigator expansion",
-    defund_0.50 = "Navigator defunding", defund_1.00 = "Navigator defunding")
+    uniform_low = "Low uniform commission",
+    "uniform_low_k0.75" = "Low uniform commission", "uniform_low_k1.25" = "Low uniform commission",
+    scale_0.50 = "Scaled commission",
+    defund_0.50 = "Navigator defunding")
   sub_label <- c(
-    zero_tau0.00 = "$\\tau=0.00$", zero_tau0.25 = "$\\tau=0.25$",
-    zero_tau0.50 = "$\\tau=0.50$", zero_tau0.75 = "$\\tau=0.75$",
+    zero_tau0.00 = "$\\tau=0.00$",
+    zero_tau0.50 = "$\\tau=0.50$",
     zero_tau1.00 = "$\\tau=1.00$",
-    scale_0.25 = "25\\%", scale_0.50 = "50\\%", scale_0.75 = "75\\%",
-    endog_tau0.50 = "$\\tau=0.50$", endog_tau1.00 = "$\\tau=1.00$",
-    defund_0.50 = "50\\%", defund_1.00 = "100\\%")
+    uniform_low = "point", "uniform_low_k0.75" = "band low", "uniform_low_k1.25" = "band high",
+    scale_0.50 = "50\\%",
+    defund_0.50 = "50\\%")
   band_lines <- c(
     "\\begin{tabular}{lrrr}",
     "\\hline\\hline",
@@ -648,7 +660,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   }
   band_lines <- c(band_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(band_lines, "results/tables/counterfactual_welfare_band.tex")
-  cat("  Wrote results/tables/counterfactual_welfare_band.tex\n")
 
   # --- 5a1b. Producer surplus and government cost, per member per year ---
   fisc_lines <- c(
@@ -666,7 +677,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   }
   fisc_lines <- c(fisc_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(fisc_lines, "results/tables/counterfactual_fiscal.tex")
-  cat("  Wrote results/tables/counterfactual_fiscal.tex\n")
 
   # --- 5a2. Welfare effects with SEs (cf3 demand bootstrap + cf4 commission delta method) ---
   # Reconstruct each draw's coverage effect and central objective from the component
@@ -690,11 +700,11 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     VSLc <- UNINS_VSL[["central"]]
     se_scen <- c(zero_tau0.00  = "Remove assistance ($\\tau$=0)",
                  zero_tau1.00  = "Agents to navigators ($\\tau$=1)",
-                 uniform       = "Uniform commission",
+                 uniform_low   = "Low uniform commission",
                  aligned       = "Aligned commissions",
-                 endog_tau1.00 = "Navigator expansion",
                  flat_mandate  = "Flat-fee mandate",
-                 defund_1.00   = "Navigator defunding")
+                 defund_0.50   = "Navigator defunding",
+                 endog_tau0.50 = "Agents to navigators (endog.\\ comm.)")
     col <- function(p, s) draws[[paste0(p, "_", s)]]
     # Point estimate with bootstrap SE in parentheses (2 significant figures).
     sefmt <- function(x) format(signif(x, 2), scientific = FALSE, trim = TRUE)
@@ -719,7 +729,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     }
     wl <- c(wl, "\\hline\\hline", "\\end{tabular}")
     writeLines(wl, "results/tables/counterfactual_welfare_se.tex")
-    cat("  Wrote results/tables/counterfactual_welfare_se.tex (point est with SE: demand bootstrap + commission delta method)\n")
   } else {
     cat("  cf_bootstrap_draws.csv not found -- run cf3 to populate welfare SEs\n")
   }
@@ -756,18 +765,17 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       theme_minimal(base_size = 12)
 
     ggsave("results/figures/cf_welfare_gradient.png", p_tau, width = 7, height = 5)
-    cat("  Wrote results/figures/cf_welfare_gradient.png\n")
   }
   }
 
   # --- 5c. Premium change by scenario figure ---
   cf_by_scenario <- cf_results %>%
-    filter(scenario %in% c("baseline", "uniform") |
+    filter(scenario %in% c("baseline", "uniform_low") |
              scenario %in% c("zero_tau0.00", "zero_tau0.50", "zero_tau1.00")) %>%
     mutate(
       scenario_label = case_when(
         scenario == "baseline"      ~ "Baseline",
-        scenario == "uniform"       ~ "Uniform commission",
+        scenario == "uniform_low"   ~ "Low uniform commission",
         scenario == "zero_tau0.00"  ~ "Zero comm (tau=0)",
         scenario == "zero_tau0.50"  ~ "Zero comm (tau=0.5)",
         scenario == "zero_tau1.00"  ~ "Zero comm (tau=1)",
@@ -790,7 +798,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       theme_minimal(base_size = 12)
 
     ggsave("results/figures/cf_premium_change.png", p_prem, width = 7, height = 4)
-    cat("  Wrote results/figures/cf_premium_change.png\n")
   }
 } else {
   cat("  Skipped (no counterfactual results)\n")
@@ -880,9 +887,14 @@ if (length(lambda_hat) == 1) {
 
 add_num("nDemandParams", nrow(coefs_structural), 0)
 
-# Supply headline
+# Supply headline, at the GMM marginal cost (mc_gmm.csv, as in the supply table)
 if (nrow(supply_results) > 0) {
-  sr <- supply_results %>% filter(!is.na(mc_foc), !is.na(posted_premium))
+  sr <- supply_results %>%
+    inner_join(read_csv(file.path(TEMP_DIR, "mc_gmm.csv"), show_col_types = FALSE),
+               by = c("region", "year", "plan_id")) %>%
+    mutate(markup = posted_premium - mc_gmm,
+           lerner_index = markup / posted_premium) %>%
+    filter(!is.na(mc_foc), !is.na(posted_premium))
   add_num("meanMarkup", mean(sr$markup, na.rm = TRUE))
   add_num("meanLerner", mean(sr$lerner_index, na.rm = TRUE), 3)
   add_num("nSupplyCells", length(unique(paste(sr$region, sr$year))), 0)
@@ -898,7 +910,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 }
 
 writeLines(numbers, "results/tables/paper-numbers.tex")
-cat("  Wrote results/tables/paper-numbers.tex (", length(numbers), "commands)\n")
 
 
 cat("\n=== Paper results generation complete ===\n")

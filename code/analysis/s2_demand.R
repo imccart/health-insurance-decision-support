@@ -32,10 +32,10 @@ STRUCTURAL_SPEC <- c(
   "FPL_250to400_av", "FPL_400plus_av"
 )
 
-# Assistance terms. These enter plan choice within the insured nest only: the
-# enrollment decision uses the inclusive value without them (two-part nested
-# logit, estimate_demand.R), since assistance is observed only conditional on
-# enrolling and its effect on enrollment is not identified.
+# Assistance terms. They enter plan choice at the household's realized channel
+# and the enrollment margin through the expected inclusive value over the three
+# channel states, weighted by build3's first-stage probabilities
+# (estimate_demand.R). This list names the state add-on terms.
 STRUCTURAL_ASST <- c(
   # Channel x generosity steering (navigator, broker).
   "assisted_av", "broker_av",
@@ -115,7 +115,7 @@ estimate_demand(
   out_path        = "results/choice_coefficients_structural.csv",
   filter_assisted = -1L,  # all HH for structural
   temp_dir        = TEMP_DIR,
-  ext_exclude     = STRUCTURAL_ASST   # excluded from the enrollment inclusive value
+  ext_exclude     = STRUCTURAL_ASST   # the channel-state add-on terms
 )
 
 
@@ -146,4 +146,3 @@ if (file.exists(coefs_path)) {
   cat("  Coefficients not found.\n")
 }
 
-cat("\nStructural demand estimation complete.\n")

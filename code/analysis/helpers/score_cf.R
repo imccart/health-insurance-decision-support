@@ -42,18 +42,40 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   compute_consumer_surplus <- function(cell_data, coefs_cell, welfare_drop = character()) {
     lambda_cs <- setNames(coefs_cell$estimate, coefs_cell$term)[["lambda"]]
     if (length(welfare_drop) > 0) { cell_data <- as.data.table(copy(cell_data)); for (cn in intersect(welfare_drop, names(cell_data))) cell_data[[cn]] <- 0 }
-    # Two-part nested logit: the enrollment log-sum uses the base inclusive value
-    # I_base (assistance terms excluded); the within-nest gain from assistance,
-    # lambda (I_full - I_base), is added back so the inclusive-value surplus is
-    #   CS = (1/alpha) [ lambda (I_full - I_base) + log(exp(V_0) + exp(lambda I_base)) ],
-    # which is the ordinary log-sum when I_full = I_base.
+    # Two-part nested logit: the enrollment log-sum uses the expected inclusive
+    # value over channel states, Ibar = p0 I^0 + pN I^N + pA I^A; the realized
+    # within-nest gain, lambda (I_full - Ibar), is added back:
+    #   CS = (1/alpha) [ lambda (I_full - Ibar) + log(exp(V_0) + exp(lambda Ibar)) ],
+    # the ordinary log-sum when I_full = Ibar. Without the channel probabilities
+    # on the cells, Ibar falls back to the shop-alone I^0.
     util <- compute_utility(cell_data, coefs_cell)
+    add_N_cs <- util$add_N; add_A_cs <- util$add_A
+    # welfare_drop zeroes the interacted columns, which handles V; the state
+    # add-ons are built from the raw columns, so zero their dropped pieces here
+    if (length(welfare_drop) > 0) {
+      cmd <- setNames(coefs_cell$estimate, coefs_cell$term)
+      gd <- function(nm) if (nm %in% welfare_drop && nm %in% names(cmd)) cmd[[nm]] else 0
+      rw <- function(cn) { v <- if (cn %in% names(cell_data)) as.numeric(cell_data[[cn]]) else numeric(nrow(cell_data)); v[is.na(v)] <- 0; v }
+      add_N_cs <- add_N_cs - gd("assisted_av") * rw("av") - gd("assisted_premium") * rw("premium")
+      add_A_cs <- add_A_cs - gd("broker_av") * rw("av") - gd("broker_premium") * rw("premium") -
+                  gd("commission_broker") * rw("comm_pmpm")
+    }
     dt <- as.data.table(cell_data); dt[, V := util$V]; dt[, V_base := util$V_base]
+    dt[, aN := add_N_cs]; dt[, aA := add_A_cs]
     V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V[1]), by = household_number]
     ins_dt <- dt[plan_id != "Uninsured"]
     lse <- function(v) { m <- max(v); m + log(sum(exp(v - m))) }
-    hh_iv <- ins_dt[, .(I_full = lse(V / lambda_cs), I_base = lse(V_base / lambda_cs),
+    has_p <- all(c("p_none_hat", "p_nav_hat", "p_agent_hat") %in% names(ins_dt))
+    hh_iv <- ins_dt[, .(I_full = lse(V / lambda_cs),
+                        I_0 = lse(V_base / lambda_cs),
+                        I_N = lse((V_base + aN) / lambda_cs),
+                        I_A = lse((V_base + aA) / lambda_cs),
+                        p0 = if (has_p) first(p_none_hat) else 1,
+                        pN = if (has_p) first(p_nav_hat) else 0,
+                        pA = if (has_p) first(p_agent_hat) else 0,
                         hh_weight = first(hh_weight), hh_size = first(hh_size)), by = household_number]
+    hh_iv[is.na(p0) | is.na(pN) | is.na(pA), `:=`(p0 = 1, pN = 0, pA = 0)]
+    hh_iv[, Ibar := p0 * I_0 + pN * I_N + pA * I_A]
     # Utils-to-dollars denominator: each household's own base price sensitivity
     # (per raw household dollar; the channel premium slopes excluded). Fixed across
     # scenarios, since it does not depend on premiums or on the household's channel.
@@ -61,17 +83,17 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     hh_a  <- ins_dt[, .(alpha_base = first(alpha_base)), by = household_number]
     hh_cs <- merge(hh_iv, V0_by_hh, by = "household_number", all.x = TRUE); hh_cs[is.na(V_0), V_0 := 0]
     hh_cs <- merge(hh_cs, hh_a, by = "household_number", all.x = TRUE)
-    hh_cs[, log_D_lam := lambda_cs * I_base]
+    hh_cs[, log_D_lam := lambda_cs * Ibar]
     hh_cs[, mx := pmax(V_0, log_D_lam)]
     # per member per year (matches the objective): / hh_size, x 12 (premium is monthly)
-    hh_cs[, cs := (1 / abs(alpha_base)) * (lambda_cs * (I_full - I_base) +
+    hh_cs[, cs := (1 / abs(alpha_base)) * (lambda_cs * (I_full - Ibar) +
                                            mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
     sum(hh_cs$hh_weight * hh_cs$cs) / sum(hh_cs$hh_weight)
   }
 
-  # Scenario flags recovered from the label: endog_tau -> tau, brokers remain;
-  # defund_<f> -> reverse conversion at fraction f; zero_tau -> tau. Commissions
-  # come from the persisted commission_pmpm.
+  # Scenario flags recovered from the label: zero_tau -> tau (persisted in the
+  # rows); defund_<f> -> reverse conversion at fraction f. Commissions come
+  # from the persisted commission_pmpm.
   scen_labels <- unique(cf_cell$scenario)
 
   per <- lapply(scen_labels, function(lab) {
@@ -116,8 +138,11 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       beta_lookup <- if (exists("BETA_LOOKUP")) BETA_LOOKUP else {
         bf <- file.path(TEMP_DIR, "commission_beta.csv")
         if (file.exists(bf)) { bl <- read.csv(bf); setNames(bl$beta, paste(bl$firm, bl$year, sep = "_")) } else 0 }
+      # carriers absent from the beta table get the pooled MLR slope, the same
+      # fallback s4 and s6 use
+      beta_default <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
       enr[, beta_adm := beta_lookup[paste(sub("_.*", "", plan_id), y, sep = "_")]]
-      enr[is.na(beta_adm), beta_adm := mean(beta_lookup)]
+      enr[is.na(beta_adm), beta_adm := beta_default]
       ps_month <- enr[, sum((p - mc) * mem - (1 - beta_adm) * eta * mem_b, na.rm = TRUE)]
       ins[, sub_paid := pmin((p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor, subsidy_cf)]
       ins[is.na(sub_paid), sub_paid := 0]

@@ -14,7 +14,6 @@
 ## Output:        data/output/plan_risk_scores.csv        (insurer_prefix, metal, region, year)
 ##                data/output/plan_risk_scores_year.csv   (insurer_prefix, metal, year)
 
-cat("Loading SRRT risk scores...\n")
 srrt <- read_csv("data/input/Covered California/rate-filings-srrt/risk_score_data.csv",
                  show_col_types = FALSE, name_repair = "minimal")
 names(srrt)[1] <- "row_key"
@@ -58,4 +57,3 @@ print(plan_risk_scores %>% group_by(metal) %>%
 
 write_csv(plan_risk_scores, "data/output/plan_risk_scores.csv")
 write_csv(plan_risk_scores_year, "data/output/plan_risk_scores_year.csv")
-cat("  -> data/output/plan_risk_scores.csv, plan_risk_scores_year.csv\n")

@@ -240,7 +240,7 @@ choice_probs <- function(cell_data, coefs, lambda) {
   util <- compute_utility(cell_data, coefs)
   dt <- as.data.table(cell_data)
   dt[, .rid := .I]
-  ins <- nest_inside_rows(dt, util$V, util$V_base, lambda)
+  ins <- nest_inside_rows(dt, util$V, util$V_base, lambda, util$add_N, util$add_A)
   hh <- ins[, .(p_inside = first(s_g)), by = household_number]
   out <- merge(dt[plan_id == "Uninsured", .(.rid, household_number)], hh,
                by = "household_number", all.x = TRUE)
@@ -451,18 +451,14 @@ summarize_cf_headline <- function(cf) {
     if (nrow(m) == 0) return(NA_real_)
     mean(m[[col]] - m$obsval, na.rm = TRUE)
   }
-  taus <- c(0, 0.25, 0.5, 0.75, 1.0)
+  taus <- c(0, 0.5, 1.0)
   grad <- vapply(taus, function(t) mdelta(sprintf("zero_tau%.2f", t), "cs_nocomm"), numeric(1))
   names(grad) <- paste0("grad_cs_tau", sprintf("%.2f", taus))
-  # Endogenous-commission scenarios (endog_tau0 = baseline, not carried).
-  taus_e <- c(0.5, 1.0)
-  grad_e <- vapply(taus_e, function(t) mdelta(sprintf("endog_tau%.2f", t), "cs_nocomm"), numeric(1))
-  names(grad_e) <- paste0("grad_cs_endog_tau", sprintf("%.2f", taus_e))
   # Cost-band components per scenario (coverage share, insured composition, and the
   # uninsured-weighted OOP / baseline mortality / catastrophic pieces). sum2 rebuilds
   # the objective band from these.
-  comp_scen <- c("zero_tau0.00", "zero_tau1.00", "uniform", "aligned",
-                 "endog_tau1.00", "flat_mandate", "defund_1.00")
+  comp_scen <- c("zero_tau0.00", "zero_tau0.50", "zero_tau1.00", "uniform_low",
+                 "aligned", "flat_mandate", "defund_0.50", "endog_tau0.50")
   comp <- unlist(lapply(comp_scen, function(s)
     setNames(c(mdelta(s, "share_unins"), mdelta(s, "obj_insured"), mdelta(s, "unins_oop"),
                mdelta(s, "unins_mort"),  mdelta(s, "unins_cat")),
@@ -475,14 +471,15 @@ summarize_cf_headline <- function(cf) {
     va_obj_prem      = mdelta("zero_tau1.00", "obj_prem") - mdelta("zero_tau0.00", "obj_prem"),
     va_obj_eoop      = mdelta("zero_tau1.00", "obj_eoop") - mdelta("zero_tau0.00", "obj_eoop"),
     va_obj_risk      = mdelta("zero_tau1.00", "obj_risk") - mdelta("zero_tau0.00", "obj_risk"),
-    grad_e,
-    va_cs_endog      = unname(grad_e["grad_cs_endog_tau1.00"]),
-    va_nav_endog     = mdelta("endog_tau1.00", "cs_welfare_nav"),
-    va_obj_endog     = mdelta("endog_tau1.00", "cs_welfare_obj"),
+    uniflow_dcs      = mdelta("uniform_low", "cs_nocomm"),
+    uniflow_obj      = mdelta("uniform_low", "cs_welfare_obj"),
+    uniflow_nav      = mdelta("uniform_low", "cs_welfare_nav"),
+    uniflow_dcs_lo   = mdelta("uniform_low_k0.75", "cs_nocomm"),
+    uniflow_dcs_hi   = mdelta("uniform_low_k1.25", "cs_nocomm"),
     flatmand_dcs     = mdelta("flat_mandate", "cs_nocomm"),
     flatmand_obj     = mdelta("flat_mandate", "cs_welfare_obj"),
-    defund_dcs       = mdelta("defund_1.00", "cs_nocomm"),
-    defund_obj       = mdelta("defund_1.00", "cs_welfare_obj"),
+    defund_dcs       = mdelta("defund_0.50", "cs_nocomm"),
+    defund_obj       = mdelta("defund_0.50", "cs_welfare_obj"),
     aligned_dcs      = mdelta("aligned", "cs_nocomm"),
     aligned_dcs_comm = mdelta("aligned", "cs_weighted"),
     aligned_nav      = mdelta("aligned", "cs_welfare_nav"),

@@ -9,7 +9,6 @@
 
 # Load rate filing PUFs ---------------------------------------------------
 
-cat("Loading rate filing PUFs...\n")
 load("data/input/Covered California/2014-2020.RData")
 
 # Standardize column names across years -----------------------------------
@@ -283,4 +282,3 @@ rsdata %>%
 
 rm(rdata)
 gc(verbose = FALSE)
-cat("Rate filing processing complete.\n")

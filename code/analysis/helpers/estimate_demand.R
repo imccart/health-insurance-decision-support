@@ -1,15 +1,25 @@
 # estimate_demand.R — Pure R nested logit estimator
 #
-# Replaces Julia estimate_demand_v3.jl. Vectorized per-cell computation
-# using matrix operations and rowsum() for grouped sums.
-#
-# Two-part nested logit:
+# Two-part nested logit with an expected inclusive value over channel states
+# in the enrollment margin:
 #   - V_0 = beta'X_0 (NOT normalized to 0)
-#   - The enrollment (insured vs outside) probability uses the inclusive value of
-#     the BASE utility, which omits the terms in ext_exclude (the assistance and
-#     commission terms, observed only conditional on enrolling). Plan choice
-#     within the insured nest uses the full utility. One shared parameter
-#     vector; with ext_exclude empty this is the ordinary nested logit.
+#   - Plan choice within the insured nest uses the full utility at the
+#     household's realized channel.
+#   - The enrollment (insured vs outside) margin uses Ibar, the expectation of
+#     the inclusive value over three channel states weighted by the first-stage
+#     channel probabilities (build3's multinomial; weights, not covariates):
+#       V^0 = base utility (ext_exclude terms zeroed)
+#       V^N = base + b_assisted_av*av + b_assisted_premium*premium
+#       V^A = base + b_broker_av*av + b_broker_premium*premium
+#                  + b_commission_broker*comm_pmpm
+#       I^c = logsumexp(V^c/lambda);  Ibar = p_none I^0 + p_nav I^N + p_agent I^A
+#       P(enroll) = exp(lambda Ibar) / (exp(lambda Ibar) + exp(V_0))
+#     The channel is a circumstance drawn at predictable rates, not a choice,
+#     so Ibar averages the state inclusive values (no logsumexp over states).
+#     With p = (1,0,0) this collapses to the exclusion model; with no channel
+#     terms in the spec the states coincide and this is the ordinary nested
+#     logit (the ext_exclude path still applies when cells carry no
+#     probabilities).
 #   - Weights normalized globally to mean 1
 #   - BFGS-BHHH with analytical gradient
 #   - Cell-by-cell accumulation (never builds pooled matrix)
@@ -19,24 +29,31 @@
 #   result <- estimate_demand(cell_dir, spec_path, out_path,
 #                             ext_exclude = c("assisted_av", ...))
 
+# Channel-term roles in the state utilities, matched by name against the spec
+CH_TERMS <- c(nav_av = "assisted_av",  nav_pr = "assisted_premium",
+              brk_av = "broker_av",    brk_pr = "broker_premium",
+              comm   = "commission_broker")
+
 # =========================================================================
 # Load one cell CSV into a vectorized structure
 # =========================================================================
 #
 # Returns list with:
-#   X          — matrix (n_ins_rows x K): insured rows only
+#   X_ins      — matrix (n_ins_rows x K): insured rows only
 #   X_0        — matrix (n_hh x K): uninsured row per HH
 #   X_ch       — matrix (n_hh x K): chosen row per HH
-#   V_0_only   — not stored; computed as X_0 %*% beta
-#   n_hh       — integer
-#   hh_id      — integer vector mapping each insured row to its HH index (1..n_hh)
-#   chose_ins  — logical vector (n_hh)
-#   wt         — numeric vector (n_hh)
+#   hh_id      — integer vector mapping each insured row to its HH index
+#   chose_ins  — logical (n_hh); wt — numeric (n_hh)
+#   av_ins / prem_ins / comm_ins — raw state-utility ingredients (insured rows)
+#   p0 / pN / pA — first-stage channel probabilities per HH (NA when the cells
+#                  were built without them)
 
 load_one_cell <- function(path, covars, filter_assisted = -1L) {
+  raw_cols <- c("av", "premium", "comm_pmpm",
+                "p_none_hat", "p_nav_hat", "p_agent_hat")
   needed <- unique(c("household_number", "plan_id", "choice", "hh_weight",
                      if (filter_assisted >= 0) "assisted",
-                     covars))
+                     covars, raw_cols))
 
   # Intersect with actual columns to avoid fread crash on missing names;
   # missing covariates are filled with 0 in the X matrix below
@@ -49,13 +66,11 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
     if (nrow(df) == 0) return(NULL)
   }
 
-  # Sort by household_number, plan_id
   data.table::setorder(df, household_number, plan_id)
 
   K <- length(covars)
   n_rows <- nrow(df)
 
-  # Build full X matrix
   X_full <- matrix(0, nrow = n_rows, ncol = K)
   for (k in seq_along(covars)) {
     col_name <- covars[k]
@@ -65,17 +80,20 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
       X_full[, k] <- as.numeric(vals)
     }
   }
+  raw <- sapply(c("av", "premium", "comm_pmpm"), function(cn) {
+    v <- if (cn %in% names(df)) as.numeric(df[[cn]]) else numeric(n_rows)
+    v[is.na(v)] <- 0
+    v
+  })
+  p_cols <- c("p_none_hat", "p_nav_hat", "p_agent_hat")
+  for (cn in setdiff(p_cols, names(df))) df[, (cn) := NA_real_]
 
   plan_nm <- as.character(df$plan_id)
-  ch <- as.integer(df$choice)
   hh_num <- df$household_number
-  ipw <- as.numeric(df$hh_weight)
 
   is_unins <- plan_nm == "Uninsured"
   is_ins <- !is_unins
 
-  # Identify valid HH: must have insured rows, uninsured row, and a chosen row
-  # Use data.table for fast grouped checks
   df[, row_idx := .I]
   df[, is_unins := (plan_id == "Uninsured")]
 
@@ -86,41 +104,42 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
     unins_idx = row_idx[is_unins][1],
     chosen_idx = row_idx[choice == 1L][1],
     chose_insured = (plan_id[choice == 1L][1] != "Uninsured"),
-    weight = hh_weight[1]
+    weight = hh_weight[1],
+    p_none = p_none_hat[1], p_nav = p_nav_hat[1], p_agent = p_agent_hat[1]
   ), by = household_number]
 
   valid_hh <- hh_summary[has_ins == TRUE & has_unins == TRUE & has_choice == TRUE]
   n_hh <- nrow(valid_hh)
   if (n_hh == 0) return(NULL)
 
-  # Map valid HH to sequential indices
   valid_hh[, hh_idx := .I]
   valid_hh_set <- valid_hh$household_number
 
-  # Build insured-row subset with HH index mapping
   ins_mask <- is_ins & (hh_num %in% valid_hh_set)
   X_ins <- X_full[ins_mask, , drop = FALSE]
 
-  # Map each insured row to its HH index
   ins_hh_nums <- hh_num[ins_mask]
   hh_lookup <- valid_hh$hh_idx
   names(hh_lookup) <- as.character(valid_hh$household_number)
   hh_id <- as.integer(hh_lookup[as.character(ins_hh_nums)])
 
-  # X_0: uninsured row for each valid HH
-  X_0 <- X_full[valid_hh$unins_idx, , drop = FALSE]
-
-  # X_ch: chosen row for each valid HH
+  X_0  <- X_full[valid_hh$unins_idx, , drop = FALSE]
   X_ch <- X_full[valid_hh$chosen_idx, , drop = FALSE]
 
   list(
-    X_ins     = X_ins,             # (n_ins_rows x K)
-    X_0       = X_0,               # (n_hh x K)
-    X_ch      = X_ch,              # (n_hh x K)
-    hh_id     = hh_id,             # integer vector, length = n_ins_rows
+    X_ins     = X_ins,
+    X_0       = X_0,
+    X_ch      = X_ch,
+    hh_id     = hh_id,
     n_hh      = n_hh,
-    chose_ins = valid_hh$chose_insured,  # logical (n_hh)
-    wt        = valid_hh$weight          # numeric (n_hh)
+    chose_ins = valid_hh$chose_insured,
+    wt        = valid_hh$weight,
+    av_ins    = raw[ins_mask, "av"],
+    prem_ins  = raw[ins_mask, "premium"],
+    comm_ins  = raw[ins_mask, "comm_pmpm"],
+    p0        = valid_hh$p_none,
+    pN        = valid_hh$p_nav,
+    pA        = valid_hh$p_agent
   )
 }
 
@@ -174,24 +193,56 @@ normalize_weights <- function(cells) {
 
 
 # =========================================================================
+# Per-cell setup: exclusion indices, channel-term indices, state usage
+# =========================================================================
+# Shared by estimate_demand and s5_se.R so the likelihood and the sandwich
+# always run the same model. use_states = TRUE requires the first-stage
+# probabilities on every cell.
+
+prepare_cells <- function(cells, covars, ext_exclude) {
+  excl_idx <- match(ext_exclude, covars)
+  excl_idx <- excl_idx[!is.na(excl_idx)]
+  ch_idx <- match(CH_TERMS, covars)
+  names(ch_idx) <- names(CH_TERMS)
+
+  has_channel <- !anyNA(ch_idx)
+  has_p <- all(vapply(cells, function(cl)
+    !anyNA(cl$p0) && !anyNA(cl$pN) && !anyNA(cl$pA), logical(1)))
+  use_states <- has_channel && length(excl_idx) > 0
+  if (use_states && !has_p)
+    stop("Spec has channel terms but the cells carry no channel probabilities; ",
+         "rerun build3_data-prep.R (first stage) and rebuild the cells.")
+
+  for (ci in seq_along(cells)) {
+    cells[[ci]]$excl_idx <- excl_idx
+    cells[[ci]]$ch_idx <- ch_idx
+    cells[[ci]]$use_states <- use_states
+  }
+  cat("  Enrollment margin:",
+      if (use_states) "expected IV over channel states"
+      else if (length(excl_idx) > 0) "base IV (excluded terms zeroed)"
+      else "ordinary nested logit", "\n")
+  cells
+}
+
+
+# =========================================================================
 # NLL + gradient for one cell (VECTORIZED)
 # =========================================================================
 #
-# No per-HH R loop for the sums. Uses rowsum() for grouped sums over insured
-# rows. cell$excl_idx holds the column indices of the terms excluded from the
-# enrollment inclusive value (empty for the ordinary nested logit).
-#
-# Per household h with inclusive values I_full (full utility) and I_base (base
-# utility, excluded terms zeroed):
-#   P_ins        = exp(lambda I_base) / (exp(lambda I_base) + exp(V_0))
-#   ll (insured) = V_ch/lambda - I_full + lambda I_base - log_denom
+# Per household h:
+#   P_ins        = exp(lambda Ibar) / (exp(lambda Ibar) + exp(V_0))
+#   ll (insured) = V_ch/lambda - I_full + lambda Ibar - log_denom
 #   ll (outside) = V_0 - log_denom
-# Gradients (x_bar_f = within-nest mean of X under full shares, x_bar_b the same
-# under base shares with the excluded columns zeroed, V_bar likewise):
-#   beta, insured:  (X_ch - x_bar_f)/lambda + (1 - P_ins)(x_bar_b - X_0)
-#   beta, outside:  -P_ins (x_bar_b - X_0)
-#   lambda, insured: -V_ch/lambda^2 + V_bar_f/lambda^2 + (1 - P_ins)(I_base - V_bar_b/lambda)
-#   lambda, outside: -P_ins (I_base - V_bar_b/lambda)
+# Gradients (x_bar_c = within-nest mean of the STATE design matrix under the
+# state-c shares; xbar_bar and Vbar_bar the probability-weighted averages; in
+# the single-state path xbar_bar is the base-share mean with excluded columns
+# zeroed):
+#   beta, insured:  (X_ch - x_bar_f)/lambda + (1 - P_ins)(xbar_bar - X_0)
+#   beta, outside:  -P_ins (xbar_bar - X_0)
+#   lambda, insured: -V_ch/lambda^2 + V_bar_f/lambda^2
+#                    + (1 - P_ins)(Ibar - Vbar_bar/lambda)
+#   lambda, outside: -P_ins (Ibar - Vbar_bar/lambda)
 
 hh_max <- function(v, hh_id, n_hh) {
   m <- rep(-Inf, n_hh)
@@ -202,10 +253,20 @@ hh_max <- function(v, hh_id, n_hh) {
   m
 }
 
+# logsumexp of V/lambda by household; returns inclusive value + shares
+nest_iv <- function(V, lambda, hh_id, n_hh) {
+  Vs <- V / lambda
+  mx <- hh_max(Vs, hh_id, n_hh)
+  ev <- exp(Vs - mx[hh_id])
+  D  <- as.numeric(rowsum(ev, hh_id, reorder = FALSE))
+  list(I = mx + log(D), s = ev / D[hh_id])
+}
+
 cell_ll_pieces <- function(beta, lambda, cell) {
   n_hh <- cell$n_hh
   hh_id <- cell$hh_id
   excl <- cell$excl_idx
+  ch <- cell$ch_idx
 
   V_ins <- as.numeric(cell$X_ins %*% beta)
   V_0   <- as.numeric(cell$X_0 %*% beta)
@@ -213,63 +274,88 @@ cell_ll_pieces <- function(beta, lambda, cell) {
   V_base <- if (length(excl) > 0)
     V_ins - as.numeric(cell$X_ins[, excl, drop = FALSE] %*% beta[excl]) else V_ins
 
-  # Full-utility nest: inclusive value and within-nest shares
-  Vs <- V_ins / lambda
-  mx <- hh_max(Vs, hh_id, n_hh)
-  ev <- exp(Vs - mx[hh_id])
-  D  <- as.numeric(rowsum(ev, hh_id, reorder = FALSE))
-  I_full <- mx + log(D)
-  s_f <- ev / D[hh_id]
+  # Full-utility nest (realized channel): plan choice within the nest
+  full <- nest_iv(V_ins, lambda, hh_id, n_hh)
 
-  # Base-utility nest (drives the enrollment margin)
-  if (length(excl) > 0) {
-    Vbs <- V_base / lambda
-    mxb <- hh_max(Vbs, hh_id, n_hh)
-    evb <- exp(Vbs - mxb[hh_id])
-    Db  <- as.numeric(rowsum(evb, hh_id, reorder = FALSE))
-    I_base <- mxb + log(Db)
-    s_b <- evb / Db[hh_id]
+  if (isTRUE(cell$use_states)) {
+    add_N <- beta[ch["nav_av"]] * cell$av_ins + beta[ch["nav_pr"]] * cell$prem_ins
+    add_A <- beta[ch["brk_av"]] * cell$av_ins + beta[ch["brk_pr"]] * cell$prem_ins +
+             beta[ch["comm"]] * cell$comm_ins
+    st0 <- nest_iv(V_base, lambda, hh_id, n_hh)
+    stN <- nest_iv(V_base + add_N, lambda, hh_id, n_hh)
+    stA <- nest_iv(V_base + add_A, lambda, hh_id, n_hh)
+    Ibar <- cell$p0 * st0$I + cell$pN * stN$I + cell$pA * stA$I
+    s_0 <- st0$s; s_N <- stN$s; s_A <- stA$s
+  } else if (length(excl) > 0) {
+    stb <- nest_iv(V_base, lambda, hh_id, n_hh)
+    Ibar <- stb$I
+    s_0 <- stb$s; s_N <- NULL; s_A <- NULL
+    add_N <- NULL; add_A <- NULL
   } else {
-    I_base <- I_full
-    s_b <- s_f
+    Ibar <- full$I
+    s_0 <- full$s; s_N <- NULL; s_A <- NULL
+    add_N <- NULL; add_A <- NULL
   }
 
-  lI <- lambda * I_base
+  lI <- lambda * Ibar
   mx_d <- pmax(lI, V_0)
   log_denom <- mx_d + log(exp(lI - mx_d) + exp(V_0 - mx_d))
   P_ins <- exp(lI - log_denom)
 
-  ll_ins <- V_ch / lambda - I_full + lI - log_denom
+  ll_ins <- V_ch / lambda - full$I + lI - log_denom
   ll_unins <- V_0 - log_denom
   ll_h <- ifelse(cell$chose_ins, ll_ins, ll_unins)
 
-  list(V_ins = V_ins, V_base = V_base, V_ch = V_ch, s_f = s_f, s_b = s_b,
-       I_full = I_full, I_base = I_base, P_ins = P_ins, ll_h = ll_h)
+  list(V_ins = V_ins, V_base = V_base, V_ch = V_ch,
+       add_N = add_N, add_A = add_A,
+       s_f = full$s, s_0 = s_0, s_N = s_N, s_A = s_A,
+       I_full = full$I, Ibar = Ibar, P_ins = P_ins, ll_h = ll_h)
 }
 
 cell_grad_pieces <- function(beta, lambda, cell, pc) {
   hh_id <- cell$hh_id
   excl <- cell$excl_idx
+  ch <- cell$ch_idx
   P_ins <- pc$P_ins
 
   x_bar_f <- rowsum(pc$s_f * cell$X_ins, hh_id, reorder = FALSE)
   V_bar_f <- as.numeric(rowsum(pc$s_f * pc$V_ins, hh_id, reorder = FALSE))
-  if (length(excl) > 0) {
-    x_bar_b <- rowsum(pc$s_b * cell$X_ins, hh_id, reorder = FALSE)
-    x_bar_b[, excl] <- 0
-    V_bar_b <- as.numeric(rowsum(pc$s_b * pc$V_base, hh_id, reorder = FALSE))
+
+  if (isTRUE(cell$use_states)) {
+    # State design-matrix means: channel columns carry the state's own values
+    xb0 <- rowsum(pc$s_0 * cell$X_ins, hh_id, reorder = FALSE)
+    xb0[, excl] <- 0
+    xbN <- rowsum(pc$s_N * cell$X_ins, hh_id, reorder = FALSE)
+    xbN[, excl] <- 0
+    xbN[, ch["nav_av"]] <- rowsum(pc$s_N * cell$av_ins, hh_id, reorder = FALSE)
+    xbN[, ch["nav_pr"]] <- rowsum(pc$s_N * cell$prem_ins, hh_id, reorder = FALSE)
+    xbA <- rowsum(pc$s_A * cell$X_ins, hh_id, reorder = FALSE)
+    xbA[, excl] <- 0
+    xbA[, ch["brk_av"]] <- rowsum(pc$s_A * cell$av_ins, hh_id, reorder = FALSE)
+    xbA[, ch["brk_pr"]] <- rowsum(pc$s_A * cell$prem_ins, hh_id, reorder = FALSE)
+    xbA[, ch["comm"]]   <- rowsum(pc$s_A * cell$comm_ins, hh_id, reorder = FALSE)
+    xbar_bar <- cell$p0 * xb0 + cell$pN * xbN + cell$pA * xbA
+
+    Vb0 <- as.numeric(rowsum(pc$s_0 * pc$V_base, hh_id, reorder = FALSE))
+    VbN <- as.numeric(rowsum(pc$s_N * (pc$V_base + pc$add_N), hh_id, reorder = FALSE))
+    VbA <- as.numeric(rowsum(pc$s_A * (pc$V_base + pc$add_A), hh_id, reorder = FALSE))
+    Vbar_bar <- cell$p0 * Vb0 + cell$pN * VbN + cell$pA * VbA
+  } else if (length(excl) > 0) {
+    xbar_bar <- rowsum(pc$s_0 * cell$X_ins, hh_id, reorder = FALSE)
+    xbar_bar[, excl] <- 0
+    Vbar_bar <- as.numeric(rowsum(pc$s_0 * pc$V_base, hh_id, reorder = FALSE))
   } else {
-    x_bar_b <- x_bar_f
-    V_bar_b <- V_bar_f
+    xbar_bar <- x_bar_f
+    Vbar_bar <- V_bar_f
   }
 
-  diff_xbar_x0 <- x_bar_b - cell$X_0
+  diff_xbar_x0 <- xbar_bar - cell$X_0
   g_beta_ins <- (cell$X_ch - x_bar_f) / lambda + (1 - P_ins) * diff_xbar_x0
   g_beta_unins <- -P_ins * diff_xbar_x0
   g_beta_h <- ifelse(cell$chose_ins, 1, 0) * g_beta_ins +
               ifelse(!cell$chose_ins, 1, 0) * g_beta_unins
 
-  IV_ratio <- pc$I_base - V_bar_b / lambda
+  IV_ratio <- pc$Ibar - Vbar_bar / lambda
   g_lam_ins <- -pc$V_ch / lambda^2 + V_bar_f / lambda^2 + (1 - P_ins) * IV_ratio
   g_lam_unins <- -P_ins * IV_ratio
   g_lam_h <- ifelse(cell$chose_ins, g_lam_ins, g_lam_unins)
@@ -449,20 +535,14 @@ estimate_demand <- function(cell_dir, spec_path, out_path,
   K <- length(covars)
   cat("  Covariates:", K, "terms\n")
 
-  # Terms excluded from the enrollment inclusive value (two-part nested logit)
-  excl_idx <- match(ext_exclude, covars)
-  excl_idx <- excl_idx[!is.na(excl_idx)]
-  cat("  Excluded from the enrollment margin:", length(excl_idx), "terms",
-      if (length(excl_idx) > 0) paste0("(", paste(covars[excl_idx], collapse = ", "), ")") else "", "\n")
-
   # Load cells
   loaded <- load_all_cells(cell_dir, covars, filter_assisted)
   cells <- loaded$cells
   rm(loaded)
-  for (ci in seq_along(cells)) cells[[ci]]$excl_idx <- excl_idx
 
-  # Normalize weights
+  # Normalize weights, set state/exclusion structure
   cells <- normalize_weights(cells)
+  cells <- prepare_cells(cells, covars, ext_exclude)
 
   # Run BFGS-BHHH from zeros + lambda=1
   cat("\n  Starting BFGS-BHHH from zeros + lambda=1...\n")
@@ -485,7 +565,6 @@ estimate_demand <- function(cell_dir, spec_path, out_path,
   coefs <- data.frame(term = c(covars, "lambda"),
                       estimate = theta_opt)
   write.csv(coefs, out_path, row.names = FALSE)
-  cat("  ->", out_path, "\n")
 
   invisible(coefs)
 }

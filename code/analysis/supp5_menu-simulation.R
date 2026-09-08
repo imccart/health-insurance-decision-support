@@ -84,7 +84,6 @@ for (k in ord) {
 }
 lines <- c(lines, "\\hline\\hline", "\\end{tabular}")
 writeLines(lines, "results/tables/menu_simulation.tex")
-cat("  -> results/tables/menu_simulation.tex\n")
 
 # =========================================================================
 # Part 2. The equivalence under patient and agent selection
@@ -158,4 +157,3 @@ for (nm in c("aligned", "orthogonal")) {
 }
 lines <- c(lines, "\\hline\\hline", "\\end{tabular}")
 writeLines(lines, "results/tables/gatekeeper_selection.tex")
-cat("  -> results/tables/gatekeeper_selection.tex\n")

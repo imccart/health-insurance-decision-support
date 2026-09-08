@@ -235,7 +235,8 @@ build_structural <- function(plans, hhs, sample_frac,
                  "perc_black", "perc_hispanic", "perc_asian",
                  "perc_other", "perc_male", "channel",
                  "csr94_elig", "csr87_elig")
-  for (extra in c("v_hat", "channel_detail", "any_agent", "p_nav", "new_enrollee")) {
+  for (extra in c("v_hat", "channel_detail", "any_agent", "p_nav", "new_enrollee",
+                  "p_none_hat", "p_nav_hat", "p_agent_hat")) {
     if (extra %in% names(hhs_dt)) demo_cols <- c(demo_cols, extra)
   }
   hh_demo <- hhs_dt[, ..demo_cols]
@@ -425,9 +426,12 @@ build_structural <- function(plans, hhs, sample_frac,
 #
 # Compute V_ij for each HH-plan pair using estimated demand coefficients.
 # Handles adaptive covariates (checks which terms exist in coefs_cell).
-# Returns the full utility V and the base utility V_base, which omits the
-# assistance terms (extensive_exclude_terms): V_base drives the enrollment
-# decision, V the plan choice within the insured nest.
+# Returns the full utility V (realized channel), the base utility V_base
+# (assistance terms omitted, extensive_exclude_terms), and the channel-state
+# add-ons add_N / add_A built from the raw av / premium / comm_pmpm columns:
+# V^N = V_base + add_N, V^A = V_base + add_A. The enrollment margin uses the
+# expectation of the state inclusive values weighted by the first-stage
+# channel probabilities (add_nest_probs); plan choice within the nest uses V.
 
 compute_utility <- function(cell_data, coefs_cell) {
 
@@ -448,7 +452,20 @@ compute_utility <- function(cell_data, coefs_cell) {
     }
   }
 
-  list(V = V, V_base = V - V_excl, lambda = lambda)
+  # Channel-state add-ons from the raw columns (zero on the outside row, where
+  # av, premium, and comm_pmpm are all zero)
+  gc0 <- function(nm) if (nm %in% names(coef_map)) coef_map[[nm]] else 0
+  raw0 <- function(cn) {
+    v <- if (cn %in% names(cell_data)) as.numeric(cell_data[[cn]]) else numeric(nrow(cell_data))
+    v[is.na(v)] <- 0
+    v
+  }
+  av_r <- raw0("av"); prem_r <- raw0("premium"); comm_r <- raw0("comm_pmpm")
+  add_N <- gc0("assisted_av") * av_r + gc0("assisted_premium") * prem_r
+  add_A <- gc0("broker_av") * av_r + gc0("broker_premium") * prem_r +
+           gc0("commission_broker") * comm_r
+
+  list(V = V, V_base = V - V_excl, lambda = lambda, add_N = add_N, add_A = add_A)
 }
 
 
@@ -503,13 +520,18 @@ compute_alpha_i <- function(cell_data, coefs, spec = NULL, base = FALSE) {
 # Nested-logit probabilities for one cell, two-part form. Expects a data.table
 # of INSIDE rows with columns V (full utility), V_base (utility without the
 # assistance terms), V_0 (the household's outside-option utility), lambda_i, and
-# household_number. Adds in place:
+# household_number. When the state add-ons (add_N, add_A) and the first-stage
+# channel probabilities (p_none_hat, p_nav_hat, p_agent_hat) are present, the
+# enrollment margin uses the expected inclusive value over the three channel
+# states; otherwise it uses the base inclusive value. Adds in place:
 #   s_jg    conditional share within the insured nest, from V
-#   s_jg_b  conditional share from V_base (the enrollment-margin weights)
-#   s_g     P(insured) = exp(lambda I_base) / (exp(lambda I_base) + exp(V_0)),
-#           with I_base the inclusive value of V_base
+#   s_jg_0 / s_jg_N / s_jg_A   conditional shares under each channel state
+#   s_jg_b  the probability-weighted state share (base-state share when the
+#           state machinery is absent) — the enrollment-margin weights
+#   s_g     P(insured) = exp(lambda Ibar) / (exp(lambda Ibar) + exp(V_0)),
+#           Ibar = p_none I^0 + p_nav I^N + p_agent I^A (or I_base)
 #   q_j     s_jg * s_g
-# With V_base == V this is the ordinary nested logit.
+# With V_base == V and no states this is the ordinary nested logit.
 
 add_nest_probs <- function(ins_dt) {
   ins_dt[, V_scaled := V / lambda_i]
@@ -518,12 +540,47 @@ add_nest_probs <- function(ins_dt) {
   ins_dt[, sum_exp_V := sum(exp_V), by = household_number]
   ins_dt[, s_jg := exp_V / sum_exp_V]
 
-  ins_dt[, Vb_scaled := V_base / lambda_i]
-  ins_dt[, max_Vb_scaled := max(Vb_scaled), by = household_number]
-  ins_dt[, exp_Vb := exp(Vb_scaled - max_Vb_scaled)]
-  ins_dt[, sum_exp_Vb := sum(exp_Vb), by = household_number]
-  ins_dt[, s_jg_b := exp_Vb / sum_exp_Vb]
-  ins_dt[, log_D := max_Vb_scaled + log(sum_exp_Vb)]
+  use_states <- all(c("add_N", "add_A", "p_none_hat", "p_nav_hat",
+                      "p_agent_hat") %in% names(ins_dt)) &&
+    !anyNA(ins_dt$p_none_hat) && !anyNA(ins_dt$p_nav_hat) &&
+    !anyNA(ins_dt$p_agent_hat)
+
+  if (use_states) {
+    # State 0 (shop alone)
+    ins_dt[, Vb_scaled := V_base / lambda_i]
+    ins_dt[, max_Vb_scaled := max(Vb_scaled), by = household_number]
+    ins_dt[, exp_Vb := exp(Vb_scaled - max_Vb_scaled)]
+    ins_dt[, sum_exp_Vb := sum(exp_Vb), by = household_number]
+    ins_dt[, s_jg_0 := exp_Vb / sum_exp_Vb]
+    ins_dt[, log_D0 := max_Vb_scaled + log(sum_exp_Vb)]
+    # Navigator state
+    ins_dt[, Vb_scaled := (V_base + add_N) / lambda_i]
+    ins_dt[, max_Vb_scaled := max(Vb_scaled), by = household_number]
+    ins_dt[, exp_Vb := exp(Vb_scaled - max_Vb_scaled)]
+    ins_dt[, sum_exp_Vb := sum(exp_Vb), by = household_number]
+    ins_dt[, s_jg_N := exp_Vb / sum_exp_Vb]
+    ins_dt[, log_DN := max_Vb_scaled + log(sum_exp_Vb)]
+    # Agent state
+    ins_dt[, Vb_scaled := (V_base + add_A) / lambda_i]
+    ins_dt[, max_Vb_scaled := max(Vb_scaled), by = household_number]
+    ins_dt[, exp_Vb := exp(Vb_scaled - max_Vb_scaled)]
+    ins_dt[, sum_exp_Vb := sum(exp_Vb), by = household_number]
+    ins_dt[, s_jg_A := exp_Vb / sum_exp_Vb]
+    ins_dt[, log_DA := max_Vb_scaled + log(sum_exp_Vb)]
+
+    ins_dt[, s_jg_b := p_none_hat * s_jg_0 + p_nav_hat * s_jg_N + p_agent_hat * s_jg_A]
+    ins_dt[, log_D := p_none_hat * log_D0 + p_nav_hat * log_DN + p_agent_hat * log_DA]
+    # State inclusive values retained (iv_*) for re-scoring at deviated
+    # channel terms (s6 recomputes the agent state at each commission scale)
+    setnames(ins_dt, c("log_D0", "log_DN", "log_DA"), c("iv_0", "iv_N", "iv_A"))
+  } else {
+    ins_dt[, Vb_scaled := V_base / lambda_i]
+    ins_dt[, max_Vb_scaled := max(Vb_scaled), by = household_number]
+    ins_dt[, exp_Vb := exp(Vb_scaled - max_Vb_scaled)]
+    ins_dt[, sum_exp_Vb := sum(exp_Vb), by = household_number]
+    ins_dt[, s_jg_b := exp_Vb / sum_exp_Vb]
+    ins_dt[, log_D := max_Vb_scaled + log(sum_exp_Vb)]
+  }
 
   ins_dt[, log_D_lam := lambda_i * log_D]
   ins_dt[, mx := pmax(log_D_lam, V_0)]
@@ -535,11 +592,15 @@ add_nest_probs <- function(ins_dt) {
   invisible(ins_dt)
 }
 
-# Inside rows with V, V_base, V_0, lambda_i attached (shared setup for the kernels)
-nest_inside_rows <- function(cell_data, V, V_base, lambda) {
+# Inside rows with V, V_base, V_0, lambda_i (and, when supplied, the state
+# add-ons) attached — shared setup for the kernels
+nest_inside_rows <- function(cell_data, V, V_base, lambda,
+                             add_N = NULL, add_A = NULL) {
   dt <- as.data.table(cell_data)
   dt[, V := V]
   dt[, V_base := if (is.null(V_base)) V else V_base]
+  if (!is.null(add_N)) dt[, add_N := add_N]
+  if (!is.null(add_A)) dt[, add_A := add_A]
   V0_by_hh <- dt[plan_id == "Uninsured", .(V_0 = V), by = household_number]
   ins_dt <- dt[plan_id != "Uninsured"]
   ins_dt <- merge(ins_dt, V0_by_hh, by = "household_number", all.x = TRUE)
@@ -555,18 +616,21 @@ nest_inside_rows <- function(cell_data, V, V_base, lambda) {
 # Compute market shares and J x J derivative matrix dshare_j/dposted_l.
 #
 # Two-part nested logit: q_j = s_jg * s_g with s_jg from the full utility and
-# s_g from the base inclusive value (add_nest_probs). A posted-premium change
-# on plan l moves both utilities, through alpha_i (full slope, with the channel
-# premium interactions) on the within-nest part and alpha_b (base slope) on the
-# enrollment part:
+# s_g from the expected inclusive value over channel states (add_nest_probs).
+# A posted-premium change on plan l moves the within-nest part through alpha_i
+# (full slope, with the channel premium interactions) and the enrollment part
+# through each state's own slope and shares:
 #
-#   dq_j/dV_l = q_j [ alpha_i (1{j=l} - s_lg)/lambda + alpha_b (1 - s_g) s_lg_b ]
+#   dq_j/dV_l = q_j [ alpha_i (1{j=l} - s_lg)/lambda
+#                     + (1 - s_g) sum_c p_c alpha_c s_lg_c ]
 #
-# which collapses to the ordinary q_j [1{j=l}/lambda + ((lambda-1)/lambda) s_lg
-# - q_l] alpha when V_base = V. Chain rule from V to the posted premium (raw
-# $/month): alpha (from compute_alpha_i) carries the /hh_size and $100->$1
-# conversion, rf_i = rating_factor/RATING_FACTOR_AGE40 is the age-rating
-# pass-through.
+# with alpha_0 = alpha_b (base slope), alpha_N = alpha_b + b_assisted_premium
+# and alpha_A = alpha_b + b_broker_premium (per-dollar), and s_lg_c the state-c
+# within-nest share. Without the state machinery the sum collapses to
+# alpha_b (1 - s_g) s_lg_b, and with V_base = V to the ordinary nested logit.
+# Chain rule from V to the posted premium (raw $/month): alpha (from
+# compute_alpha_i) carries the /hh_size and $100->$1 conversion,
+# rf_i = rating_factor/RATING_FACTOR_AGE40 is the age-rating pass-through.
 #
 # Net premium is floored at zero (premium less subsidy, never negative), so a
 # household whose subsidy covers the plan does not respond to a small premium
@@ -592,11 +656,13 @@ nest_inside_rows <- function(cell_data, V, V_base, lambda) {
 
 compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan,
                                              plans_cell, coefs_cell, spec = NULL,
-                                             V_base = NULL, channel_filter = NULL) {
+                                             V_base = NULL, channel_filter = NULL,
+                                             add_N = NULL, add_A = NULL) {
 
-  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda)
+  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda, add_N, add_A)
   plan_ids <- sort(unique(ins_dt$plan_id))
   J <- length(plan_ids)
+  use_states <- all(c("s_jg_0", "s_jg_N", "s_jg_A") %in% names(ins_dt))
 
   # HH-level price sensitivity: full slope and enrollment-margin (base) slope
   if (!("alpha_i" %in% names(ins_dt))) {
@@ -604,6 +670,13 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
     ins_dt[, alpha_b := compute_alpha_i(ins_dt, coefs_cell, spec, base = TRUE)]
   } else if (!("alpha_b" %in% names(ins_dt))) {
     ins_dt[, alpha_b := alpha_i]
+  }
+  if (use_states) {
+    # State premium slopes: base plus the channel's own slope, per raw dollar
+    cm_se <- setNames(coefs_cell$estimate, coefs_cell$term)
+    gse <- function(nm) if (nm %in% names(cm_se)) cm_se[[nm]] else 0
+    ins_dt[, alpha_N := alpha_b + gse("assisted_premium") / hh_size / 100]
+    ins_dt[, alpha_A := alpha_b + gse("broker_premium") / hh_size / 100]
   }
   ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
 
@@ -643,26 +716,51 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
     l <- plan_ids[l_idx]
     is_benchmark <- (!is.na(benchmark_plan) && l == benchmark_plan)
 
-    l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg, s_lg_b = s_jg_b, m_l = kink_m)]
+    if (use_states) {
+      l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg,
+                                       s_lg_0 = s_jg_0, s_lg_N = s_jg_N,
+                                       s_lg_A = s_jg_A, m_l = kink_m)]
+    } else {
+      l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg,
+                                       s_lg_b = s_jg_b, m_l = kink_m)]
+    }
     merged <- merge(ins_dt, l_info, by = "household_number", all.x = TRUE)
     merged[is.na(s_lg), s_lg := 0]
-    merged[is.na(s_lg_b), s_lg_b := 0]
     merged[is.na(m_l), m_l := 0]
 
     merged[, own_l := as.numeric(plan_id == l)]
+    # Enrollment-margin term for plan l: each state's slope times its share of
+    # l, probability-weighted (single base state when the states are absent)
+    if (use_states) {
+      for (cn in c("s_lg_0", "s_lg_N", "s_lg_A")) merged[is.na(get(cn)), (cn) := 0]
+      merged[, enr_l := p_none_hat * alpha_b * s_lg_0 + p_nav_hat * alpha_N * s_lg_N +
+                        p_agent_hat * alpha_A * s_lg_A]
+    } else {
+      merged[is.na(s_lg_b), s_lg_b := 0]
+      merged[, enr_l := alpha_b * s_lg_b]
+    }
     # Non-benchmark (and, in the benchmark column, unsubsidized households and
     # households whose subsidy is clipped at zero): only V_l moves, and only on
     # rows not at the floor.
     merged[, dq_dposted := q_j * rf_i * m_l *
-             (alpha_i * (own_l - s_lg) / lambda_i + alpha_b * (1 - s_g) * s_lg_b)]
+             (alpha_i * (own_l - s_lg) / lambda_i + (1 - s_g) * enr_l)]
     if (is_benchmark) {
       # Subsidized households with an interior subsidy: V_l fixed, every other
       # V_k not at the floor falls by rf_i
-      merged[, `:=`(S_f = sum(kink_m * s_jg * (1 - own_l)),
-                    S_b = sum(kink_m * s_jg_b * (1 - own_l))), by = household_number]
+      merged[, S_f := sum(kink_m * s_jg * (1 - own_l)), by = household_number]
+      if (use_states) {
+        merged[, `:=`(S_0 = sum(kink_m * s_jg_0 * (1 - own_l)),
+                      S_N = sum(kink_m * s_jg_N * (1 - own_l)),
+                      S_A = sum(kink_m * s_jg_A * (1 - own_l))), by = household_number]
+        merged[, enr_S := p_none_hat * alpha_b * S_0 + p_nav_hat * alpha_N * S_N +
+                          p_agent_hat * alpha_A * S_A]
+      } else {
+        merged[, S_b := sum(kink_m * s_jg_b * (1 - own_l)), by = household_number]
+        merged[, enr_S := alpha_b * S_b]
+      }
       merged[subsidized == 1L & sub_interior == 1,
              dq_dposted := -q_j * rf_i *
-               (alpha_i * (kink_m * (1 - own_l) - S_f) / lambda_i + alpha_b * (1 - s_g) * S_b)]
+               (alpha_i * (kink_m * (1 - own_l) - S_f) / lambda_i + (1 - s_g) * enr_S)]
     }
 
     contrib <- merged[, .(elast = sum(hh_weight * dq_dposted) / total_weight), by = plan_id]
@@ -689,10 +787,12 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
                                                     benchmark_plan, plans_cell,
                                                     coefs_cell, spec = NULL,
-                                                    V_base = NULL) {
+                                                    V_base = NULL,
+                                                    add_N = NULL, add_A = NULL) {
   res <- compute_shares_and_elasticities(cell_data, V, lambda, benchmark_plan,
                                          plans_cell, coefs_cell, spec = spec,
-                                         V_base = V_base, channel_filter = "broker")
+                                         V_base = V_base, channel_filter = "broker",
+                                         add_N = add_N, add_A = add_A)
   list(broker_shares = res$shares, broker_elast_mat = res$elast_mat, plan_ids = res$plan_ids)
 }
 
@@ -701,21 +801,28 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
 #
 # D[j,k] = d qB_j / d eta_k over broker-channel households (share units per $
 # of commission PMPM, normalized by TOTAL cell weight); qB = broker enrollment
-# in the same share units. The commission term enters the within-nest utility
-# only (it is excluded from the enrollment inclusive value), so the derivative
-# has no extensive-margin part:
+# in the same share units. Two parts. Within the nest, the commission moves the
+# realized-channel utility of broker households:
 #
-#   D[j,k] = beta_comm * sum_{i in broker} w_i q_ij (1{j=k} - s_ik|g) / lambda_i / W_total
+#   beta_comm * sum_{i in broker} w_i q_ij (1{j=k} - s_ik|g) / lambda_i / W_total
+#
+# And through the agent state's inclusive value, the commission moves the
+# enrollment margin (the expected-IV term; p_agent-weighted, present when the
+# cells carry the channel probabilities):
+#
+#   + beta_comm * sum_{i in broker} w_i q_ij (1 - s_gi) p_agent_i s_ik_A / W_total
 #
 # No alpha_i, no rating factor, and no benchmark 4-case logic (commissions do
 # not touch the subsidy). Used by the CF commission FOC (helpers/cf_cell.R):
 # [D %*% w_f]_j is d qB_j / d k_f with NO transpose, rows respond, columns move.
 
-compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell, V_base = NULL) {
+compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
+                                           V_base = NULL, add_N = NULL, add_A = NULL) {
 
-  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda)
+  ins_dt <- nest_inside_rows(cell_data, V, V_base, lambda, add_N, add_A)
   plan_ids <- sort(unique(ins_dt$plan_id))
   J <- length(plan_ids)
+  use_states <- all(c("s_jg_A", "p_agent_hat") %in% names(ins_dt))
 
   coef_map <- setNames(coefs_cell$estimate, coefs_cell$term)
   beta_comm <- if ("commission_broker" %in% names(coef_map)) coef_map[["commission_broker"]] else 0
@@ -740,6 +847,16 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell, V_b
   lam <- ins_dt[, .(lam = first(lambda_i)), by = household_number][order(household_number), lam]
 
   D <- beta_comm * (diag(colSums(Wq_m / lam), nrow = J) - crossprod(Wq_m / lam, Sm_m)) / total_weight
+
+  if (use_states) {
+    # Enrollment-margin part: q_ij (1 - s_g) p_agent s_ik_A per household
+    ins_dt[, wq2 := hh_weight * q_j * (1 - s_g) * p_agent_hat]
+    Wq2_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
+                             value.var = "wq2", fill = 0)[, ..plan_ids])
+    SA_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
+                            value.var = "s_jg_A", fill = 0)[, ..plan_ids])
+    D <- D + beta_comm * crossprod(Wq2_m, SA_m) / total_weight
+  }
   dimnames(D) <- list(plan_ids, plan_ids)
 
   qB <- setNames(colSums(Wq_m) / total_weight, plan_ids)

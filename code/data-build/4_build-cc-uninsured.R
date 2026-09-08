@@ -5,21 +5,26 @@
 # Universe: CC HHs that ever enrolled in some year (2014-2019). For each,
 # expand to all 6 years; the years they actually enrolled stay in
 # enrollment_hh.csv (handled by step 2). The OFF-YEARS are synthesized here:
-# demographics filled by HH-mean across observed years, then the SIPP
-# transition logit drops HH-years where the HH likely lost market eligibility
-# (gained ESI, moved out of CA, turned 65, became Medicaid-eligible).
+# each off-year copies the household's nearest observed year (previous year
+# preferred over next at equal distance), ages every member by the year gap,
+# recomputes the age shares and the year-specific rating factor from the aged
+# members, and drops households with any member aged 65+ (Medicare, not an
+# individual-market choice). Income (FPL), race, gender, and language carry
+# from the reference year. The SIPP transition logit then drops HH-years where
+# the HH likely lost market eligibility (gained ESI, moved out of CA, became
+# Medicaid-eligible).
 #
 # Inputs:
-#   data/output/enrollment_hh.csv     (CC enrolled HHs from step 2)
-#   data/output/sipp_logit.rds        (transition logit from step 3)
-#   poverty_guidelines_long           (loaded by _data-build.R)
+#   data/output/enrollment_hh.csv          (CC enrolled HHs from step 2)
+#   data/output/enrollment_individual.csv  (member ages by household_year, step 2)
+#   data/output/sipp_logit.rds             (transition logit from step 3)
+#   age_rating_factors, poverty_guidelines_long  (loaded by _data-build.R)
 # Output:
 #   data/output/cc_uninsured.csv      (CC HH-years with synthesized
 #                                      uninsured-choice rows)
 
 set.seed(20260423)
 
-cat("  Loading enrollment HHs and SIPP transition logit...\n")
 enroll_hh  <- fread("data/output/enrollment_hh.csv")
 sipp_logit <- readRDS("data/output/sipp_logit.rds")
 
@@ -29,29 +34,79 @@ enroll_hh   <- enroll_hh[household_id %in% hh_with_fpl]
 cat(sprintf("  HHs with observed FPL in at least one year: %d\n",
             length(hh_with_fpl)))
 
-# HH-level means across observed years (used to fill off-year synthetics).
-demo_cols <- c("FPL", "household_size", "oldest_member", "rating_factor",
-               "perc_0to17", "perc_18to25", "perc_26to34", "perc_35to44",
-               "perc_45to54", "perc_55to64", "perc_65plus", "perc_male",
-               "perc_white", "perc_black", "perc_hispanic", "perc_asian",
-               "perc_other", "english", "spanish", "other_language")
-hh_means <- enroll_hh[, lapply(.SD, mean, na.rm = TRUE),
-                       by = household_id, .SDcols = demo_cols]
-hh_geo   <- enroll_hh[, .(zip3 = first(zip3), region = first(region)),
-                       by = household_id]
-
 # Build off-year panel: (HH × all years) minus actually-enrolled (HH, year).
 all_years     <- 2014:2019
 panel         <- CJ(household_id = hh_with_fpl, year = all_years)
 enrolled_keys <- unique(enroll_hh[, .(household_id, year)])
 panel         <- panel[!enrolled_keys, on = c("household_id", "year")]
 
-# Attach HH-level demographics + geography
-panel <- merge(panel, hh_means, by = "household_id")
-panel <- merge(panel, hh_geo,   by = "household_id")
+# Reference year: the household's nearest observed year, previous year
+# preferred over next at equal distance (-1, +1, -2, +2, ...).
+cand <- merge(panel, unique(enroll_hh[, .(household_id, obs_year = year)]),
+              by = "household_id", allow.cartesian = TRUE)
+cand[, `:=`(dist = abs(year - obs_year), prev = as.integer(obs_year < year))]
+setorder(cand, household_id, year, dist, -prev)
+panel <- cand[, .(obs_year = obs_year[1]), by = .(household_id, year)]
+rm(cand)
 
-# Round household_size to integer (mean across years can give fractions)
-panel[, household_size := pmax(1L, as.integer(round(household_size)))]
+# Copy the reference-year household row: income, geography, and the
+# demographics not recomputed from member ages below.
+ref_cols <- c("household_year", "FPL", "household_size", "perc_male",
+              "perc_white", "perc_black", "perc_hispanic", "perc_asian",
+              "perc_other", "english", "spanish", "other_language",
+              "zip3", "region")
+panel <- merge(panel,
+               enroll_hh[, c("household_id", "year", ref_cols), with = FALSE],
+               by.x = c("household_id", "obs_year"),
+               by.y = c("household_id", "year"))
+setnames(panel, "household_year", "ref_household_year")
+
+# Age members from the reference year by the year gap ----------------------
+cat("  Aging members from the reference year...\n")
+ind <- fread("data/output/enrollment_individual.csv",
+             select = c("household_year", "age"))
+mem <- merge(panel[, .(household_id, year, ref_household_year,
+                       gap = year - obs_year)],
+             ind, by.x = "ref_household_year", by.y = "household_year",
+             allow.cartesian = TRUE)
+mem[, age := age + gap]
+rm(ind)
+
+# Drop off-year HHs with any member aged 65+ (Medicare, not a market choice)
+over65 <- unique(mem[age >= 65, .(household_id, year)])
+panel  <- panel[!over65, on = c("household_id", "year")]
+mem    <- mem[!over65, on = c("household_id", "year")]
+cat(sprintf("  Dropped %d off-year HH-years with a member aged 65+\n",
+            nrow(over65)))
+rm(over65)
+
+# Members aged below zero (reference year after the off-year, i.e. not yet
+# born) leave multi-member HHs; a lone member is floored at age 0.
+mem[, n_mem := .N, by = .(household_id, year)]
+mem <- mem[!(age < 0 & n_mem > 1)]
+mem[, age := pmax(0L, age)]
+
+# Recompute age shares, oldest member, and the year-specific rating factor
+# (2018+ separate curve, ages capped at 64) from the aged members.
+mem[, rating_factor_i := fifelse(
+  year >= 2018,
+  age_rating_factors$Rating_Factor2018[match(pmin(64L, age), age_rating_factors$Age)],
+  age_rating_factors$Rating_Factor[match(pmin(64L, age), age_rating_factors$Age)]
+)]
+agg <- mem[, .(
+  oldest_member = max(age),
+  rating_factor = sum(rating_factor_i, na.rm = TRUE),
+  perc_0to17    = mean(age <= 17),
+  perc_18to25   = mean(age >= 18 & age <= 25),
+  perc_26to34   = mean(age >= 26 & age <= 34),
+  perc_35to44   = mean(age >= 35 & age <= 44),
+  perc_45to54   = mean(age >= 45 & age <= 54),
+  perc_55to64   = mean(age >= 55 & age <= 64),
+  perc_65plus   = mean(age >= 65)
+), by = .(household_id, year)]
+panel <- merge(panel, agg, by = c("household_id", "year"))
+panel[, c("obs_year", "ref_household_year") := NULL]
+rm(mem, agg)
 
 # Variables needed for sipp_logit prediction
 panel[, FPL_bracket := assign_bracket(FPL)]
@@ -82,8 +137,6 @@ panel[, year_cap := NULL]
 panel[, household_year := paste(household_id, year, "0", sep = "_")]
 
 fwrite(panel, "data/output/cc_uninsured.csv")
-cat(sprintf("Step 4 complete: %d uninsured CC HH-years -> data/output/cc_uninsured.csv\n",
-            nrow(panel)))
 
-rm(enroll_hh, sipp_logit, hh_means, hh_geo, panel, hh_with_fpl, enrolled_keys, pov_dt)
+rm(enroll_hh, sipp_logit, panel, hh_with_fpl, enrolled_keys, pov_dt)
 gc(verbose = FALSE)

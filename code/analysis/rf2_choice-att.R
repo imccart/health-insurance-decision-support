@@ -220,8 +220,6 @@ new_summary <- as_new[, .(tot_nonmiss   = .N,
                           pred_purchase = sum(pred,   na.rm = TRUE)),
                       by = .(plan_id, region, year)]
 fwrite(new_summary, "results/choice_point_estimates_new.csv")
-cat("  New-enrollee baseline ->", nrow(new_summary),
-    "rows -> results/choice_point_estimates_new.csv\n")
 rm(un_new, as_new, fit_new); gc(verbose = FALSE)
 
 
@@ -356,11 +354,8 @@ ap_tab <- bind_rows(
   mutate(n_hh = uniqueN(pooled$chid))
 
 fwrite(ap_tab, "results/choice_appendix_pooled.csv")
-cat("  Appendix specs ->", nrow(ap_tab),
-    "rows -> results/choice_appendix_pooled.csv\n")
 
 rm(ap1, ap2, ap3); gc(verbose = FALSE)
 
 
 rm(pooled, fit, coefs, beta, V, Vn, fmla); gc(verbose = FALSE)
-cat("Choice model ATT estimation complete.\n")

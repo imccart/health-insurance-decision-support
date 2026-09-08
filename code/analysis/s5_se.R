@@ -22,12 +22,11 @@ loaded   <- load_all_cells(file.path(TEMP_DIR, "choice_cells"), covars, filter_a
 cells_se <- normalize_weights(loaded$cells)
 rm(loaded); gc(verbose = FALSE)
 
-# The estimator maximized the two-part likelihood, with the assistance and
-# commission terms excluded from the enrollment margin; the sandwich must
-# evaluate that same likelihood
-excl_se <- match(read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$assisted, covars)
-excl_se <- excl_se[!is.na(excl_se)]
-for (ci in seq_along(cells_se)) cells_se[[ci]]$excl_idx <- excl_se
+# The sandwich must evaluate the same likelihood the estimator maximized;
+# prepare_cells (estimate_demand.R) sets the exclusion and channel-state
+# structure identically for both.
+cells_se <- prepare_cells(cells_se, covars,
+                          read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$assisted)
 
 dse <- demand_sandwich_se(cells_se, theta_d)
 cat(sprintf("  max |gradient| at optimum = %.3g\n", dse$max_grad))
@@ -43,11 +42,8 @@ cat("\n--- Cost standard errors (sandwich) ---\n"); flush.console()
 cse <- cost_gmm_sandwich_se(
   theta_hat   = result2$par, W = W2, gbar_fn = compute_g_bar,
   N_ALPHA     = N_ALPHA, N_GAMMA = N_GAMMA, n_mom = N_MOMENTS,
-  param_names = gamma_names)
+  param_names = c(gamma_names, delta_names))
 write.csv(cse$se, "results/cost_coefficients_gmm_se.csv", row.names = FALSE)
 write.csv(data.frame(param = rownames(cse$vcov), cse$vcov, check.names = FALSE),
           "results/cost_coefficients_gmm_vcov.csv", row.names = FALSE)
 
-cat("  -> results/choice_coefficients_structural_se.csv (+ vcov)\n")
-cat("  -> results/cost_coefficients_gmm_se.csv (+ vcov)\n")
-cat("\nStructural standard errors complete.\n")

@@ -93,7 +93,7 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
     Platinum = as.integer(pa$metal == "Platinum"),
     AV       = unname(pa$av),
     HMO      = pa$hmo,
-    trend    = y - 2014L,
+    !!!setNames(as.list(as.integer(2015:2019 == y)), CLAIMS_YEAR_TERMS),
     !!!setNames(lapply(CLAIMS_REGION_TERMS, function(rc)
       as.numeric(ifelse(is.na(plans_cell[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans_cell$plan_id))]), 0,
                         plans_cell[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans_cell$plan_id))]))),
@@ -125,7 +125,10 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   admin_vec <- setNames(admin_lookup[paste(plan_prefix, y, sep = "_")], plan_ids_cell)
   admin_vec[is.na(admin_vec)] <- 0
   beta_vec <- setNames(beta_admin[paste(plan_prefix, y, sep = "_")], plan_ids_cell)
-  beta_vec[is.na(beta_vec)] <- mean(beta_admin)
+  # carriers absent from the beta table get the pooled MLR slope, the same
+  # fallback s4 and s6 use
+  beta_vec[is.na(beta_vec)] <- read_csv("data/output/mlr_admin_beta.csv",
+                                        show_col_types = FALSE)$beta0[1]
 
   .cf$cell <- list(
     r = r, y = y, N = N_cell, plan_ids = plan_ids_cell, prefix = plan_prefix,
@@ -198,8 +201,14 @@ update_premiums <- function(cl, dt, p_vec) {
 # defund: share of navigator households converted to brokers (lowest p_nav
 #   first). Runs before the commission write so new brokers pick up the
 #   scenario schedule.
+# The first-stage channel probabilities mirror the same conversions (the
+# expected-IV enrollment margin): a tau conversion moves tau of the agent
+# weight to the navigator state and, unless broker_remain, the rest to
+# shopping alone; defund moves that fraction of the navigator weight to the
+# agent state. Commission-level scenarios leave the weights alone.
 build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, defund = NULL) {
   cd <- as.data.table(copy(cl$cell_data_base))
+  has_p_cd <- all(c("p_none_hat", "p_nav_hat", "p_agent_hat") %in% names(cd))
 
   if (!is.null(defund) && "any_agent" %in% names(cd)) {
     nav_hh <- cd[plan_id == "Uninsured" & assisted == 1L & (is.na(any_agent) | any_agent != 1L),
@@ -211,6 +220,10 @@ build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, 
       nav_hh <- nav_hh[order(p_nav)]
       switch_ids <- nav_hh$household_number[seq_len(ceiling(defund * nrow(nav_hh)))]
       cd[household_number %in% switch_ids, any_agent := 1L]
+    }
+    if (has_p_cd) {
+      cd[, `:=`(p_agent_hat = p_agent_hat + defund * p_nav_hat,
+                p_nav_hat   = (1 - defund) * p_nav_hat)]
     }
   }
 
@@ -240,6 +253,16 @@ build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, 
                                                   any_agent = 0L, channel_detail = "Unassisted")]
       }
     }
+    if (has_p_cd) {
+      if (broker_remain) {
+        cd[, `:=`(p_nav_hat   = p_nav_hat + tau * p_agent_hat,
+                  p_agent_hat = (1 - tau) * p_agent_hat)]
+      } else {
+        cd[, `:=`(p_nav_hat   = p_nav_hat + tau * p_agent_hat,
+                  p_none_hat  = p_none_hat + (1 - tau) * p_agent_hat,
+                  p_agent_hat = 0)]
+      }
+    }
   }
 
   # Steering terms, same definition as build_structural: navigator (non-broker)
@@ -259,11 +282,16 @@ build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, 
 # cf_cell_scenario ----------------------------------------------------------
 # Installs a scenario on the worker: its cell data and commission basis.
 #   spec$comm   "observed", "zero", "uniform" (cell mean of observed positive
-#               commissions), "scale" (observed x spec$sc), "flatbar" (a flat
+#               commissions x spec$u_sc, 1 when absent), "scale" (observed x
+#               spec$sc), "firmscale" (observed x spec$k_firm[prefix], the
+#               per-insurer multipliers of the commission-equilibrium solve;
+#               firms absent from k_firm stay at observed), "flatbar" (a flat
 #               fee per insurer at spec$levels, named by prefix), "aligned"
 #               (proportional to the plan's mean non-commission utility, holding
 #               the cell's commission budget)
-#   spec$tau, spec$broker_remain, spec$defund: household conversions
+#   spec$tau, spec$broker_remain, spec$defund: household conversions (rank-based
+#   and deterministic, so re-installing with a new k_firm converts the same
+#   households)
 # Returns the per-plan commission vector (for the master's records).
 cf_cell_scenario <- function(label, spec) {
   cl <- .cf$cell
@@ -273,8 +301,14 @@ cf_cell_scenario <- function(label, spec) {
   comm_sc <- switch(spec$comm,
     observed = cl$comm_obs,
     zero     = setNames(rep(0, length(pn)), pn),
-    uniform  = setNames(rep(cl$mean_comm_pmpm, length(pn)), pn),
+    uniform  = setNames(rep(cl$mean_comm_pmpm *
+                              (if (is.null(spec$u_sc)) 1 else spec$u_sc), length(pn)), pn),
     scale    = setNames(cl$comm_obs * spec$sc, pn),
+    firmscale = {
+      kf <- spec$k_firm[cl$prefix]
+      kf[is.na(kf)] <- 1
+      setNames(cl$comm_obs * unname(kf), pn)
+    },
     flatbar  = {
       lv <- spec$levels[cl$prefix]
       lv[is.na(lv)] <- 0
@@ -301,6 +335,16 @@ cf_cell_scenario <- function(label, spec) {
   comm_sc
 }
 
+# cf_cell_set_calib ----------------------------------------------------------
+# Toggles the commission-derivative computation on the installed scenario, so
+# the commission-equilibrium solve can run its premium iterations without the
+# derivative kernel and pay for it only at the condition evaluations.
+cf_cell_set_calib <- function(flag) {
+  if (!is.null(.cf$scen)) .cf$scen$calib <- isTRUE(flag)
+  .cf$ev <- NULL
+  isTRUE(flag)
+}
+
 # cf_cell_eval --------------------------------------------------------------
 # Phase 1: at the cell premiums implied by the plan-year base premiums P (p_c =
 # P g_c, observed for plans not in P), rebuild the choice data and compute
@@ -322,18 +366,22 @@ cf_cell_eval_p1 <- function(P) {
   util <- compute_utility(dt, cl$coefs)
   se <- tryCatch(
     compute_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
-                                     cl$coefs, spec = cl$spec, V_base = util$V_base),
+                                     cl$coefs, spec = cl$spec, V_base = util$V_base,
+                                     add_N = util$add_N, add_A = util$add_A),
     error = function(e) NULL)
   if (is.null(se)) { .cf$ev <- NULL; return(NULL) }
-  demo <- tryCatch(compute_demographic_shares(dt, util$V, cl$lambda, V_base = util$V_base),
+  demo <- tryCatch(compute_demographic_shares(dt, util$V, cl$lambda, V_base = util$V_base,
+                                              add_N = util$add_N, add_A = util$add_A),
                    error = function(e) NULL)
   if (is.null(demo)) { .cf$ev <- NULL; return(NULL) }
   br <- tryCatch(
     compute_broker_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
-                                            cl$coefs, spec = cl$spec, V_base = util$V_base),
+                                            cl$coefs, spec = cl$spec, V_base = util$V_base,
+                                            add_N = util$add_N, add_A = util$add_A),
     error = function(e) NULL)
   ck <- if (sc$calib) tryCatch(
-    compute_commission_derivatives(dt, util$V, cl$lambda, cl$coefs, V_base = util$V_base),
+    compute_commission_derivatives(dt, util$V, cl$lambda, cl$coefs, V_base = util$V_base,
+                                   add_N = util$add_N, add_A = util$add_A),
     error = function(e) NULL) else NULL
   rs <- predict_risk_scores(cl$rs_coefs, cl$plan_chars, demo)
   rs_vec <- setNames(rs$predicted_risk_score, rs$plan_id)[pn]

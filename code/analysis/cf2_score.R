@@ -33,7 +33,6 @@ CF_WELFARE_HH_DIR <- file.path(TEMP_DIR, "cf_welfare_hh")
 if (dir.exists(CF_WELFARE_HH_DIR)) unlink(CF_WELFARE_HH_DIR, recursive = TRUE)
 dir.create(CF_WELFARE_HH_DIR, recursive = TRUE)
 cells_cf <- unique(cfres[, .(region, year)])
-cat("  Cells to score:", nrow(cells_cf), "\n")
 
 # Per-cell scorer (shared with cf3) ---------------------------------------
 source("code/analysis/helpers/score_cf.R")
@@ -46,7 +45,6 @@ cl <- tryCatch(parallel::makeCluster(n_workers, type = "PSOCK", outfile = ""), e
 score_one <- function(task) {
   res <- tryCatch(score_cf_cell(task$r, task$y, cfres[region == task$r & year == task$y], CF_WELFARE_HH_DIR, coefs, lambda),
                   error = function(e) { cat("  ERR r", task$r, "y", task$y, ":", conditionMessage(e), "\n"); NULL })
-  if (!is.null(res)) cat(sprintf("  scored r%s y%s (%d scenarios)\n", task$r, task$y, nrow(res)))
   res
 }
 
@@ -72,7 +70,6 @@ if (!is.null(cl)) {
 
 cf_welfare <- rbindlist(welfare_list)
 write_csv(cf_welfare, "results/counterfactual_welfare.csv")
-cat("  Written", nrow(cf_welfare), "rows to results/counterfactual_welfare.csv\n")
 
 # Internal check: the objective decomposes into its three components ----------
 cat("\n  --- decomposition check (spending schedule ",
@@ -83,7 +80,6 @@ cat("    obj = prem+eoop+risk (max |resid|):",
 # Distribution of effects across households (point estimate) -----------------
 # Each household's effect vs its own observed choice, summarized per scenario (share
 # worse off, mean, p10/50/90) for the money (obj) and navigator (nav) rulers.
-cat("\n  Building distribution of household effects...\n")
 wq <- function(x, w, p) { o <- order(x); x <- x[o]; w <- w[o]; x[which(cumsum(w) / sum(w) >= p)[1]] }
 dist_rows <- lapply(list.files(CF_WELFARE_HH_DIR, full.names = TRUE), function(f) {
   h <- fread(f)
@@ -102,7 +98,5 @@ if (nrow(dist) > 0) {
     p10_nav = wq(e_nav, w, .10), p50_nav = wq(e_nav, w, .50), p90_nav = wq(e_nav, w, .90)
   ), by = scenario][order(scenario)]
   write_csv(dsumm, "results/counterfactual_welfare_dist.csv")
-  cat("  Written", nrow(dsumm), "scenario rows to results/counterfactual_welfare_dist.csv\n")
 }
 
-cat("\ncf2 welfare scoring complete.\n")

@@ -307,7 +307,6 @@ plot_att <- ggplot(att_summary, aes(x = Channel, y = ATT)) +
 ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4, bg = "white")
 
 
-cat("Dominated choice analysis complete.\n")
 print(att_summary)
 
 # Free hh_po and bootstrap residues; the structural block is done with HH data.

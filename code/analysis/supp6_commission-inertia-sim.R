@@ -121,4 +121,3 @@ lines <- c(
          paste(sprintf("%.3f", me_stat), collapse = " & "), " \\\\"),
   "\\hline\\hline", "\\end{tabular}")
 writeLines(lines, "results/tables/commission_inertia_sim.tex")
-cat("  -> results/tables/commission_inertia_sim.tex\n")

@@ -7,7 +7,6 @@
 ##                the same cells) guarantees demand, pricing, and the CF draw
 ##                identical SAMPLE_FRAC subsamples per cell.
 
-cat("Loading shared structural data...\n")
 hh_all   <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
 hh_split <- split(hh_all, by = c("region", "year"))
 cells    <- unique(hh_all[, .(region, year)])[order(region, year)]

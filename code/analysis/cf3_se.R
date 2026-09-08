@@ -57,7 +57,7 @@ mu_d      <- setNames(coefs_hat$estimate, coefs_hat$term)[rownames(Vd)]
 
 # Per-draw share worse off (money + navigator rulers) for the key scenarios, from the
 # per-household files this draw wrote. Fixed-length named vector, NA where missing.
-DIST_SCEN <- c("zero_tau0.00", "zero_tau1.00", "aligned", "endog_tau0.50")
+DIST_SCEN <- c("zero_tau0.00", "zero_tau1.00", "uniform_low", "flat_mandate")
 dist_headline <- function(hh_dir) {
   nm  <- c(paste0("shareworse_obj_", DIST_SCEN), paste0("shareworse_nav_", DIST_SCEN))
   out <- setNames(rep(NA_real_, length(nm)), nm)
@@ -97,14 +97,8 @@ run_one_boot <- function(task) {
   cfb <- cf_base[region == task$r & year == task$y,
                  .(region, year, scenario, plan_id, premium_cf, commission_pmpm, tau, mc, claims)]
   if (nrow(cfb) == 0) return(NULL)
-  t0  <- Sys.time()
   out <- tryCatch(score_cf_cell(task$r, task$y, cfb, HH_SINK, coefs_b, lambda_b),
                   error = function(e) NULL)
-  el  <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
-  db  <- if (exists("draw_b")) draw_b else NA
-  cat(sprintf("  [draw %s | cell %d/%d] r%s y%s: %s, %.1fs\n",
-      as.character(db), task$idx, task$n_total, task$r, task$y,
-      if (is.null(out)) "FAILED" else sprintf("%d rows", nrow(out)), el))
   out
 }
 
@@ -139,12 +133,15 @@ draws <- vector("list", N_BOOT_CF)
 # finally stops the cluster even if a draw errors.
 tryCatch(
 for (b in seq_len(N_BOOT_CF)) {
-  # Demand draw only; lambda clamped to the RUM interior.
-  d_b <- MASS::mvrnorm(1, mu_d, Vd, tol = 1e-6)
-  if (!is.na(d_b["lambda"])) {
-    lam <- min(max(d_b["lambda"], 0.05), 0.999)
-    if (lam != d_b["lambda"]) n_clamp <- n_clamp + 1L
-    d_b["lambda"] <- lam
+  # Demand draw only; redraw until lambda is inside the RUM interior
+  # (truncated sampling rather than censoring at the bound). The bounds match
+  # the optimizer's own line-search limits, far outside the sampling
+  # distribution, so redraws should be rare; n_clamp counts them.
+  repeat {
+    d_b <- MASS::mvrnorm(1, mu_d, Vd, tol = 1e-6)
+    if (is.na(d_b["lambda"]) ||
+        (d_b["lambda"] > 0.001 && d_b["lambda"] < 0.999)) break
+    n_clamp <- n_clamp + 1L
   }
   coefs_b <- data.frame(term = names(d_b), estimate = as.numeric(d_b),
                         stringsAsFactors = FALSE)
@@ -197,7 +194,5 @@ summ <- data.frame(
 rownames(summ) <- NULL
 write.csv(summ, SE_PATH, row.names = FALSE)
 
-cat("\n  lambda draws clamped:", n_clamp, "of", N_BOOT_CF, "\n")
-cat("  ->", DRAWS_PATH, "\n  ->", SE_PATH, "\n\n")
+cat("\n  lambda draws rejected and redrawn:", n_clamp, "\n")
 print(summ %>% mutate(across(where(is.numeric), ~round(., 3))), row.names = FALSE)
-cat("\nCF bootstrap complete.\n")
