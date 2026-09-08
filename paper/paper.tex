@@ -206,7 +206,7 @@ Household $i$ chooses the plan $j$ that maximizes indirect utility
 \begin{equation}
 \label{eqn:utility}
 \begin{split}
-U_{ijt}({\bf p},{\bf y}) = {} & \alpha_{it}\, p_{ijt}({\bf p}) + \beta^{y}\, y_{jt}\, a_{it}^B
+U_{ijt}({\bf p},{\bf y}) = {} & \alpha_{it}\, p_{ijt}({\bf p}) + \beta^{y}\, a_{it}^B\, y_{jt}
         + \beta^{N}_{m(j)}\, a_{it}^N + \beta^{B}_{m(j)}\, a_{it}^B \\
         & + \gamma_{m(j)}\, w_{it}
         + \beta^{x}\, x_{ij} + \xi_{j} + \varepsilon_{ijt},
@@ -216,7 +216,7 @@ where ${\bf p} \equiv {\bf p}_{mt}$ is the vector of all plan base premiums at t
 
 
 
-Each of the two assistance channels (agents and navigators) enters utility separately, allowing navigators and agents to shift metal tier preferences by different amounts. The commission term $\beta^{C} y_{jt} a_{it}^B$ enters utility only for agent-assisted households because navigators do not receive plan commissions.  A positive comission parameter $\beta^{C}$ indicates that agents steer consumers toward plans with higher commissions. For unassisted households, all assistance-related terms are zero and choices are driven entirely by premiums, plan characteristics, and unobserved preferences.
+Each of the two assistance channels (agents and navigators) enters utility separately, allowing navigators and agents to shift metal tier preferences by different amounts. The commission term $\beta^{C}  a_{it}^B y_{jt}$ enters utility only for agent-assisted households because navigators do not receive plan commissions.  A positive commission parameter $\beta^{C}$ indicates that agents steer consumers toward plans with higher commissions. For unassisted households, all assistance-related terms are zero and choices are driven entirely by premiums, plan characteristics, and unobserved preferences.
 
 Attaching the commission term to every plan in an agent-assisted household's choice set treats the household as selecting an agent and a plan together rather than in a fixed order. A household that is already aware of a few plans and consults an agent as it nears a decision, and a household that chooses an agent and a plan at the same time, both reduce to an agent-channel household whose choice over the full menu is tilted by the commissions attached to those plans. The alternative in which a household first commits to a particular agent and is then confined to the carriers that agent represents would require the identity of each household's agent and that agent's carrier contracts, neither of which we observe. Because commissions enter the choice over the entire menu, $\beta^{C}$ measures the average pull of commissions on agent-assisted choices.
 
@@ -273,11 +273,20 @@ Each insurer $f$ chooses the base premium $p_{jmt}$ and agent commission $y_{jt}
 \label{eqn:profit}
 	\pi_{ft}({\bf p},{\bf y}) = R_{ft}({\bf p},{\bf y}) -  C_{ft}({\bf p},{\bf y})- Y_{ft}({\bf p},{\bf y}) + RA_{ft}({\bf p},{\bf y}) + RI_{ft}({\bf p},{\bf y}) - VC_{ft}({\bf p},{\bf y}),
 \end{equation}
-where $R_{ft}({\bf p},{\bf y})$ is total premium revenue, $C_{ft}({\bf p},{\bf y})$ is total claims,  $Y_{ft}({\bf p},{\bf y})$ is total commissions paid, $RA_{ft}({\bf p},{\bf y})$ is the net risk adjustment transfer, $RI_{ft}({\bf p},{\bf y})$ is reinsurance received from the ACA's transitional reinsuarance program, and $VC_{ft}({\bf p},{\bf y})$ is variable administrative cost excluding commissions. Formulas for all terms in equation~(\ref{eqn:profit}) are in Appendix~\ref{app:formulas}. Define $J_{ft}$ as the set of plans sold by firm $f$ at time $t$ and $I$ as the set of households.  Total commissions paid by the firm are
-\begin{equation*}
-    Y_{ft}({\bf p},{\bf y}) = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^B \, q_{ijt}({\bf p},{\bf y}) \, y_{jt},
-\end{equation*}
-where $a_{it}^B$ indicates agent-assisted enrollment as before and $q_{ijt}({\bf p},{\bf y})$ are the choice probabilities from Equation~\eqref{eqn:choice_probs}.
+where $R_{ft}({\bf p},{\bf y})$ is total premium revenue, $C_{ft}({\bf p},{\bf y})$ is total claims,  $Y_{ft}({\bf p},{\bf y})$ is total commissions paid, $RA_{ft}({\bf p},{\bf y})$ is the net risk adjustment transfer, $RI_{ft}({\bf p},{\bf y})$ is reinsurance received from the ACA's transitional reinsuarance program, and $VC_{ft}({\bf p},{\bf y})$ is variable administrative cost excluding commissions. 
+
+Formulas for all terms in equation~(\ref{eqn:profit}) are in Appendix~\ref{app:formulas}. Computing total premium revenue is straightforward, only requiring the choice probability estimates in equation~(\ref{eqn:choice_probs}).  For total firm claims, we also need estimates of average plan claims.  We estimate average claims using the estimating equation  
+\begin{equation}
+\label{eqn:avg_claims_estimation}
+	\ln c_{jmt}({\bf p},{\bf y}) = \mu^r \ln \hat{r}_{jmt}({\bf p},{\bf y}) + x'_j  \mu^{x}  + \mu^l l_t + \epsilon_{jmt}^c,
+\end{equation}
+where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted risk score from Equation~(\eqref{eqn:risk_score_estimation}) below, $x_j$ is a network type indicator, and $l_t$ is a linear trend. Equation~(\eqref{eqn:risk_score_estimation}) writes average claims as a function of enrollee risk This construction of enrollee average claims allows enrolle r
+
+%Define $J_{ft}$ as the set of plans sold by firm $f$ at time $t$ and $I$ as the set of households.  Total commissions paid by the firm are
+%begin{equation*}
+ %   Y_{ft}({\bf p},{\bf y}) = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^B \, q_{ijt}({\bf p},{\bf y}) \, y_{jt},
+%\end{equation*}
+%where $a_{it}^B$ indicates agent-assisted enrollment as before and $q_{ijt}({\bf p},{\bf y})$ are the choice probabilities from Equation~\eqref{eqn:choice_probs}.
 
 \paragraph{Risk adjustment.} The ACA risk adjustment program makes budget-neutral transfers across plans based on the relative health risk of their enrollees \citep{pope2014}. Plans that attract higher-risk enrollees receive transfers funded by plans with lower-risk enrollees. The per-member-per-month transfer for plan $j$ is
 \begin{equation}
@@ -302,28 +311,23 @@ We predict plan average claims as a function of the predicted risk score,
 \end{equation}
 where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted risk score from Equation~\eqref{eqn:risk_score_estimation}, $x_j$ is a network type indicator, and $l_t$ is a linear trend. Using the predicted rather than the observed risk score addresses the endogeneity of plan enrollment composition. Actuarial value and the insurer fixed effects enter the risk score equation only. Including actuarial value in both equations makes it collinear with the risk score and collapses the estimated pass-through of risk into claims from roughly one to near zero, and insurer identity enters both equations through the same pass-through, which leaves the joint moment condition rank deficient.
 
-\paragraph{Pricing first-order conditions.} Differentiating Equation~\eqref{eqn:profit} with respect to the base premium $p_{jmt}$ yields the first-order condition
+\paragraph{Pricing first-order conditions.} Differentiating equation~\eqref{eqn:profit} with respect to the base premium $p_{jmt}$ yields the first-order condition
 \begin{equation}
 \label{eqn:pricing_foc}
 	\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} + \frac{\partial RA_{ft}({\bf p},{\bf y})}{\partial p_{jmt}}  + \frac{\partial RI_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} =  \frac{\partial C_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} + \frac{\partial Y_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} + \frac{\partial VC_{ft}({\bf p},{\bf y})}{\partial p_{jmt}}
 \end{equation}
-for each plan $j$ offered by firm $f$. Collecting the first-order conditions across all plans into matrix form, the equilibrium markup for each plan is
-\begin{equation}
-\label{eqn:markup}
-	p - mc = \Omega^{-1}\left(s + \Omega^{B} {\bf y} \right),
-\end{equation}
-where $p$ is the vector of base premiums, $mc$ is the vector of marginal costs (net of risk adjustment and reinsurance), and $s$ is the vector of market shares. The ownership matrix $\Omega$ has elements
-$$
-\Omega_{jl} = -\mathbbm{1}\left[f(j)=f(l)\right] \frac{\partial s_l}{\partial p_j},
-$$
-and $\Omega^B$ is the analogous matrix constructed from agent-assisted demand derivatives only. The term $\Omega^{B} {\bf y}$ captures how commission costs distort pricing relative to a standard Bertrand-Nash equilibrium without intermediaries. Plans with higher commissions and more price-sensitive agent-assisted enrollees face larger upward pressure on premiums.
+for each plan $j$ offered by firm $f$. Formulas for each term in equation~(\ref{eqn:pricing_foc}) are given in Appendix~\ref{app:formulas}.  Observe that commissions affect every term in (\ref{eqn:pricing_foc}) through demand.
 
-\paragraph{Commission first-order conditions.} The same profit function governs each insurer's choice of commissions. We parameterize this choice as a scaling of the insurer's commission schedule by a factor $k_f$, so that the commission on plan $j$ is $y_{jt} = k_f w_{jt}$, where $w_{jt}$ is the plan's commission basis, a flat per-member amount for flat schedules and the observed rate times the plan's premium for percentage schedules. Differentiating the variable profit in Equation~\eqref{eqn:profit} with respect to $k_f$ yields the commission first-order condition
+
+\paragraph{Commission first-order conditions.} Differentiating the variable profit with respect to the commission $y_{jt}$ yields the commission first-order condition
 \begin{equation}
-\label{eqn:comm_foc}
-\sum_{j \in J_{ft}} \left( p_{jt} - mc_{jt} - y_{jt} \right) \frac{\partial q^{B}_{jt}({\bf p},{\bf y})}{\partial k_f} + \frac{\partial RA_{ft}({\bf p},{\bf y})}{\partial k_f} = \left( 1 + \mu_f \right) \sum_{j \in J_{ft}} w_{jt}\, q^{B}_{jt}({\bf p},{\bf y}),
+\label{eqn:commission_foc}
+	\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial y_{jt}} + \frac{\partial RA_{ft}({\bf p},{\bf y})}{\partial y_{jt}}  + \frac{\partial RI_{ft}({\bf p},{\bf y})}{\partial y_{jt}} =  \frac{\partial C_{ft}({\bf p},{\bf y})}{\partial y_{jt}} + \frac{\partial Y_{ft}({\bf p},{\bf y})}{\partial y_{jt}} + \frac{\partial VC_{ft}({\bf p},{\bf y})}{\partial y_{jt}}
 \end{equation}
-where $q^{B}_{jt}({\bf p},{\bf y})$ is agent-assisted enrollment in plan $j$ and $J_{ft}$ is the set of plans offered by insurer $f$. The left-hand side is the marginal benefit of a higher commission, the additional variable profit from the agent-assisted enrollment the commission attracts, which operates through the steering coefficient $\beta^{C}$, together with the induced change in risk adjustment transfers. The right-hand side is the marginal cost, the additional commission outlay, scaled by a per-insurer wedge $\mu_f$ that represents the shadow value of a commission dollar. We calibrate $\mu_f$ so that the observed schedule ($k_f = 1$) satisfies Equation~\eqref{eqn:comm_foc}, which makes the observed premiums and commissions a joint fixed point.
+
+\noindent Formulas for each term in equation~(\ref{eqn:commission_foc}) are given in Appendix~\ref{app:formulas}.
+
+%where $q^{B}_{jt}({\bf p},{\bf y})$ is agent-assisted enrollment in plan $j$ and $J_{ft}$ is the set of plans offered by insurer $f$. The left-hand side is the marginal benefit of a higher commission, the additional variable profit from the agent-assisted enrollment the commission attracts, which operates through the steering coefficient $\beta^{C}$, together with the induced change in risk adjustment transfers. The right-hand side is the marginal cost, the additional commission outlay, scaled by a per-insurer wedge $\mu_f$ that represents the shadow value of a commission dollar. We calibrate $\mu_f$ so that the observed schedule ($k_f = 1$) satisfies Equation~\eqref{eqn:comm_foc}, which makes the observed premiums and commissions a joint fixed point.
 
 \subsection{Estimation}
 \label{subsec:estimation}
