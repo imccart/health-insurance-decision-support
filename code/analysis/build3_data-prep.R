@@ -143,14 +143,16 @@ cat("  Premium first-stage F:", round(summary(first_stage)$fstatistic[1], 1), "\
 rm(first_stage)
 
 plan_choice <- plan_choice %>%
-  mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
-  left_join(commission_lookup, by = c("insurer_prefix", "year")) %>%
+  mutate(insurer_prefix = sub("_.*", "", plan_id),
+         # HSP is a closed-network product and pays the HMO schedule
+         hmo_join = as.integer(!is.na(network_type) & network_type %in% c("HMO", "HSP"))) %>%
+  left_join(commission_lookup, by = c("insurer_prefix", "year", "hmo_join" = "hmo")) %>%
   mutate(comm_pmpm = case_when(
     is.na(rate) ~ 0,
     is_pct      ~ rate * premium,
     TRUE        ~ rate
   )) %>%
-  select(-insurer_prefix, -rate, -is_pct)
+  select(-insurer_prefix, -hmo_join, -rate, -is_pct)
 
 # Rating-area shares of each plan-year's enrollment (claims equation, Eq. 9;
 # region 1 the base). Attached to every region row of the plan-year.

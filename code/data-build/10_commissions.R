@@ -16,12 +16,15 @@
 ##                taken as agent-sold. Used for the carriers whose book is on
 ##                the exchange; the carriers with a large off-exchange book keep
 ##                the schedule table's on-exchange rates (kept in full as
-##                commission_lookup_schedules.csv). One commission series then
-##                enters the demand model, the insurer conditions, and the
-##                counterfactuals.
+##                commission_lookup_schedules.csv), with Blue Shield and Health
+##                Net at the network level (HMO and PPO schedules from the raw
+##                table, new and renewal averaged). The lookup is keyed on
+##                (insurer_prefix, year, hmo) and enters the demand model, the
+##                commission conditions, and the counterfactuals.
 ## Input:         data/input/Covered California/rate-filings-srrt/*_SRRT_*.xlsx
+##                data/input/Covered California/commission_input.csv
 ##                data/output/mlr_admin.csv (step 9), data/output/demand_households.csv
-## Output:        data/output/commission_lookup.csv  (insurer_prefix, year, rate, is_pct)
+## Output:        data/output/commission_lookup.csv  (insurer_prefix, year, hmo, rate, is_pct)
 ##                data/output/commission_filings.csv (the components)
 
 SRRT_DIR <- "data/input/Covered California/rate-filings-srrt"
@@ -102,12 +105,15 @@ print(comm %>% select(insurer_prefix, year, rate) %>% mutate(rate = round(rate, 
 # implied rate is an on-exchange rate without further assumption only for the
 # carriers whose book is on the exchange (on-exchange share of members at least
 # 0.75: the regional plans, where the schedule table had no year variation).
-# Carriers with a large off-exchange book (Anthem, Blue Shield, Health Net,
-# Kaiser, Oscar) keep their schedule rates, which are on-exchange by
-# construction and vary by year for the three that changed them. UHC, the pooled
-# Small group, and Valley 2014 keep their schedule rows.
+# Carriers with a large off-exchange book (Anthem, Blue Shield, Kaiser, Oscar)
+# keep their schedule rates, which are on-exchange by construction; UHC, the
+# pooled Small group, and Valley 2014 keep their schedule rows. Where a filed
+# schedule differentiates by network, the schedule takes precedence over the
+# filings in those years so the network structure is kept: Blue Shield from
+# 2017 and Health Net 2015-2017 (Health Net is otherwise a filings carrier).
 if (!file.exists("data/output/commission_lookup_schedules.csv"))
-  write_csv(read_csv("data/output/commission_lookup.csv", show_col_types = FALSE),
+  write_csv(read_csv("data/output/commission_lookup.csv", show_col_types = FALSE) %>%
+              distinct(insurer_prefix, year, rate, is_pct),
             "data/output/commission_lookup_schedules.csv")
 old <- read_csv("data/output/commission_lookup_schedules.csv", show_col_types = FALSE)
 on_share_ins <- comm %>% group_by(insurer_prefix) %>% summarize(on_share = mean(on_share), .groups = "drop")
@@ -117,11 +123,62 @@ cat("  on-exchange share of the book by insurer:",
 cat("  commission from the filings:", paste(filings_ins, collapse = ", "),
     "; from the schedule table:", paste(setdiff(unique(old$insurer_prefix), filings_ins), collapse = ", "), "\n")
 comm_used <- comm %>% filter(insurer_prefix %in% filings_ins)
-kept <- old %>% anti_join(comm_used, by = c("insurer_prefix", "year")) %>% select(insurer_prefix, year, rate, is_pct)
-lookup <- bind_rows(comm_used %>% transmute(insurer_prefix, year, rate, is_pct = FALSE), kept) %>%
-  arrange(insurer_prefix, year)
-missing <- on_ex %>% filter(mm_on > 0) %>% anti_join(lookup, by = c("insurer_prefix", "year"))
-if (nrow(missing) > 0) cat("  WARNING: enrolled insurer-years with no commission row:",
-                           paste(missing$insurer_prefix, missing$year, collapse = ", "), "\n")
+
+# Blue Shield and Health Net file network-level rates (HMO and PPO schedules in
+# the raw table); those come from the raw table at the network level, new and
+# renewal averaged, keyed by the plan's HMO indicator. A network not filed in a
+# year carries the filed network's rate so the (insurer, year, hmo) grid is
+# complete. Every other carrier-year has one rate, duplicated across hmo so all
+# joins are exact on (insurer_prefix, year, hmo).
+raw_sched <- read_csv("data/input/Covered California/commission_input.csv", show_col_types = FALSE)
+net_sched <- raw_sched %>%
+  filter(Insurer %in% c("Blue Shield", "Health Net")) %>%
+  mutate(insurer_prefix = ifelse(Insurer == "Blue Shield", "BS", "HN")) %>%
+  pivot_longer(starts_with("Y"), names_to = "year", values_to = "sched_rate") %>%
+  mutate(year = as.integer(sub("^Y", "", year))) %>%
+  filter(!is.na(sched_rate)) %>%
+  group_by(insurer_prefix, year, Network) %>%
+  summarize(rate = mean(sched_rate), .groups = "drop") %>%
+  mutate(hmo = as.integer(Network == "HMO"), is_pct = rate < 0.1) %>%
+  select(insurer_prefix, year, hmo, rate, is_pct) %>%
+  group_by(insurer_prefix, year) %>%
+  complete(hmo = 0:1) %>%
+  fill(rate, is_pct, .direction = "downup") %>%
+  ungroup()
+# Blue Shield uses the schedule throughout; Health Net only where its network
+# rates differ (the filings carry it otherwise)
+net_used <- net_sched %>%
+  group_by(insurer_prefix, year) %>%
+  filter(insurer_prefix == "BS" | n_distinct(rate) > 1) %>%
+  ungroup()
+comm_used <- comm_used %>% anti_join(net_used, by = c("insurer_prefix", "year"))
+kept <- old %>%
+  anti_join(bind_rows(comm_used %>% select(insurer_prefix, year),
+                      net_used %>% distinct(insurer_prefix, year)),
+            by = c("insurer_prefix", "year")) %>%
+  select(insurer_prefix, year, rate, is_pct)
+flat_rows <- bind_rows(comm_used %>% transmute(insurer_prefix, year, rate, is_pct = FALSE), kept)
+lookup <- bind_rows(flat_rows %>% mutate(hmo = 0L), flat_rows %>% mutate(hmo = 1L), net_used) %>%
+  select(insurer_prefix, year, hmo, rate, is_pct) %>%
+  arrange(insurer_prefix, year, hmo)
+n_split <- lookup %>% group_by(insurer_prefix, year) %>%
+  summarize(split = n_distinct(rate) > 1, .groups = "drop") %>% filter(split)
+cat("  carrier-years with distinct network rates:",
+    paste(n_split$insurer_prefix, n_split$year, collapse = ", "), "\n")
+# An enrolled insurer-year in no commission source (schedule table or filings)
+# gets an explicit zero-rate row: the model assigns it zero commission, which
+# the attachment sites otherwise impose through the missing-rate fallback
+missing <- on_ex %>% filter(mm_on > 0) %>%
+  anti_join(lookup, by = c("insurer_prefix", "year")) %>%
+  distinct(insurer_prefix, year)
+if (nrow(missing) > 0) {
+  cat("  no commission source (zero-rate rows written):",
+      paste(missing$insurer_prefix, missing$year, collapse = ", "), "\n")
+  lookup <- bind_rows(lookup,
+                      missing %>% crossing(hmo = c(0L, 1L)) %>%
+                        mutate(rate = 0, is_pct = FALSE)) %>%
+    arrange(insurer_prefix, year, hmo)
+}
+stopifnot(!anyNA(lookup$rate), nrow(lookup) == nrow(distinct(lookup, insurer_prefix, year, hmo)))
 write_csv(comm, "data/output/commission_filings.csv")
 write_csv(lookup, "data/output/commission_lookup.csv")

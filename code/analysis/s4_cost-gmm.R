@@ -277,19 +277,39 @@ cat("  Below share floor", SHARE_FLOOR_FOC, "(dropped from the plan-year sums):"
 # and servicing the agent takes over), fixed at the per-carrier rates from the
 # national MLR filings (step 9).
 
-# Per-cell insurer structure for the commission conditions (theta-independent pieces)
+# Commission-setting units: one per carrier-year, except where the filed
+# schedule has distinct network rates (Blue Shield and Health Net); those
+# carrier-years choose one commission per network (suffix .HMO / .PPO), and
+# each unit gets its own condition. MB spans the whole carrier's margins (the
+# unit's rate moves the sister network's enrollment too); the outlay and the
+# broker pool are the unit's own.
+comm_lk <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE)
+SPLIT_KEYS <- comm_lk %>% group_by(insurer_prefix, year) %>%
+  summarize(split = n_distinct(rate) > 1, .groups = "drop") %>%
+  filter(split) %>%
+  { paste(.$insurer_prefix, .$year, sep = "_") }
+cat("  Carrier-years with network-level commission rates:", length(SPLIT_KEYS), "\n")
+
+# Per-cell unit structure for the commission conditions (theta-independent pieces)
 comm_struct <- lapply(foc_cells, function(fc) {
   if (is.null(fc$comm_D) || is.null(fc$comm_qB)) return(NULL)
   pn <- fc$plan_ids; pref <- sub("_.*", "", pn)
-  firms <- unique(pref[fc$comm_vec > 0])
+  split_here <- paste(pref, fc$year, sep = "_") %in% SPLIT_KEYS
+  if (any(split_here) && (is.null(fc$comm_hmo) || anyNA(fc$comm_hmo[pn][split_here])))
+    stop("s4: cell ", fc$region, " ", fc$year, " lacks the commission-network flag ",
+         "for a split carrier-year -- re-run s3 so foc_inputs carries comm_hmo")
+  unit <- ifelse(split_here,
+                 paste0(pref, ifelse(unname(fc$comm_hmo[pn]) == 1, ".HMO", ".PPO")), pref)
+  firms <- unique(unit[fc$comm_vec > 0])
   if (length(firms) == 0) return(NULL)
   lapply(firms, function(f) {
-    ii <- which(pref == f)
+    ii <- which(unit == f)
+    jj <- which(pref == sub("[.].*$", "", f))
     w_f <- numeric(length(pn)); w_f[ii] <- fc$comm_vec[ii]
     d <- as.data.frame(fc$demo_shares); m <- match(pn[ii], d$plan_id)
-    list(firm = f, ii = ii, dq = as.numeric(fc$comm_D %*% w_f),
+    list(firm = f, ii = ii, jj = jj, dq = as.numeric(fc$comm_D %*% w_f),
          MC = sum(fc$comm_qB[ii] * fc$comm_vec[ii]), qB = sum(fc$comm_qB[ii]),
-         dem = sum(d$demand[m], na.rm = TRUE))      # predicted enrollment of the insurer's plans
+         dem = sum(d$demand[m], na.rm = TRUE))      # predicted enrollment of the unit's plans
   })
 })
 # --- The commission block's fixed input: per-carrier substitution rates ---
@@ -314,26 +334,23 @@ PY_OK <- rep(FALSE, N_PY)
 for (fc in foc_cells) PY_OK[fc$py_idx[fc$shares >= SHARE_FLOOR_FOC]] <- TRUE
 N_M3 <- sum(PY_OK)
 
-# M4: the commission conditions as moments, one per insurer-year, with the
-# cross-market wedge. The QHP contract and the carriers' filing narratives put
-# the same commission on and off the exchange in the individual market, so the
-# exchange schedule prices the carrier's whole individual book; leverage is
-# the off-exchange individual members per on-exchange member, (1 - w)/w with
-# w the on-exchange share of the individual book (data-build step 10). The
-# group book has separate schedules and is absorbed by the carrier levels.
+# M4: the commission conditions as moments, one per insurer-year, with a
+# cross-market wedge at the carrier level. The QHP contract and the carriers'
+# filing narratives put the same commission on and off the exchange in the
+# individual market, so the exchange schedule prices obligations outside the
+# modeled market; schedules barely move within carrier over the panel, so the
+# wedge is one time-invariant level per carrier. The individual book's
+# off/on-exchange ratio is kept for diagnostics (data-build step 10).
 comm_filings <- read_csv("data/output/commission_filings.csv", show_col_types = FALSE)
 LEV_FY <- setNames((1 - comm_filings$on_share) / comm_filings$on_share,
                    paste(comm_filings$insurer_prefix, comm_filings$year, sep = "_"))
-COMM_KEYS_M4 <- COMM_KEYS[is.finite(LEV_FY[COMM_KEYS])]
-LEV_M4 <- unname(LEV_FY[COMM_KEYS_M4])
+COMM_KEYS_M4 <- COMM_KEYS
 N_M4 <- length(COMM_KEYS_M4)
-# Carrier levels in the wedge: schedules barely move within carrier over the
-# panel, so the FOC misfit is a time-invariant level per carrier; the leverage
-# slope is identified from within-carrier book-share movement across years
-FIRM_M4 <- sub("_[0-9]+$", "", COMM_KEYS_M4)
+FIRM_M4 <- sub("[.].*$", "", sub("_[0-9]+$", "", COMM_KEYS_M4))   # the carrier of each unit (the wedge and beta are carrier objects)
 WEDGE_FIRMS <- sort(unique(FIRM_M4))
 FIRM_IDX_M4 <- match(FIRM_M4, WEDGE_FIRMS)
-cat("  Commission conditions with leverage (M4):", N_M4, "of", length(COMM_KEYS), "insurer-years\n")
+cat("  Commission conditions (M4):", N_M4, "insurer-years,",
+    length(WEDGE_FIRMS), "carrier wedge levels\n")
 
 # The GMM moments are the claims equation (M2), the plan-year pricing
 # conditions (M3), and the commission conditions with the cross-market wedge (M4).
@@ -350,7 +367,7 @@ cat("  Total moment conditions:", N_MOMENTS, "(M2:", ncol(Z_cl), " M3:", N_M3, "
 gamma_names <- c("(Intercept)", "log_risk_score", CLAIMS_EXOG_TERMS)
 N_ALPHA <- 0L                    # the risk-score coefficients are fixed (ALPHA_FIXED)
 N_GAMMA <- length(gamma_names)   # intercept, log_risk_score, exogenous claims terms
-delta_names <- c(paste0("wedge_", WEDGE_FIRMS), "wedge_leverage")   # the M4 cross-market wedge: a level per gated carrier plus one leverage slope
+delta_names <- paste0("wedge_", WEDGE_FIRMS)   # the M4 cross-market wedge: one level per gated carrier
 N_DELTA <- length(delta_names)
 # beta, the administrative saving per commission dollar, is held at its current
 # stage-4 value while the cost coefficients are estimated (BETA_FY; the MLR
@@ -502,7 +519,7 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     margin <- fc$posted_premium - cell_mc[[ci]] - cs_of(fc) * fc$comm_vec
     for (cf_ in cs) {
       key <- paste(cf_$firm, fc$year, sep = "_")
-      MBf <- sum(margin[cf_$ii] * cf_$dq[cf_$ii]) + sum(fc$comm_vec[cf_$ii] * ra_eta[cf_$ii])
+      MBf <- sum(margin[cf_$jj] * cf_$dq[cf_$jj]) + sum(fc$comm_vec[cf_$ii] * ra_eta[cf_$ii])
       MB_fy[key] <- (if (is.na(MB_fy[key])) 0 else MB_fy[key]) + fc$N * MBf
       MC_fy[key] <- (if (is.na(MC_fy[key])) 0 else MC_fy[key]) + fc$N * cf_$MC
       qB_fy[key] <- (if (is.na(qB_fy[key])) 0 else qB_fy[key]) + fc$N * cf_$qB
@@ -518,8 +535,8 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   # --- M4: commission conditions net of the cross-market wedge, one per
   #     insurer-year with a finite leverage ---
   MB4 <- unname(MB_fy[COMM_KEYS_M4]); MC4 <- unname(MC_fy[COMM_KEYS_M4])
-  b4m <- BETA_FY[COMM_KEYS_M4]; b4m[is.na(b4m)] <- BETA_FY_DEFAULT
-  wedge4 <- delta[FIRM_IDX_M4] + delta[N_DELTA] * LEV_M4
+  b4m <- BETA_FY[sub("[.](HMO|PPO)", "", COMM_KEYS_M4)]; b4m[is.na(b4m)] <- BETA_FY_DEFAULT
+  wedge4 <- delta[FIRM_IDX_M4]
   g_comm <- MB4 / MC4 - 1 + unname(b4m) - wedge4
   g_comm[!is.finite(g_comm) | MC4 <= 0] <- 1e3
 
@@ -533,7 +550,7 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   # A parameter step that makes every MB non-finite leaves no commission rows;
   # return a large moment vector so the optimizer rejects the step.
   if (length(keys4) == 0) return(rep(1e3, N_MOMENTS))
-  b4 <- BETA_FY[keys4]; b4[is.na(b4)] <- BETA_FY_DEFAULT
+  b4 <- BETA_FY[sub("[.](HMO|PPO)", "", keys4)]; b4[is.na(b4)] <- BETA_FY_DEFAULT
   phi4 <- r4 + unname(b4)
 
   g <- c(g_cl, g_foc, g_comm)
@@ -572,9 +589,8 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
        n_comm  = length(r4),
        comm_fy = data.frame(key = keys4, MB = MB_fy[ok4], MC = MC_fy[ok4],
                             mu_hat = r4, comm_bar = cbar, phi = phi4,
-                            lev = unname(LEV_FY[keys4]),
-                            wedge = delta[match(sub("_[0-9]+$", "", keys4), WEDGE_FIRMS)] +
-                                    delta[N_DELTA] * unname(LEV_FY[keys4]),
+                            lev = unname(LEV_FY[sub("[.](HMO|PPO)", "", keys4)]),
+                            wedge = delta[match(sub("[.].*$", "", sub("_[0-9]+$", "", keys4)), WEDGE_FIRMS)],
                             stringsAsFactors = FALSE),
        # Per plan-cell marginal cost at the evaluated parameters (pass B):
        # mc_gmm includes the insurer's administrative cost (the margin object);
@@ -770,17 +786,16 @@ cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
 # counterfactual.
 
 cat("\n--- Commission conditions (M4) at the GMM solution ---\n")
-cat("  wedge: leverage slope =", round(delta_gmm[N_DELTA], 4),
-    "; carrier levels", round(min(delta_gmm[-N_DELTA]), 3), "to",
-    round(max(delta_gmm[-N_DELTA]), 3), "\n")
+cat("  wedge: carrier levels", round(min(delta_gmm), 3), "to",
+    round(max(delta_gmm), 3), "\n")
 contr2 <- compute_g_bar(result2$par, return_contributions = TRUE)
 comm_fy <- contr2$comm_fy %>%
   tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE)
-cat("  insurer-year conditions:", nrow(comm_fy),
-    " | distinct insurers:", n_distinct(comm_fy$firm), "\n")
+cat("  unit-year conditions:", nrow(comm_fy),
+    " | distinct units:", n_distinct(comm_fy$firm), "\n")
 beta_fy_df <- tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
   tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE) %>%
-  filter(paste(firm, year, sep = "_") %in% COMM_KEYS)
+  filter(paste(firm, year, sep = "_") %in% sub("[.](HMO|PPO)", "", COMM_KEYS))
 cat("  beta by insurer (mean over years):\n")
 print(beta_fy_df %>% group_by(firm) %>% summarise(beta = round(mean(beta), 3), .groups = "drop"), n = Inf)
 cat("  mu_hat = MB/MC - 1: mean", round(mean(comm_fy$mu_hat), 3),

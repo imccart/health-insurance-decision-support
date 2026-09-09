@@ -47,19 +47,11 @@ beta_df <- read_csv(file.path(TEMP_DIR, "commission_beta.csv"), show_col_types =
 BETA_LOOKUP <- setNames(beta_df$beta, paste(beta_df$firm, beta_df$year, sep = "_"))
 
 # The estimated cross-market wedge (s4's M4): the commission condition each
-# re-solving insurer satisfies is MB/MC = (1 - beta_f) + delta_f + delta1 x
-# leverage, leverage = (1 - w)/w with w the on-exchange share of the carrier's
-# individual book (data-build step 10; the exchange schedule prices the whole
-# individual book under the QHP contract's commission-parity terms)
+# re-solving unit satisfies is MB/MC = (1 - beta_f) + delta_f, with delta_f
+# one level per carrier absorbing obligations outside the modeled market
+# (commission parity across the individual book under the QHP contract)
 wedge_df <- read_csv(file.path(TEMP_DIR, "commission_wedge.csv"), show_col_types = FALSE)
-DELTA_W <- setNames(wedge_df$estimate, wedge_df$term)
-comm_filings_cf <- read_csv("data/output/commission_filings.csv", show_col_types = FALSE)
-LEV_LOOKUP <- setNames((1 - comm_filings_cf$on_share) / comm_filings_cf$on_share,
-                       paste(comm_filings_cf$insurer_prefix, comm_filings_cf$year, sep = "_"))
-WEDGE_LOOKUP <- setNames(
-  unname(DELTA_W[paste0("wedge_", comm_filings_cf$insurer_prefix)]) +
-    DELTA_W[["wedge_leverage"]] * unname(LEV_LOOKUP),
-  names(LEV_LOOKUP))
+WEDGE_LOOKUP <- setNames(wedge_df$estimate, sub("^wedge_", "", wedge_df$term))
 
 demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 # Full spec (base + assisted): the price-interaction machinery must see the
@@ -168,8 +160,11 @@ for (y in years) {
   # or above the share floor. Their observed mean commission per agent member
   # sets the flat-mandate level.
   firms <- names(ag_obs$MC)
+  # The share floor applies to the carrier's pooled agent members, so a
+  # network unit of a gated carrier is never dropped on its half of the pool
+  qB_carrier <- tapply(ag_obs$qB[firms], sub("[.].*$", "", firms), sum)
   gate <- firms[ag_obs$MC[firms] > 0 & is.finite(ag_obs$MB[firms]) &
-                ag_obs$qB[firms] / N_year >= SHARE_FLOOR_FOC]
+                unname(qB_carrier[sub("[.].*$", "", firms)]) / N_year >= SHARE_FLOOR_FOC]
   etabar_y <- ag_obs$MC[gate] / ag_obs$qB[gate]
   cat("  pricing residual at observed premiums |e| =",
       signif(sqrt(sum(e_target[solve_ids]^2)), 3), ";",
@@ -277,8 +272,12 @@ for (y in years) {
   # The baseline commission equilibrium: each gated insurer's rate re-solved to
   # the estimated condition, so the baseline is the model's own equilibrium in
   # both margins. Firms without a wedge (no book-share row) hold at observed.
-  beta_gate <- setNames(BETA_LOOKUP[paste(gate, y, sep = "_")], gate)
-  wedge_gate <- setNames(WEDGE_LOOKUP[paste(gate, y, sep = "_")], gate)
+  # gate holds commission-setting units (carrier, or carrier.HMO / carrier.PPO
+  # where the schedule files network rates); beta and the wedge are carrier
+  # objects shared by a carrier's units
+  gate_firm <- sub("[.](HMO|PPO)$", "", gate)
+  beta_gate <- setNames(BETA_LOOKUP[paste(gate_firm, y, sep = "_")], gate)
+  wedge_gate <- setNames(unname(WEDGE_LOOKUP[gate_firm]), gate)
   firms_solve <- gate[is.finite(beta_gate[gate]) & is.finite(wedge_gate[gate])]
   k_base <- setNames(rep(1, length(gate)), gate)
   if (length(firms_solve) > 0) {

@@ -9,27 +9,25 @@
 ##                transfer compensates each plan to the market-average risk
 ##                mix, so margins have the structure of the estimated model.
 ##                Each firm-market draws its administrative offset beta_f
-##                (known to the estimator, as the filings-based beta is) and
-##                exchange leverage lev_f = (1 - w)/w as a PAIR from the
-##                empirical carrier-year pairs (commission_beta_carrier
-##                joined with commission_filings' on-exchange shares of the
-##                individual book, leverage jittered) --
-##                beta and leverage are positively related in the filings,
-##                and independent draws manufacture carrier types with
-##                near-zero effective commission cost that corner; the true
-##                wedge is delta0 + delta1 * lev_f at the empirical
-##                estimates. Firms choose premiums and their dollar
+##                from the empirical carrier betas (known to the estimator,
+##                as the filings-based beta is) and a true cross-market
+##                wedge wedge_f, one constant per firm as in M4's carrier
+##                levels, drawn uniformly over the span of the estimated
+##                levels; a joint guard keeps the effective commission cost
+##                (1 - beta_f) + wedge_f away from zero, where a carrier
+##                type would corner. Firms choose premiums and their dollar
 ##                commission scale jointly each year to maximize exchange
 ##                profit B minus ((1 - beta_f) + wedge_f) per commission
 ##                dollar, so the commission FOC
 ##                MB/MC = (1 - beta_f) + wedge_f holds at any interior
 ##                optimum. Marginal costs drift across years. Each rep
 ##                estimates demand exactly as on real data, then recovers
-##                (delta0, delta1) the way s4's M4 block does: the FOC gap
+##                each firm's wedge the way s4's M4 block does: the FOC gap
 ##                phi = MB/MC - 1 + beta_f computed at the ESTIMATED demand
-##                parameters per firm-market-year, fit on (1, leverage).
+##                parameters per firm-market-year, averaged over the firm's
+##                years with commission-base weights.
 ##                Firm-years at a search bound are excluded from the wedge
-##                fit, as M4 gates its conditions; the share at a bound is
+##                recovery, as M4 gates its conditions; the share at a bound is
 ##                printed after the panel solve. The steering coefficient is
 ##                set below the production estimate so the stylized market's
 ##                equilibrium schedules sit at the empirical scale (a market
@@ -41,7 +39,7 @@
 ##                /100 in the outlay converts). Standalone; not sourced by
 ##                the driver.
 ## Output:        results/simulations/sim3_estimates.csv (demand recovery),
-##                results/simulations/sim3_wedge.csv (delta recovery)
+##                results/simulations/sim3_wedge.csv (firm-wedge recovery)
 
 suppressMessages({ library(tidyverse); library(data.table); library(nnet) })
 setwd("C:/Users/immccar/SynologyDrive/work/research-projects/health-insurance-decision-support")
@@ -59,7 +57,7 @@ T_YEARS <- 6L
 MC_DRIFT_SD <- 0.15            # year-to-year log drift of marginal costs
 K_MAX <- 25                    # commission-scale search ceiling; MB/MC falls
                                # below any drawn effective cost well inside it
-DELTA_TRUE  <- c(delta0 = -0.457, delta1 = 0.090)
+WEDGE_RANGE <- c(-1.1, 0.7)    # span of the estimated carrier wedge levels
 MC_SEED <- 81520L
 MC_DIR  <- file.path(TEMP_DIR, "sim3_cells")
 OUT_DIR <- "results/simulations"
@@ -101,14 +99,11 @@ draw_hh <- function(n, z, id0) {
   hh
 }
 
-# Firm-market primitives: (beta_f, leverage) pairs from the empirical
-# carrier-years, so the effective commission cost has the joint distribution
-# the estimates imply
+# Firm-market primitives: beta_f from the empirical carrier betas and a true
+# firm-level wedge drawn over the span of the estimated carrier levels; the
+# guard keeps the effective commission cost away from zero, where a carrier
+# type would corner
 bb <- fread("data/output/commission_beta_carrier.csv")
-ws <- fread("data/output/commission_filings.csv")
-emp_pairs <- merge(ws[on_share > 0 & on_share <= 1, .(insurer_prefix, on_share)],
-                   bb[, .(insurer_prefix, beta)], by = "insurer_prefix")
-emp_pairs[, lev := (1 - on_share) / on_share]
 set.seed(MC_SEED)
 markets <- lapply(seq_len(N_CELLS), function(m) {
   z <- runif(1, 0.1, 0.9)
@@ -124,14 +119,12 @@ markets <- lapply(seq_len(N_CELLS), function(m) {
     basis   = ifelse(firm == "C", 0, runif(Jm, 8, 20))
   )
   repeat {
-    pick   <- emp_pairs[sample(.N, 2)]
-    beta_f <- setNames(pick$beta, c("A", "B"))
-    lev_f  <- setNames(pick$lev * exp(rnorm(2, 0, 0.2)), c("A", "B"))
-    wedge_f <- DELTA_TRUE[["delta0"]] + DELTA_TRUE[["delta1"]] * lev_f
+    beta_f  <- setNames(sample(bb$beta, 2), c("A", "B"))
+    wedge_f <- setNames(runif(2, WEDGE_RANGE[1], WEDGE_RANGE[2]), c("A", "B"))
     cost_mult <- (1 - beta_f) + wedge_f
     if (all(cost_mult > 0.10)) break
   }
-  list(m = m, z = z, plans = plans, lev_f = lev_f, beta_f = beta_f,
+  list(m = m, z = z, plans = plans, wedge_f = wedge_f, beta_f = beta_f,
        cost_mult = c(cost_mult, C = 0))
 })
 
@@ -244,8 +237,8 @@ eq <- lapply(markets, function(mk) {
     sol <- solve_P(refhh, pl, mc_t, kvec, P, mk$cost_mult); P <- sol$x
     years[[t]] <- list(t = t, mc_t = mc_t, P = P, kvec = kvec, termcd = sol$termcd)
   }
-  cat(sprintf("  market %d: lev = (%.2f, %.2f), k range A [%.2f, %.2f] B [%.2f, %.2f]\n",
-              mk$m, mk$lev_f[["A"]], mk$lev_f[["B"]],
+  cat(sprintf("  market %d: wedge = (%.2f, %.2f), k range A [%.2f, %.2f] B [%.2f, %.2f]\n",
+              mk$m, mk$wedge_f[["A"]], mk$wedge_f[["B"]],
               min(vapply(years, function(y) y$kvec[["A"]], numeric(1))),
               max(vapply(years, function(y) y$kvec[["A"]], numeric(1))),
               min(vapply(years, function(y) y$kvec[["B"]], numeric(1))),
@@ -368,8 +361,8 @@ for (r in seq_len(N_REPS)) {
 
   # Wedge recovery, the M4 logic: the FOC gap phi = MB/MC - 1 + beta_f at the
   # ESTIMATED demand parameters, true costs, and the equilibrium premiums and
-  # commissions, per firm-market-year; (delta0, delta1) from the fit of phi on
-  # (1, leverage), weighted by the firm-year commission base
+  # commissions, per firm-market-year; each firm-market's wedge level is the
+  # commission-base-weighted mean of its phi over years
   h <- 0.02
   wrows <- rbindlist(lapply(seq_along(markets), function(i) {
     mk <- markets[[i]]; e <- eq[[i]]; pl <- mk$plans
@@ -384,25 +377,27 @@ for (r in seq_len(N_REPS)) {
         bo0 <- firm_BO(theta_r, e$refhh, pl, yy$mc_t, yy$P, yy$kvec)
         data.table(market = mk$m, t = yy$t, firm = f,
                    phi = MB / MCd - (1 - mk$beta_f[[f]]),
-                   lev = mk$lev_f[[f]], w_o = bo0$O[[f]], k_eq = yy$kvec[[f]])
+                   wedge_true = mk$wedge_f[[f]], w_o = bo0$O[[f]], k_eq = yy$kvec[[f]])
       }))
     }))
   }))
   # corner guard, mirroring M4's gating: a firm-year at a bound of the search
-  # interval does not satisfy the FOC and is excluded from the wedge fit
+  # interval does not satisfy the FOC and is excluded from the wedge recovery
   wrows <- wrows[is.finite(phi) & w_o > 0 & k_eq > 0.05 & k_eq < K_MAX - 0.05]
-  wfit <- lm(phi ~ lev, data = wrows, weights = wrows$w_o)
-  wrow <- data.frame(rep = r, delta0 = unname(coef(wfit)[1]), delta1 = unname(coef(wfit)[2]),
-                     delta0_true = DELTA_TRUE[["delta0"]], delta1_true = DELTA_TRUE[["delta1"]],
-                     n_conditions = nrow(wrows))
+  wfm <- wrows[, .(delta_hat = weighted.mean(phi, w_o), delta_true = wedge_true[1],
+                   n_years = .N), by = .(market, firm)]
+  wrow <- data.frame(rep = r, bias = mean(wfm$delta_hat - wfm$delta_true),
+                     rmse = sqrt(mean((wfm$delta_hat - wfm$delta_true)^2)),
+                     corr = cor(wfm$delta_hat, wfm$delta_true),
+                     n_firm_markets = nrow(wfm), n_conditions = nrow(wrows))
   if (file.exists(wedge_path)) write.table(wrow, wedge_path, append = TRUE, sep = ",",
                                            col.names = FALSE, row.names = FALSE)
   else write.csv(wrow, wedge_path, row.names = FALSE)
 
-  cat(sprintf("  rep %d done in %.1f min: lambda_hat = %.4f (truth %.4f); delta = (%.3f, %.3f) vs (%.2f, %.2f)\n",
+  cat(sprintf("  rep %d done in %.1f min: lambda_hat = %.4f (truth %.4f); wedge bias %.3f rmse %.3f corr %.3f over %d firm-markets\n",
               r, as.numeric(difftime(Sys.time(), t0, units = "mins")),
-              theta_r[["lambda"]], lambda_true, wrow$delta0, wrow$delta1,
-              DELTA_TRUE[["delta0"]], DELTA_TRUE[["delta1"]]))
+              theta_r[["lambda"]], lambda_true, wrow$bias, wrow$rmse, wrow$corr,
+              wrow$n_firm_markets))
 }
 
 sim3 <- read_csv(res_path, show_col_types = FALSE)
@@ -416,8 +411,5 @@ summ3 <- sim3 %>% group_by(term) %>%
 cat("\n=== tier 3 demand recovery (full model, FOC-with-wedge commissions) ===\n")
 print(as.data.frame(summ3), row.names = FALSE)
 wp <- read_csv(wedge_path, show_col_types = FALSE)
-cat(sprintf("\nwedge recovery over %d reps: delta0 mean %.3f (truth %.2f, rmse %.3f); delta1 mean %.3f (truth %.2f, rmse %.3f)\n",
-            nrow(wp), mean(wp$delta0), DELTA_TRUE[["delta0"]],
-            sqrt(mean((wp$delta0 - wp$delta0_true)^2)),
-            mean(wp$delta1), DELTA_TRUE[["delta1"]],
-            sqrt(mean((wp$delta1 - wp$delta1_true)^2))))
+cat(sprintf("\nwedge recovery over %d reps: mean bias %.3f, mean rmse %.3f, mean corr %.3f\n",
+            nrow(wp), mean(wp$bias), mean(wp$rmse), mean(wp$corr)))

@@ -47,13 +47,21 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   set.seed(seed)
 
   # Commissions on the plans before the choice data are built; percentage
-  # schedules (rate x premium) are dollarized at the observed premiums.
+  # schedules (rate x premium) are dollarized at the observed premiums. The
+  # lookup is keyed on (insurer_prefix, year, hmo): Blue Shield and Health Net
+  # file network-level rates, so those carrier-years' plans carry their
+  # network's rate.
   comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
+  split_prefix <- comm_yr %>% group_by(insurer_prefix) %>%
+    summarize(split = n_distinct(rate) > 1, .groups = "drop") %>%
+    filter(split) %>% pull(insurer_prefix)
   plans_cell <- plans_cell %>%
-    mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
-    left_join(comm_yr, by = "insurer_prefix") %>%
+    mutate(insurer_prefix = sub("_.*", "", plan_id),
+           # HSP is a closed-network product and pays the HMO schedule
+           hmo_join = as.integer(!is.na(network_type) & network_type %in% c("HMO", "HSP"))) %>%
+    left_join(comm_yr, by = c("insurer_prefix", "hmo_join" = "hmo")) %>%
     mutate(comm_pmpm = case_when(is.na(rate) ~ 0, is_pct ~ rate * premium, TRUE ~ rate)) %>%
-    select(-insurer_prefix, -rate, -is_pct)
+    select(-insurer_prefix, -hmo_join, -rate, -is_pct)
 
   build_result <- build_structural(plans_cell, hhs_raw, sample_frac, spec = STRUCTURAL_SPEC)
   if (is.null(build_result)) { cat("Empty cell data for", r, y, "\n"); return(NULL) }
@@ -80,6 +88,14 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   plan_prefix <- sub("_.*", "", plan_ids_cell)
   own_mat <- outer(plan_prefix, plan_prefix, "==") * 1L
   dimnames(own_mat) <- list(plan_ids_cell, plan_ids_cell)
+  # Commission-setting units: one per carrier, except carrier-years whose filed
+  # schedule has distinct network rates, which choose one commission per
+  # network (HMO/HSP plans on the HMO schedule, PPO/EPO on the PPO schedule)
+  comm_hmo_cf <- as.integer(!is.na(pa$network_type) &
+                              pa$network_type %in% c("HMO", "HSP"))
+  plan_unit <- ifelse(plan_prefix %in% split_prefix,
+                      paste0(plan_prefix, ifelse(comm_hmo_cf == 1, ".HMO", ".PPO")),
+                      plan_prefix)
   # 2nd cheapest Silver by observed posted premium (the ACA benchmark at the
   # observed point; the counterfactual re-picks it at the candidate premiums)
   silver <- plan_attrs[plan_attrs$metal == "Silver", ]
@@ -119,7 +135,7 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   })
   reins_vec[is.na(reins_vec)] <- 0
 
-  mean_comm_pmpm <- mean(sr_cell$commission_pmpm[sr_cell$commission_pmpm > 0], na.rm = TRUE)
+  mean_comm_pmpm <- mean(comm_obs[comm_obs > 0], na.rm = TRUE)
   if (is.na(mean_comm_pmpm)) mean_comm_pmpm <- 0
 
   admin_vec <- setNames(admin_lookup[paste(plan_prefix, y, sep = "_")], plan_ids_cell)
@@ -132,6 +148,7 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
 
   .cf$cell <- list(
     r = r, y = y, N = N_cell, plan_ids = plan_ids_cell, prefix = plan_prefix,
+    unit = plan_unit,
     admin = admin_vec, beta = unname(beta_vec),
     cell_data_base = cell_data_base, plan_attrs = plan_attrs, plans_cell = plans_cell,
     coefs = coefs, lambda = setNames(coefs$estimate, coefs$term)[["lambda"]],
@@ -305,12 +322,12 @@ cf_cell_scenario <- function(label, spec) {
                               (if (is.null(spec$u_sc)) 1 else spec$u_sc), length(pn)), pn),
     scale    = setNames(cl$comm_obs * spec$sc, pn),
     firmscale = {
-      kf <- spec$k_firm[cl$prefix]
+      kf <- spec$k_firm[cl$unit]
       kf[is.na(kf)] <- 1
       setNames(cl$comm_obs * unname(kf), pn)
     },
     flatbar  = {
-      lv <- spec$levels[cl$prefix]
+      lv <- spec$levels[cl$unit]
       lv[is.na(lv)] <- 0
       setNames(unname(lv), pn)
     },
@@ -421,30 +438,32 @@ cf_cell_eval_p2 <- function(totals, own) {
     resid <- resid + as.vector(Omega_B %*% (cs * ev$eta))
   }
 
-  # Commission pieces per insurer: MB_f = margin x d qB / d k + RA response,
-  # MC_f = outlay, qB_f = broker enrollment; weights w = the plan's commission
-  # under the scenario's schedule.
+  # Commission pieces per commission-setting unit (the carrier, or the
+  # carrier-network where the schedule files network rates): MB_f = margin x
+  # d qB / d k + RA response, MC_f = outlay, qB_f = broker enrollment;
+  # weights w = the plan's commission under the scenario's schedule.
   MB <- MC <- qB <- setNames(numeric(0), character(0))
   if (!is.null(ev$comm_D)) {
     ra_eta <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$comm_D, cl$own_mat)
     margin <- ev$p - mc - cs * ev$eta
     w_basis <- sc$comm
-    firms <- unique(cl$prefix[sc$comm > 0])
+    firms <- unique(cl$unit[sc$comm > 0])
     for (f in firms) {
-      ii <- which(cl$prefix == f)
+      ii <- which(cl$unit == f)
+      jj <- which(cl$prefix == sub("[.].*$", "", f))  # the carrier's plans: its margins all enter MB
       w_f <- numeric(J); w_f[ii] <- w_basis[ii]
       dq <- as.numeric(ev$comm_D %*% w_f)
-      MB[f] <- sum(margin[ii] * dq[ii]) + sum(w_basis[ii] * ra_eta[ii])
+      MB[f] <- sum(margin[jj] * dq[jj]) + sum(w_basis[ii] * ra_eta[ii])
       MC[f] <- sum(ev$comm_qB[ii] * w_basis[ii])
       qB[f] <- sum(ev$comm_qB[ii])
     }
   }
-  # Insurer variable profit and agent enrollment in the cell (monthly, sample
+  # Unit variable profit and agent enrollment in the cell (monthly, sample
   # units): margin on all members less the net commission outlay on agent members
   qBp <- if (!is.null(ev$qB_plan)) ev$qB_plan else rep(0, J)
   prof_plan <- cl$N * ((ev$p - mc) * ev$shares - cs * ev$eta * qBp)
-  firm_profit <- tapply(prof_plan, cl$prefix, sum)
-  firm_qB <- tapply(cl$N * qBp, cl$prefix, sum)
+  firm_profit <- tapply(prof_plan, cl$unit, sum)
+  firm_qB <- tapply(cl$N * qBp, cl$unit, sum)
 
   list(plan_ids = pn, N = cl$N, g = cl$g, resid = setNames(resid, pn),
        MB = MB, MC = MC, qB = qB, shares = ev$shares, mc = mc, claims = mc_res$predicted_claims[pn],

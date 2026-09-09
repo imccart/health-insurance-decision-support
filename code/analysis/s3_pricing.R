@@ -134,10 +134,12 @@ for (i in seq_len(nrow(cells))) {
   if (!"comm_pmpm" %in% names(plans)) {
     comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
     plans <- plans %>%
-      mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
-      left_join(comm_yr, by = "insurer_prefix") %>%
+      mutate(insurer_prefix = sub("_.*", "", plan_id),
+             # HSP is a closed-network product and pays the HMO schedule
+             hmo_join = as.integer(!is.na(network_type) & network_type %in% c("HMO", "HSP"))) %>%
+      left_join(comm_yr, by = c("insurer_prefix", "hmo_join" = "hmo")) %>%
       mutate(comm_pmpm = case_when(is.na(rate) ~ 0, is_pct ~ rate * premium, TRUE ~ rate)) %>%
-      select(-insurer_prefix, -rate, -is_pct)
+      select(-insurer_prefix, -hmo_join, -rate, -is_pct)
     rm(comm_yr)
   }
 
@@ -289,13 +291,18 @@ for (i in seq_len(nrow(cells))) {
 
   # Everything pass 2 needs (transfers, marginal costs, markups) once the
   # statewide sums are known; the household data are dropped here.
+  # Commission-network flag: the plan's schedule side (HMO and HSP pay the
+  # HMO schedule); distinct from the claims equation's HMO covariate
+  comm_hmo_cell <- setNames(as.integer(!is.na(pa$network_type) &
+                                         pa$network_type %in% c("HMO", "HSP")),
+                            pa$plan_id)[plan_ids_cell]
   pass1[[i]] <- list(
     region = r, year = y, plan_ids = plan_ids_cell, N = N_cell,
     shares = shares, elast_mat = elast_mat, own_mat = own_mat, Omega = Omega,
     Omega_broker = Omega_broker, comm_D = comm_D, comm_qB = comm_qB, comm_vec = comm_vec,
     posted_premium = posted_premium, plan_avs = plan_avs, plan_metal = plan_metal,
     plan_issuer = plan_issuer, plan_chars_cell = plan_chars_cell, demo_shares = demo_shares,
-    reins_vec = reins_vec
+    reins_vec = reins_vec, comm_hmo = comm_hmo_cell
   )
   n_done <- n_done + 1L
 
@@ -401,6 +408,7 @@ for (k in seq_along(pass1)) {
     own_mat        = cl$own_mat,
     demo_shares    = cl$demo_shares, # demand-model-predicted demographic shares and ARF for M1/M3
     hmo            = setNames(cl$plan_chars_cell$HMO, cl$plan_chars_cell$plan_id),
+    comm_hmo       = cl$comm_hmo,    # schedule side (HMO/HSP vs PPO/EPO) for the M4 units
     comm_D         = cl$comm_D,      # broker commission-derivative matrix dqB_j/deta_k (M4 commission FOC)
     comm_qB        = cl$comm_qB,     # broker enrollment per plan, share units (M4 commission FOC)
     N              = cl$N,           # members in the cell (transfer formula)

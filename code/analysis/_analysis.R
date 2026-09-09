@@ -35,15 +35,15 @@ source("code/analysis/helpers/welfare.R")
 
 
 # build: shared data construction -----------------------------------------
-source("code/analysis/build1_decision-analysis.R")   # writes hh_full.csv
-source("code/analysis/build2_ipw.R")                 # writes ipweights.csv
+#source("code/analysis/build1_decision-analysis.R")   # writes hh_full.csv
+#source("code/analysis/build2_ipw.R")                 # writes ipweights.csv
 source("code/analysis/build3_data-prep.R")           # writes hh_full_prepped/plan_choice/hh_choice
 
 # rf: reduced form --------------------------------------------------------
-source("code/analysis/rf1_dominated.R")              # reads hh_full_prepped.csv
-source("code/analysis/rf2_choice-att.R")
-source("code/analysis/rf3_summary.R")
-source("code/analysis/rf4_first-stage.R")            # instrument first-stage strength
+#source("code/analysis/rf1_dominated.R")              # reads hh_full_prepped.csv
+#source("code/analysis/rf2_choice-att.R")
+#source("code/analysis/rf3_summary.R")
+#source("code/analysis/rf4_first-stage.R")            # instrument first-stage strength
 
 # s: structural -----------------------------------------------------------
 source("code/analysis/s1_inputs.R")          # cells + seeds (needs build3 outputs)

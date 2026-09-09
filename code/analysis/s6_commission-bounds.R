@@ -34,6 +34,14 @@ sr_s6 <- read_csv("results/supply_results.csv", show_col_types = FALSE) %>%
 
 K_GRID_S6 <- c(0, 0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5)
 
+# Commission-setting units, as in s4's M4: a carrier-year whose filed schedule
+# has distinct network rates deviates one network's schedule at a time
+SPLIT_KEYS_S6 <- read_csv("data/output/commission_lookup.csv", show_col_types = FALSE) %>%
+  group_by(insurer_prefix, year) %>%
+  summarize(split = n_distinct(rate) > 1, .groups = "drop") %>%
+  filter(split) %>%
+  { paste(.$insurer_prefix, .$year, sep = "_") }
+
 CELL_DIR_S6 <- file.path(TEMP_DIR, "choice_cells")
 cell_files_s6 <- list.files(CELL_DIR_S6, pattern = "^cell_.*_data\\.csv$", full.names = TRUE)
 cat("  cells:", length(cell_files_s6), "| lambda", round(LAMBDA_S6, 4),
@@ -67,14 +75,23 @@ profit_cell_s6 <- function(fp) {
   # channel probabilities fall back to fixed enrollment.
   ins[, is_b := broker == 1L]
   use_states_s6 <- all(c("iv_0", "iv_N", "iv_A", "add_A") %in% names(ins))
-  firms <- sort(unique(ins[comm_pmpm > 0, prefix]))
-  plan_info <- unique(ins[, .(plan_id, prefix, premium_posted, comm_pmpm, mc_gmm)])
+  cell_has_split <- any(paste(unique(ins$prefix), y, sep = "_") %in% SPLIT_KEYS_S6)
+  if (cell_has_split && !"network_type" %in% names(ins))
+    stop("s6: cell ", r, " ", y, " lacks network_type, needed for the network units")
+  ins[, unit := if (cell_has_split)
+    fifelse(paste(prefix, y, sep = "_") %in% SPLIT_KEYS_S6,
+            paste0(prefix, fifelse(!is.na(network_type) &
+                                     network_type %in% c("HMO", "HSP"),
+                                   ".HMO", ".PPO")), prefix) else prefix]
+  firms <- sort(unique(ins[comm_pmpm > 0, unit]))
+  plan_info <- unique(ins[, .(plan_id, prefix, unit, premium_posted, comm_pmpm, mc_gmm)])
 
   out <- list()
   for (f in firms) {
-    beta_f <- if (f %in% names(BETA_F)) BETA_F[[f]] else BETA_DEFAULT_S6
+    f_carrier <- sub("[.].*$", "", f)
+    beta_f <- if (f_carrier %in% names(BETA_F)) BETA_F[[f_carrier]] else BETA_DEFAULT_S6
     for (k in K_GRID_S6) {
-      ins[, d_k := fifelse(prefix == f, BETA_COMM_S6 * (k - 1) * comm_pmpm, 0)]
+      ins[, d_k := fifelse(unit == f, BETA_COMM_S6 * (k - 1) * comm_pmpm, 0)]
       # Broker households' within-nest shares at the deviated commissions
       # (commission_broker = comm_pmpm on their rows)
       ins[, s_jg_k := s_jg]
@@ -93,13 +110,15 @@ profit_cell_s6 <- function(fp) {
       } else {
         ins[, s_g_k := s_g]
       }
-      mem <- ins[prefix == f,
+      # Profit over the carrier's plans; the deviated scale applies only to the
+      # unit's schedule, the sister network stays at its observed rates
+      mem <- ins[prefix == f_carrier,
                  .(mem = sum(hh_weight * s_jg_k * s_g_k),
                    mem_b = sum(hh_weight * s_jg_k * s_g_k * is_b)), by = plan_id]
-      pf <- merge(plan_info[prefix == f], mem, by = "plan_id", all.x = TRUE)
+      pf <- merge(plan_info[prefix == f_carrier], mem, by = "plan_id", all.x = TRUE)
       pf[is.na(mem), mem := 0]; pf[is.na(mem_b), mem_b := 0]
       pi_m <- pf[, sum((premium_posted - mc_gmm) * mem -
-                       (1 - beta_f) * k * comm_pmpm * mem_b)]
+                       (1 - beta_f) * fifelse(unit == f, k, 1) * comm_pmpm * mem_b)]
       out[[length(out) + 1]] <- data.table(region = r, year = y, firm = f, k = k,
         profit_month = pi_m, members = pf[, sum(mem)], members_b = pf[, sum(mem_b)])
     }
@@ -118,7 +137,8 @@ parallel::clusterEvalQ(cl_s6, {
   source("code/analysis/helpers/supply.R"); setDTthreads(1)
 })
 parallel::clusterExport(cl_s6, c("profit_cell_s6", "coefs_s6", "LAMBDA_S6", "BETA_COMM_S6",
-                                 "BETA_F", "BETA_DEFAULT_S6", "sr_s6", "K_GRID_S6"))
+                                 "BETA_F", "BETA_DEFAULT_S6", "sr_s6", "K_GRID_S6",
+                                 "SPLIT_KEYS_S6"))
 res_s6 <- rbindlist(parallel::parLapplyLB(cl_s6, cell_files_s6, function(fp)
   tryCatch(profit_cell_s6(fp), error = function(e) {
     cat("  ERR", basename(fp), ":", conditionMessage(e), "\n"); NULL })))

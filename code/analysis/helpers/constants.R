@@ -19,7 +19,7 @@ AFFORD_THRESHOLDS <- c(
 # retained), and in the M1/M2 risk/claims moments; only their own degenerate FOC
 # equation is dropped. At 0.002 (~a handful of buyers in an average cell) the
 # extreme markups vanish (max retained ~$700 vs tens of thousands below it).
-SHARE_FLOOR_FOC <- 0.002
+SHARE_FLOOR_FOC <- 0.005
 
 # Plan-id list for plan-level fixed effects (post small-insurer collapse +
 # Silver-CSR collapse via gsub). ANT_SIL is the reference (most common).

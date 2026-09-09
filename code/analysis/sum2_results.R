@@ -164,16 +164,32 @@ cat("\n--- Figures: Commission Schedule ---\n")
 comm <- commission_lookup %>%
   filter(year >= 2014, year <= 2019)
 
+# A carrier with network-level rates anywhere in a panel is drawn as one
+# series per network throughout it (coincident where the rates are equal);
+# every other carrier is one series from its hmo = 0 rows
+label_networks <- function(d) {
+  d %>%
+    group_by(insurer_prefix, year) %>%
+    mutate(year_split = n_distinct(rate) > 1) %>%
+    group_by(insurer_prefix) %>%
+    mutate(ever_split = any(year_split)) %>%
+    ungroup() %>%
+    filter(ever_split | hmo == 0) %>%
+    mutate(network = ifelse(ever_split, ifelse(hmo == 1, " (HMO)", " (PPO)"), "")) %>%
+    select(-year_split, -ever_split)
+}
+
 # Flat commission insurers
 flat_comm <- comm %>%
   filter(!is_pct) %>%
-  mutate(insurer = case_when(
+  label_networks() %>%
+  mutate(insurer = paste0(case_when(
     insurer_prefix == "ANT" ~ "Anthem",
     insurer_prefix == "KA"  ~ "Kaiser",
     insurer_prefix == "HN"  ~ "Health Net",
     insurer_prefix == "Small" ~ "Small Insurers",
     TRUE ~ insurer_prefix
-  )) %>%
+  ), network)) %>%
   filter(insurer_prefix %in% c("ANT", "KA", "HN", "Small"))
 
 p_flat <- ggplot(flat_comm, aes(x = year, y = rate, color = insurer, shape = insurer)) +
@@ -189,13 +205,14 @@ ggsave("results/figures/flat_comm.pdf", p_flat, width = 6, height = 4)
 # Percentage commission insurers
 pct_comm <- comm %>%
   filter(is_pct) %>%
+  label_networks() %>%
   mutate(
-    insurer = case_when(
+    insurer = paste0(case_when(
       insurer_prefix == "BS" ~ "Blue Shield",
       insurer_prefix == "HN" ~ "Health Net",
       insurer_prefix == "Small" ~ "Sharp",
       TRUE ~ insurer_prefix
-    ),
+    ), network),
     rate_pct = rate * 100
   )
 
@@ -405,12 +422,11 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
   sv <- cost_coefs %>% filter(equation == "commission")
   if (nrow(sv) > 0) {
     tab_lines <- c(tab_lines, "\\hline", "\\emph{Commission condition} & \\\\")
-    comm_labels <- c(beta_admin = "Administrative saving per commission dollar ($\\beta$)",
-                     wedge_leverage = "Cross-market wedge, leverage ($\\delta_1$)")
+    comm_labels <- c(beta_admin = "Administrative saving per commission dollar ($\\beta$)")
     for (i in seq_len(nrow(sv))) {
       lab <- ifelse(sv$param[i] %in% names(comm_labels), comm_labels[sv$param[i]],
              ifelse(grepl("^wedge_", sv$param[i]),
-                    sprintf("Cross-market wedge, %s ($\\delta_{0,f}$)",
+                    sprintf("Cross-market wedge, %s ($\\delta_{f}$)",
                             gsub("_", "\\\\_", sub("^wedge_", "", sv$param[i]))),
                     gsub("_", "\\\\_", sv$param[i])))
       tab_lines <- c(tab_lines,
