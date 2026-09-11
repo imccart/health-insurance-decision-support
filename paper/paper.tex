@@ -275,12 +275,21 @@ Each insurer $f$ chooses the base premium $p_{jmt}$ and agent commission $y_{jt}
 \end{equation}
 where $R_{ft}({\bf p},{\bf y})$ is total premium revenue, $C_{ft}({\bf p},{\bf y})$ is total claims,  $Y_{ft}({\bf p},{\bf y})$ is total commissions paid, $RA_{ft}({\bf p},{\bf y})$ is the net risk adjustment transfer, $RI_{ft}({\bf p},{\bf y})$ is reinsurance received from the ACA's transitional reinsuarance program, and $VC_{ft}({\bf p},{\bf y})$ is variable administrative cost excluding commissions. 
 
-Formulas for all terms in equation~(\ref{eqn:profit}) are in Appendix~\ref{app:formulas}. Computing total premium revenue is straightforward, only requiring the choice probability estimates in equation~(\ref{eqn:choice_probs}).  For total firm claims, we also need estimates of average plan claims.  We estimate average claims using the estimating equation  
+Formulas for all terms in equation~\eqref{eqn:profit} are in Appendix~\ref{app:formulas}.
+To compute total premium revenue, total commissions paid, and variable administrative costs, we only require the choice probability estimates in equation~\eqref{eqn:choice_probs}.  For total firm claims, risk adjustment, and reinsurance, we also need estimates of enrollee risk and average plan claims. We estimate enrollee risk using the ACA's risk score, a key input in determining risk adjustment transfers. CMS uses a regression-based procedure to predict enrollee risk based on age, gender, and diagnosed medical conditions for each metal/AV tier separately \citep{kautter2014hhs}.  We cannot replicate this procedure exactly because we lack data on diagnosed medical conditions.  We instead use the estimating equation   
+
+\begin{equation}
+\label{eqn:risk_score_estimation}
+	\ln r_{jmt}({\bf p},{\bf y}) = \gamma^{AV} AV_j + \sum_{d \in D} \gamma^d s_{djmt}({\bf p},{\bf y}) + \sum_{f} \gamma^f \mathbbm{1}[f(j) = f] + \epsilon_{jmt}^r,
+\end{equation}
+where $AV_j$ is the plan's actuarial value, $s_{djmt}({\bf p},{\bf y})$ is the share of plan $j$'s enrollment in demographic group $d$, and the final term is a set of insurer fixed effects. To avoid endogeneity from selection on unobservables, we compute predicted demographic shares by aggregating the estimated household choice probabilities from Equation~\eqref{eqn:choice_probs} rather than using observed enrollment shares, following the approach widely used in the hospital choice literature to construct market concentration measures \citep{kessler2000}.  We estimate average claims using the estimating equation  
 \begin{equation}
 \label{eqn:avg_claims_estimation}
 	\ln c_{jmt}({\bf p},{\bf y}) = \mu^r \ln \hat{r}_{jmt}({\bf p},{\bf y}) + x'_j  \mu^{x}  + \mu^l l_t + \epsilon_{jmt}^c,
 \end{equation}
-where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted risk score from Equation~(\eqref{eqn:risk_score_estimation}) below, $x_j$ is a network type indicator, and $l_t$ is a linear trend. Equation~(\eqref{eqn:risk_score_estimation}) writes average claims as a function of enrollee risk This construction of enrollee average claims allows enrolle r
+where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted ACA risk score from Equation~\eqref{eqn:risk_score_estimation}, $x_j$ is a network type indicator, and $l_t$ is a linear trend. Using the predicted rather than the observed risk score addresses the endogeneity of plan enrollment composition.  Equation~\eqref{eqn:risk_score_estimation} writes average claims as a function of enrollee risk (which in turn is a function of demand), allowing us to capture adverse selection.
+
+Appendix~\ref{app:formulas} provides technical details on risk adjustment and reinsurance.  The ACA's risk adjustment program transfers money from insurers with disproportionally low-risk enrollees to insurers with disproportionally high-risk enrollees.  All transfers sum to zero.  The goal of the program is to disincentivize insurers from reducing cost by simply cherrypicking low-risk consumers. The ACA's risk adjustment formula in Appendix~\ref{app:formulas} is particularly complicated because it needs to account for observables that insurers can price on, such as age, rating area, and metal tier.  The formula isolates sources of claims risk that insurers are not allowed to price on.  The ACA's transitional reinsurance program, in place between 2014 and 2016, provided insurers with financial assistance for enrollees with particularly high claims.\footnote{Many states, but not California, have since re-instituted reinsurance programs.} We use our data to calculate the actuarial value of the reinsurance contract (i.e., the expected percentage of an insurer's claims that the reinsurance contract is expected to pay).     
 
 %Define $J_{ft}$ as the set of plans sold by firm $f$ at time $t$ and $I$ as the set of households.  Total commissions paid by the firm are
 %begin{equation*}
@@ -288,28 +297,18 @@ where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted risk score from Equation~(\
 %\end{equation*}
 %where $a_{it}^B$ indicates agent-assisted enrollment as before and $q_{ijt}({\bf p},{\bf y})$ are the choice probabilities from Equation~\eqref{eqn:choice_probs}.
 
-\paragraph{Risk adjustment.} The ACA risk adjustment program makes budget-neutral transfers across plans based on the relative health risk of their enrollees \citep{pope2014}. Plans that attract higher-risk enrollees receive transfers funded by plans with lower-risk enrollees. The per-member-per-month transfer for plan $j$ is
-\begin{equation}
-\label{eqn:ra_formula}
-	ra_{jmt}({\bf p},{\bf y}) = \left(\frac{r_{jmt}({\bf p},{\bf y})}{\sum_{l} r_{lmt}({\bf p},{\bf y}) \tilde{q}_{lmt}({\bf p},{\bf y})}    -     \frac{h_j}{\sum_{l} h_l \tilde{q}_{lmt}({\bf p},{\bf y})}\right)\bar{p}_t,
-\end{equation}
-where $r_{jmt}({\bf p},{\bf y})$ is the plan risk score, $h_j$ is an exogenous utilization factor that accounts for the plan's actuarial value and associated moral hazard, $\tilde{q}_{lmt}({\bf p},{\bf y})$ denotes enrollment-weighted plan shares, and $\bar{p}_t$ is the market average premium. The first term in parentheses captures the plan's share of total risk (reflecting adverse selection, moral hazard, and plan generosity), while the second captures the plan's expected utilization share (reflecting only moral hazard and generosity). A positive difference indicates that the plan attracts higher-risk enrollees than its generosity alone would predict, generating an inward risk adjustment transfer. Budget neutrality is maintained by construction.
 
-We do not directly observe plan risk scores in the rate filing data. Instead, we estimate a risk score prediction model as a function of the plan's actuarial value and the demographic composition of its enrollees,
-\begin{equation}
-\label{eqn:risk_score_estimation}
-	\ln r_{jmt}({\bf p},{\bf y}) = \gamma^{AV} AV_j + \sum_{d \in D} \gamma^d s_{djmt}({\bf p},{\bf y}) + \sum_{f} \gamma^f \mathbbm{1}[f(j) = f] + \epsilon_{jmt}^r,
-\end{equation}
-where $AV_j$ is the plan's actuarial value, $s_{djmt}({\bf p},{\bf y})$ is the share of plan $j$'s enrollment in demographic group $d$, and the final term is a set of insurer fixed effects. Actuarial value replaces the metal tier indicators used by \cite{saltzman2019} because it subsumes them while also capturing variation within the silver tier across the three cost-sharing reduction levels. The demographic shares are the age and gender shares of enrollment. To avoid endogeneity from selection on unobservables, we compute predicted demographic shares by aggregating the estimated household choice probabilities from Equation~\eqref{eqn:choice_probs} rather than using observed enrollment shares, following the approach widely used in the hospital choice literature to construct market concentration measures \citep{kessler2000}.
 
-The insurer fixed effects in Equation~\eqref{eqn:risk_score_estimation} are a deliberate departure from the specification in \cite{saltzman2019}, and they are data-driven. Without them, the low-cost carriers in the market sit roughly 0.4 to 0.7 log points below the risk score that actuarial value and demographics alone predict for them. The model then overstates their enrollees' risk, pays them risk adjustment transfers in excess of their claims, and drives their implied marginal costs negative, even though these carriers pay into the risk adjustment pool in the raw filings. Adding insurer fixed effects corrects the mislabeling. Because risk adjustment is budget neutral within a market, it does not reduce the total number of plans with negative net-of-transfer marginal cost, and we do not treat that count as a diagnostic. Roughly nine percent of platinum plans in the raw rate filings genuinely receive more in risk adjustment and reinsurance than they pay in claims, so an efficient insurer covering a high-risk pool can book a surplus net of transfers.
 
-We predict plan average claims as a function of the predicted risk score,
-\begin{equation}
-\label{eqn:avg_claims_estimation}
-	\ln c_{jmt}({\bf p},{\bf y}) = \mu^r \ln \hat{r}_{jmt}({\bf p},{\bf y}) + x'_j  \mu^{x}  + \mu^l l_t + \epsilon_{jmt}^c,
-\end{equation}
-where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted risk score from Equation~\eqref{eqn:risk_score_estimation}, $x_j$ is a network type indicator, and $l_t$ is a linear trend. Using the predicted rather than the observed risk score addresses the endogeneity of plan enrollment composition. Actuarial value and the insurer fixed effects enter the risk score equation only. Including actuarial value in both equations makes it collinear with the risk score and collapses the estimated pass-through of risk into claims from roughly one to near zero, and insurer identity enters both equations through the same pass-through, which leaves the joint moment condition rank deficient.
+
+%The insurer fixed effects in Equation~\eqref{eqn:risk_score_estimation} are a deliberate departure from the specification in \cite{saltzman2019}, and they are data-driven. Without them, the low-cost carriers in the market sit roughly 0.4 to 0.7 log points below the risk score that actuarial value and demographics alone predict for them. The model then overstates their enrollees' risk, pays them risk adjustment transfers in excess of their claims, and drives their implied marginal costs negative, even though these carriers pay into the risk adjustment pool in the raw filings. Adding insurer fixed effects corrects the mislabeling. Because risk adjustment is budget neutral within a market, it does not reduce the total number of plans with negative net-of-transfer marginal cost, and we do not treat that count as a diagnostic. Roughly nine percent of platinum plans in the raw rate filings genuinely receive more in risk adjustment and reinsurance than they pay in claims, so an efficient insurer covering a high-risk pool can book a surplus net of transfers.
+
+%We predict plan average claims as a function of the predicted risk score,
+%\begin{equation}
+%\label{eqn:avg_claims_estimation}
+	%\ln c_{jmt}({\bf p},{\bf y}) = \mu^r \ln \hat{r}_{jmt}({\bf p},{\bf y}) + x'_j  \mu^{x}  + \mu^l l_t + \epsilon_{jmt}^c,
+%\end{equation}
+%where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted risk score from Equation~\eqref{eqn:risk_score_estimation}, $x_j$ is a network type indicator, and $l_t$ is a linear trend.  Actuarial value and the insurer fixed effects enter the risk score equation only. Including actuarial value in both equations makes it collinear with the risk score and collapses the estimated pass-through of risk into claims from roughly one to near zero, and insurer identity enters both equations through the same pass-through, which leaves the joint moment condition rank deficient.
 
 \paragraph{Pricing first-order conditions.} Differentiating equation~\eqref{eqn:profit} with respect to the base premium $p_{jmt}$ yields the first-order condition
 \begin{equation}
