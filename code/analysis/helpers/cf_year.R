@@ -20,6 +20,17 @@
 ##                one worker per cell, helpers/cf_cell.R), the statewide
 ##                transfer sums, then phase 2. Called by cf1_estimate.R.
 
+# Terminal output is a dot tracker: "." per solver evaluation, "|" per
+# commission round, one line per finished or failed scenario. The full status
+# lines go to a run log with timestamps, so a failed or skipped year's reason
+# survives the terminal scrollback. quiet = TRUE writes to the log only.
+CF_RUN_LOG <- file.path(TEMP_DIR, "cf_years", "run_log.txt")
+cf_log <- function(msg, quiet = FALSE) {
+  if (!quiet) cat(paste0("\n", msg))
+  dir.create(dirname(CF_RUN_LOG), showWarnings = FALSE, recursive = TRUE)
+  cat(format(Sys.time(), "[%Y-%m-%d %H:%M] "), msg, file = CF_RUN_LOG, sep = "", append = TRUE)
+}
+
 # cf_year_aggregate ---------------------------------------------------------
 # Plan-year pricing conditions and insurer-year commission aggregates (MB, MC,
 # qB; populated only when the scenario computes commission derivatives) from
@@ -84,9 +95,7 @@ cf_year_jacobian_P <- function(yr, solve_ids, P, h = 1) {
     Ph <- P; Ph[solve_ids[j]] <- Ph[solve_ids[j]] + h
     fh <- f_at(Ph)
     if (!is.null(fh)) J[, j] <- (fh - f0) / h
-    if (j %% 10 == 0 || j == length(solve_ids))
-      cat(sprintf("    [%s jacobian] column %d of %d  %.1f min\n", yr$y, j, length(solve_ids),
-                  as.numeric(difftime(Sys.time(), t0, units = "mins"))))
+    cat(".")
   }
   J
 }
@@ -106,7 +115,7 @@ cf_year_jacobian_P <- function(yr, solve_ids, P, h = 1) {
 # fixed point.
 solve_cf_year_fixed_point <- function(yr, label, solve_ids, P_init,
                                       kappa = 0.15, step_cap = 25, tol_dollars = 1,
-                                      maxit_P = 60, om_base = NULL) {
+                                      maxit_P = 150, om_base = NULL) {
   P <- P_init
   t0 <- Sys.time(); n <- 0L; last <- NULL
   # Residual scale: the baseline own-price terms when supplied (a scenario that
@@ -125,10 +134,9 @@ solve_cf_year_fixed_point <- function(yr, label, solve_ids, P_init,
   best <- NULL; worse <- 0L
   for (it in seq_len(maxit_P)) {
     last <- eval_at(P)
-    if (is.null(last)) { cat("    ", label, "- evaluation failed\n"); return(NULL) }
+    if (is.null(last)) { cf_log(paste("    ", label, "- evaluation failed\n")); return(NULL) }
     m <- max(abs(last$f))
-    cat(sprintf("    [%s %s] premiums %d  max |f| = %.2f $  %.1f min\n",
-                yr$y, label, it, m, elapsed()))
+    cat(".")
     if (is.null(best) || m < max(abs(best$f))) {
       best <- list(P = P, pieces = last$pieces, f = last$f); worse <- 0L
     } else worse <- worse + 1L
@@ -170,8 +178,7 @@ solve_cf_year <- function(yr, label, solve_ids, P_init, J_P, tol_dollars = 1,
     if (is.null(st$scale)) st$scale <- 1 / ag$omega_w[solve_ids]
     f <- unname(ag$G[solve_ids]) * st$scale
     st$pieces <- pieces
-    cat(sprintf("    [%s %s] eval %d  |f| = %.3g  max %.2f  %.1f min\n", yr$y, label, st$n_eval,
-                sqrt(sum(f^2)), max(abs(f)), as.numeric(difftime(Sys.time(), st$t0, units = "mins"))))
+    cat(".")
     f
   }
   jac <- function(x) J_P[solve_ids, solve_ids] * st$scale
@@ -179,34 +186,41 @@ solve_cf_year <- function(yr, label, solve_ids, P_init, J_P, tol_dollars = 1,
 
   x_init <- unname(P_init[solve_ids])
   f0 <- fn(x_init)
-  if (any(is.na(f0))) { cat("    ", label, "- evaluation failed at the start\n"); return(NULL) }
+  if (any(is.na(f0))) { cf_log(paste("    ", label, "- evaluation failed at the start\n")); return(NULL) }
   sol <- tryCatch(
     nleqslv(x = x_init, fn = fn, jac = jac, method = "Broyden", global = "hook",
             xscalm = "auto",
             control = list(maxit = 150, xtol = 1e-6, ftol = 0.2 * tol_dollars, allowSingular = TRUE)),
-    error = function(e) { cat("    nleqslv error:", conditionMessage(e), "\n"); NULL })
+    error = function(e) { cf_log(paste("    nleqslv error:", conditionMessage(e), "\n")); NULL })
   if (is.null(sol)) return(NULL)
   m <- miss(sol$x)
   if (sol$termcd != 1 && !(is.finite(m) && m < tol_dollars)) {
-    cat(sprintf("    nleqslv termcd: %d, |f|: %.4g, max miss %.2f $\n",
-                sol$termcd, sqrt(sum(sol$fvec^2)), m))
-    # Broyden stalled away from the root: Newton steps from the stalled point
-    sol2 <- tryCatch(
-      nleqslv(x = sol$x, fn = fn, jac = jac, method = "Newton", global = "dbldog",
-              xscalm = "auto",
-              control = list(maxit = 40, xtol = 1e-6, ftol = 0.2 * tol_dollars, allowSingular = TRUE)),
-      error = function(e) NULL)
-    if (!is.null(sol2)) {
-      m2 <- miss(sol2$x)
-      cat(sprintf("    retry termcd: %d, |f|: %.4g, max miss %.2f $\n",
-                  sol2$termcd, sqrt(sum(sol2$fvec^2)), m2))
-      if (is.finite(m2) && m2 < m) { sol <- sol2; m <- m2 }
+    cf_log(sprintf("    nleqslv termcd: %d, |f|: %.4g, max miss %.2f $\n",
+                   sol$termcd, sqrt(sum(sol$fvec^2)), m), quiet = TRUE)
+    # Broyden stalled away from the root: the start Jacobian is stale there, so
+    # recompute it at the stalled point and solve again from that point
+    cf_log(sprintf("    [%s %s] recomputing jacobian at the stalled point\n", yr$y, label),
+           quiet = TRUE)
+    J_stall <- cf_year_jacobian_P(yr, solve_ids, setNames(sol$x, solve_ids))
+    if (!is.null(J_stall)) {
+      jac2 <- function(x) J_stall[solve_ids, solve_ids] * st$scale
+      sol2 <- tryCatch(
+        nleqslv(x = sol$x, fn = fn, jac = jac2, method = "Broyden", global = "hook",
+                xscalm = "auto",
+                control = list(maxit = 60, xtol = 1e-6, ftol = 0.2 * tol_dollars, allowSingular = TRUE)),
+        error = function(e) NULL)
+      if (!is.null(sol2)) {
+        m2 <- miss(sol2$x)
+        cf_log(sprintf("    retry termcd: %d, |f|: %.4g, max miss %.2f $\n",
+                       sol2$termcd, sqrt(sum(sol2$fvec^2)), m2), quiet = TRUE)
+        if (is.finite(m2) && m2 < m) { sol <- sol2; m <- m2 }
+      }
     }
-    if (!(is.finite(m) && m < tol_dollars)) { cat("    ", label, "- not converged, dropped\n"); return(NULL) }
+    if (!(is.finite(m) && m < tol_dollars)) { cf_log(paste("    ", label, "- not converged, dropped\n")); return(NULL) }
   }
   # Pieces at the solution (the solver's last evaluation may not be at sol$x)
   invisible(fn(sol$x))
-  cat(sprintf("    residual at the solution: max %.2f $/member-month on the premium conditions\n", m))
+  cf_log(sprintf("    [%s %s] solved: max residual %.2f $/member-month\n", yr$y, label, m))
   list(sol = sol, P = setNames(sol$x, solve_ids), pieces = st$pieces,
        n_eval = st$n_eval, elapsed = as.numeric(difftime(Sys.time(), st$t0, units = "mins")))
 }
@@ -248,7 +262,7 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
     # the Broyden polish with the year's Jacobian
     pieces0 <- cf_year_evaluate(yr$cl, P)
     if (is.null(pieces0) || !all(!vapply(pieces0[yr$active], is.null, logical(1)))) {
-      cat("    ", label, "- evaluation failed in the commission loop\n"); return(NULL)
+      cf_log(paste("    ", label, "- evaluation failed in the commission loop\n")); return(NULL)
     }
     ag0 <- cf_year_aggregate(pieces0)
     if (round == 1) {
@@ -266,7 +280,7 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
       }
       share_scen <- sh_num / sh_den
       ids_ok <- solve_ids[solve_ids %in% names(share_scen)[share_scen >= SHARE_FLOOR_FOC]]
-      if (length(ids_ok) == 0) { cat("    ", label, "- no plans above the share floor\n"); return(NULL) }
+      if (length(ids_ok) == 0) { cf_log(paste("    ", label, "- no plans above the share floor\n")); return(NULL) }
       solve_ids <- ids_ok
     }
     f0 <- ag0$G[solve_ids] /
@@ -280,7 +294,7 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
     # no polish; the condition evaluation follows either way
     if (max(abs(f0), na.rm = TRUE) >= 5) {
       res <- solve_cf_year(yr, label, solve_ids, P, J_P, tol_dollars = 5, om_base = om_base)
-      if (is.null(res)) { cat("    ", label, "- premium solve failed in the commission loop\n"); return(NULL) }
+      if (is.null(res)) { cf_log(paste("    ", label, "- premium solve failed in the commission loop\n")); return(NULL) }
       P[names(res$P)] <- res$P
     }
 
@@ -289,7 +303,7 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
     pieces_c <- cf_year_evaluate(yr$cl, P)
     invisible(parallel::clusterCall(yr$cl, cf_cell_set_calib, FALSE))
     if (is.null(pieces_c) || !all(!vapply(pieces_c[yr$active], is.null, logical(1)))) {
-      cat("    ", label, "- condition evaluation failed\n"); return(NULL)
+      cf_log(paste("    ", label, "- condition evaluation failed\n")); return(NULL)
     }
     ag <- cf_year_aggregate(pieces_c)
     ok_f <- firms[firms %in% names(ag$MC) & ag$MC[firms] > 0 & is.finite(ag$MB[firms])]
@@ -300,9 +314,10 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
     at_floor <- k[ok_f] <= k_min * 1.001 & phi[ok_f] < 0
     active_f <- ok_f[!at_floor]
     worst <- if (length(active_f) > 0) max(abs(phi[active_f]), na.rm = TRUE) else 0
-    cat(sprintf("    [%s %s] commissions round %d  max |phi| = %.3f  (%d firms, %d at floor)  %.1f min\n",
-                yr$y, label, round, worst, length(ok_f), sum(at_floor),
-                as.numeric(difftime(Sys.time(), t0, units = "mins"))))
+    cat("|")
+    cf_log(sprintf("    [%s %s] commissions round %d  max |phi| = %.3f  (%d firms, %d at floor)  %.1f min\n",
+                   yr$y, label, round, worst, length(ok_f), sum(at_floor),
+                   as.numeric(difftime(Sys.time(), t0, units = "mins"))), quiet = TRUE)
     if (worst < tol_phi) {
       return(list(P = P, pieces = pieces_sol, k = k, phi = phi,
                   rounds = round, converged = TRUE))
@@ -312,7 +327,7 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
       k[ok_f] <- pmax(pmin(k[ok_f] * (1 + step), k_max), k_min)
     }
   }
-  cat("    ", label, "- commission loop hit max rounds; keeping the last point\n")
+  cf_log(paste("    ", label, "- commission loop hit max rounds; keeping the last point\n"))
   list(P = P, pieces = pieces_sol, k = k, phi = phi,
        rounds = max_rounds, converged = FALSE)
 }

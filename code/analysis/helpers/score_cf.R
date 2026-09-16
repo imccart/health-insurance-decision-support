@@ -35,9 +35,14 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   sil_sorted <- silver_ids[order(p_obs[silver_ids])]
   benchmark_plan <- if (length(sil_sorted) == 0) NA_character_ else
     if (length(sil_sorted) == 1) sil_sorted[1] else sil_sorted[2]   # at observed premiums
+  comm_obs_cell <- vapply(plan_ids_cell, function(pn) {
+    v <- mean(inside$comm_pmpm[inside$plan_id == pn], na.rm = TRUE)
+    if (is.finite(v)) v else 0
+  }, numeric(1))
   cl_score <- list(plan_ids = plan_ids_cell, p_obs = p_obs,
                    silver_ids = silver_ids, benchmark_plan = benchmark_plan,
-                   spec = STRUCTURAL_SPEC, cell_data_base = cell_data_base)
+                   spec = STRUCTURAL_SPEC, cell_data_base = cell_data_base,
+                   comm_obs = comm_obs_cell)
 
   compute_consumer_surplus <- function(cell_data, coefs_cell, welfare_drop = character()) {
     lambda_cs <- setNames(coefs_cell$estimate, coefs_cell$term)[["lambda"]]
@@ -58,7 +63,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       rw <- function(cn) { v <- if (cn %in% names(cell_data)) as.numeric(cell_data[[cn]]) else numeric(nrow(cell_data)); v[is.na(v)] <- 0; v }
       add_N_cs <- add_N_cs - gd("assisted_av") * rw("av") - gd("assisted_premium") * rw("premium")
       add_A_cs <- add_A_cs - gd("broker_av") * rw("av") - gd("broker_premium") * rw("premium") -
-                  gd("commission_broker") * rw("comm_pmpm")
+                  gd("commission_broker") * rw(if ("comm_hh" %in% names(cell_data)) "comm_hh" else "comm_pmpm")
     }
     dt <- as.data.table(cell_data); dt[, V := util$V]; dt[, V_base := util$V_base]
     dt[, aN := add_N_cs]; dt[, aA := add_A_cs]
@@ -105,7 +110,9 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     tt <- rows$tau[1]; if (is.na(tt)) tt <- NULL
     df <- if (grepl("^defund_", lab)) as.numeric(sub("^defund_([0-9.]+).*$", "\\1", lab)) else NULL
     cd <- build_scenario_data(cl_score, comm, tau = tt,
-                              broker_remain = grepl("^endog_tau", lab), defund = df)
+                              broker_remain = grepl("^endog_tau", lab), defund = df,
+                              comm_mode = if (grepl("^uniform_low|^flat_mandate|^aligned", lab))
+                                "flatbar" else "observed")
     p_vec <- setNames(rows$premium_cf, rows$plan_id)[plan_ids_cell]
     if (any(is.na(p_vec))) return(NULL)
     names(p_vec) <- plan_ids_cell

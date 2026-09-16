@@ -32,8 +32,15 @@ rs <- srrt %>%
   filter(!is.na(insurer_prefix), !is.na(region))
 cat("  usable rows (2014-2019, region-level, positive score and member months):", nrow(rs), "\n")
 
+# Health Net is the only carrier filing separate HMO and PPO scores, and its two
+# networks differ sharply, so the network is part of the key. Every other carrier
+# files one combined row and keeps the single "Both" key.
+rs <- rs %>% mutate(network = plan_type)
+cat("  network-split carriers:",
+    paste(sort(unique(rs$insurer_prefix[rs$network != "Both"])), collapse = ", "), "\n")
+
 plan_risk_scores <- rs %>%
-  group_by(insurer_prefix, metal, region, year) %>%
+  group_by(insurer_prefix, metal, region, year, network) %>%
   summarize(risk_score    = weighted.mean(risk_score, member_months),
             member_months = sum(member_months),
             n_types       = n(),
@@ -44,7 +51,7 @@ print(plan_risk_scores %>% count(year, insurer_prefix) %>%
         tidyr::pivot_wider(names_from = year, values_from = n, values_fill = 0))
 
 plan_risk_scores_year <- rs %>%
-  group_by(insurer_prefix, metal, year) %>%
+  group_by(insurer_prefix, metal, year, network) %>%
   summarize(risk_score    = weighted.mean(risk_score, member_months),
             member_months = sum(member_months),
             .groups = "drop") %>%

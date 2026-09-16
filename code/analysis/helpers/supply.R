@@ -61,11 +61,21 @@ build_structural <- function(plans, hhs, sample_frac,
   ), by = plan_id]
   choice_set[, plan_id := as.character(plan_id)]
 
-  # Carry commission PMPM if present (structural path only)
+  # Carry commission PMPM if present (structural path only), plus the filed
+  # rate and percentage flag for the household-level commission
   if ("comm_pmpm" %in% names(plans_dt)) {
     cs_comm <- plans_dt[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_id]
+    if (all(c("rate", "is_pct") %in% names(plans_dt))) {
+      cs_rate <- plans_dt[, .(rate = mean(rate, na.rm = TRUE),
+                              is_pct = as.integer(any(is_pct == 1L))), by = plan_id]
+      cs_comm <- merge(cs_comm, cs_rate, by = "plan_id", all.x = TRUE)
+    }
     choice_set <- merge(choice_set, cs_comm, by = "plan_id", all.x = TRUE)
     choice_set[is.na(comm_pmpm), comm_pmpm := 0]
+    if ("rate" %in% names(choice_set)) {
+      choice_set[is.na(rate), rate := 0]
+      choice_set[is.na(is_pct), is_pct := 0L]
+    }
   }
 
   uninsured_row <- data.table(
@@ -75,6 +85,7 @@ build_structural <- function(plans, hhs, sample_frac,
     msp = NA_real_, hsa = NA_real_, cf_resid = 0
   )
   if ("comm_pmpm" %in% names(choice_set)) uninsured_row$comm_pmpm <- 0
+  if ("rate" %in% names(choice_set)) { uninsured_row$rate <- 0; uninsured_row$is_pct <- 0L }
   choice_set <- rbind(choice_set, uninsured_row)
 
   # 2. Cross-join sampled HH x choice set. `cutoff` looked up from
@@ -204,8 +215,15 @@ build_structural <- function(plans, hhs, sample_frac,
       premium_posted = min(premium_posted, na.rm = TRUE)
     ), by = .(household_id, base_metal)]
     if (has_comm) {
-      comm_agg <- small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)),
-                             by = .(household_id, base_metal)]
+      comm_agg <- if (all(c("rate", "is_pct") %in% names(small_raw))) {
+        small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE),
+                      rate = mean(rate, na.rm = TRUE),
+                      is_pct = as.integer(any(is_pct == 1L))),
+                  by = .(household_id, base_metal)]
+      } else {
+        small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)),
+                  by = .(household_id, base_metal)]
+      }
       small <- merge(small, comm_agg, by = c("household_id", "base_metal"), all.x = TRUE)
     }
     small[, `:=`(
@@ -390,14 +408,25 @@ build_structural <- function(plans, hhs, sample_frac,
   # non-broker. All of these enter plan choice within the insured nest only (see
   # extensive_exclude_terms in covariates.R).
   if ("comm_pmpm" %in% names(dt)) {
+    # Household-level commission per member per month: percentage schedules pay
+    # on the household's own age-rated premium, flat schedules the filed rate.
+    # comm_pmpm stays the plan-level basis (outlays, s6).
+    if (all(c("rate", "is_pct") %in% names(dt))) {
+      dt[, comm_hh := fifelse(is_pct == 1L,
+                              rate * (premium_posted / RATING_FACTOR_AGE40) * rating_factor / pmax(hh_size, 1L),
+                              rate)]
+      dt[is.na(comm_hh), comm_hh := 0]
+    } else {
+      dt[, comm_hh := comm_pmpm]
+    }
     if ("any_agent" %in% names(dt)) {
       dt[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
       dt[, broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
-      dt[, commission_broker := comm_pmpm * fifelse(any_agent == 1L, assisted, 0L, na = 0L)]
+      dt[, commission_broker := comm_hh * fifelse(any_agent == 1L, assisted, 0L, na = 0L)]
     } else {
       dt[, nonbroker := assisted]
       dt[, broker    := 0L]
-      dt[, commission_broker := comm_pmpm * assisted]
+      dt[, commission_broker := comm_hh * assisted]
     }
     dt[, `:=`(
       assisted_av      = nonbroker * av,
@@ -460,7 +489,8 @@ compute_utility <- function(cell_data, coefs_cell) {
     v[is.na(v)] <- 0
     v
   }
-  av_r <- raw0("av"); prem_r <- raw0("premium"); comm_r <- raw0("comm_pmpm")
+  av_r <- raw0("av"); prem_r <- raw0("premium")
+  comm_r <- if ("comm_hh" %in% names(cell_data)) raw0("comm_hh") else raw0("comm_pmpm")
   add_N <- gc0("assisted_av") * av_r + gc0("assisted_premium") * prem_r
   add_A <- gc0("broker_av") * av_r + gc0("broker_premium") * prem_r +
            gc0("commission_broker") * comm_r
@@ -838,15 +868,25 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
                 plan_ids = plan_ids, W_total = total_weight))
   }
 
-  # Wide matrices (household x plan); dcast sorts rows by household_number
+  # Wide matrices (household x plan); dcast sorts rows by household_number.
+  # Phi is the household's commission per dollar of the plan-level basis: a $1
+  # basis increase raises household i's commission on a percentage plan by its
+  # rating ratio (1 on flat plans), so the perturbed-plan index carries Phi.
   ins_dt[, wq := hh_weight * q_j]
+  if ("comm_hh" %in% names(ins_dt)) {
+    ins_dt[, comm_ratio := fifelse(comm_pmpm > 0, comm_hh / comm_pmpm, 1)]
+    ins_dt[!is.finite(comm_ratio), comm_ratio := 1]
+  } else ins_dt[, comm_ratio := 1]
   Wq_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
                           value.var = "wq", fill = 0)[, ..plan_ids])
   Sm_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
                           value.var = "s_jg", fill = 0)[, ..plan_ids])
+  Phi_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
+                           value.var = "comm_ratio", fill = 1)[, ..plan_ids])
   lam <- ins_dt[, .(lam = first(lambda_i)), by = household_number][order(household_number), lam]
 
-  D <- beta_comm * (diag(colSums(Wq_m / lam), nrow = J) - crossprod(Wq_m / lam, Sm_m)) / total_weight
+  D <- beta_comm * (diag(colSums(Wq_m * Phi_m / lam), nrow = J) -
+                    crossprod(Wq_m / lam, Sm_m * Phi_m)) / total_weight
 
   if (use_states) {
     # Enrollment-margin part: q_ij (1 - s_g) p_agent s_ik_A per household
@@ -855,7 +895,7 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
                              value.var = "wq2", fill = 0)[, ..plan_ids])
     SA_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
                             value.var = "s_jg_A", fill = 0)[, ..plan_ids])
-    D <- D + beta_comm * crossprod(Wq2_m, SA_m) / total_weight
+    D <- D + beta_comm * crossprod(Wq2_m, SA_m * Phi_m) / total_weight
   }
   dimnames(D) <- list(plan_ids, plan_ids)
 

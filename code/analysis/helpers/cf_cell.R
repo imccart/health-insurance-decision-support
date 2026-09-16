@@ -46,22 +46,16 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   if (is.null(hhs_raw) || nrow(hhs_raw) == 0) { cat("No HH data for cell", r, y, "\n"); return(NULL) }
   set.seed(seed)
 
-  # Commissions on the plans before the choice data are built; percentage
-  # schedules (rate x premium) are dollarized at the observed premiums. The
-  # lookup is keyed on (insurer_prefix, year, hmo): Blue Shield and Health Net
-  # file network-level rates, so those carrier-years' plans carry their
-  # network's rate.
+  # Commissions arrive on the plans from build3 (comm_pmpm is the plan-level
+  # basis on the enrollee-weighted average premium; rate and is_pct feed the
+  # household-level covariate in build_structural). The lookup is used here
+  # only to identify the carrier-years with network-level rates.
+  if (!all(c("comm_pmpm", "rate", "is_pct") %in% names(plans_cell)))
+    stop("plans lack comm_pmpm/rate/is_pct: re-run build3_data-prep.R")
   comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
   split_prefix <- comm_yr %>% group_by(insurer_prefix) %>%
     summarize(split = n_distinct(rate) > 1, .groups = "drop") %>%
     filter(split) %>% pull(insurer_prefix)
-  plans_cell <- plans_cell %>%
-    mutate(insurer_prefix = sub("_.*", "", plan_id),
-           # HSP is a closed-network product and pays the HMO schedule
-           hmo_join = as.integer(!is.na(network_type) & network_type %in% c("HMO", "HSP"))) %>%
-    left_join(comm_yr, by = c("insurer_prefix", "hmo_join" = "hmo")) %>%
-    mutate(comm_pmpm = case_when(is.na(rate) ~ 0, is_pct ~ rate * premium, TRUE ~ rate)) %>%
-    select(-insurer_prefix, -hmo_join, -rate, -is_pct)
 
   build_result <- build_structural(plans_cell, hhs_raw, sample_frac, spec = STRUCTURAL_SPEC)
   if (is.null(build_result)) { cat("Empty cell data for", r, y, "\n"); return(NULL) }
@@ -109,7 +103,7 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
     Platinum = as.integer(pa$metal == "Platinum"),
     AV       = unname(pa$av),
     HMO      = pa$hmo,
-    !!!setNames(as.list(as.integer(2015:2019 == y)), CLAIMS_YEAR_TERMS),
+    !!!setNames(as.list(as.integer(SUPPLY_YEARS[-1] == y)), CLAIMS_YEAR_TERMS),
     !!!setNames(lapply(CLAIMS_REGION_TERMS, function(rc)
       as.numeric(ifelse(is.na(plans_cell[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans_cell$plan_id))]), 0,
                         plans_cell[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans_cell$plan_id))]))),
@@ -223,7 +217,8 @@ update_premiums <- function(cl, dt, p_vec) {
 # weight to the navigator state and, unless broker_remain, the rest to
 # shopping alone; defund moves that fraction of the navigator weight to the
 # agent state. Commission-level scenarios leave the weights alone.
-build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, defund = NULL) {
+build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, defund = NULL,
+                                comm_mode = "observed") {
   cd <- as.data.table(copy(cl$cell_data_base))
   has_p_cd <- all(c("p_none_hat", "p_nav_hat", "p_agent_hat") %in% names(cd))
 
@@ -244,14 +239,29 @@ build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, 
     }
   }
 
+  # Scenario commissions at the household level. Proportional bases (observed,
+  # zero, scale, firmscale) scale each household's own commission with the
+  # schedule; level bases (uniform, flatbar, aligned) set a flat per-member
+  # amount, which is what those policies mandate. comm_hh carries the value
+  # into the agent-state utility; commission_broker is the realized-channel
+  # covariate.
+  proportional <- comm_mode %in% c("observed", "zero", "scale", "firmscale")
+  has_hh <- "comm_hh" %in% names(cd)
   for (pn in cl$plan_ids) {
     idx <- cd$plan_id == pn
-    if (sum(idx) > 0 && "commission_broker" %in% names(cd)) {
-      if ("any_agent" %in% names(cd)) {
-        cd$commission_broker[idx] <- comm_sc[pn] * fifelse(cd$any_agent[idx] == 1L, cd$assisted[idx], 0L)
-      } else {
-        cd$commission_broker[idx] <- comm_sc[pn] * cd$assisted[idx]
-      }
+    if (sum(idx) == 0 || !"commission_broker" %in% names(cd)) next
+    val <- if (has_hh && proportional) {
+      ratio <- if (is.finite(cl$comm_obs[pn]) && cl$comm_obs[pn] > 0) comm_sc[pn] / cl$comm_obs[pn] else 0
+      ratio * cd$comm_hh[idx]
+    } else rep(comm_sc[pn], sum(idx))
+    if (has_hh) cd$comm_hh[idx] <- val
+    # The plan-level basis moves with the scenario so the derivative kernel's
+    # rating ratio comm_hh / comm_pmpm stays the household's, not the scale's
+    if ("comm_pmpm" %in% names(cd)) cd$comm_pmpm[idx] <- comm_sc[pn]
+    if ("any_agent" %in% names(cd)) {
+      cd$commission_broker[idx] <- val * fifelse(cd$any_agent[idx] == 1L, cd$assisted[idx], 0L)
+    } else {
+      cd$commission_broker[idx] <- val * cd$assisted[idx]
     }
   }
 
@@ -346,7 +356,7 @@ cf_cell_scenario <- function(label, spec) {
     },
     stop("unknown commission basis ", spec$comm))
   cd <- build_scenario_data(cl, comm_sc, tau = spec$tau, broker_remain = isTRUE(spec$broker_remain),
-                            defund = spec$defund)
+                            defund = spec$defund, comm_mode = spec$comm)
   .cf$scen <- list(label = label, dt_base = cd, comm = comm_sc,
                    calib = isTRUE(spec$calib))
   comm_sc

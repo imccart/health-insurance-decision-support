@@ -78,7 +78,9 @@ rm(plan_data, cheapest_br, slc_zip3, slc_region)
 
 
 # Formula subsidy (ACA) for everyone --------------------------------------
-# premiumSLC - SLC_contribution, floored at 0, for 138% <= FPL <= 400% HHs.
+# premiumSLC - SLC_contribution, floored at 0, for FPL <= 400% HHs. Below
+# 138% the schedule's bottom piece (lower bound 0) applies: these are
+# Medi-Cal-ineligible households that Covered California subsidizes.
 # The formula is the quote the household saw when choosing (the exchange
 # computes the advance credit from the same formula on attested income), and
 # it measures enrolled and off-year rows symmetrically; the observed APTC
@@ -90,7 +92,7 @@ fpl_ub_lookup <- setNames(FPL_BRACKETS$fpl_UB, FPL_BRACKETS$bracket)
 
 demand_hh <- demand_hh %>%
   mutate(FPL_bracket          = assign_bracket(FPL),
-         subsidy_eligible_fpl = as.integer(FPL >= 1.38 & FPL <= 4.0),
+         subsidy_eligible_fpl = as.integer(FPL <= 4.0),
          fpl_LB               = fpl_lb_lookup[FPL_bracket],
          fpl_UB               = fpl_ub_lookup[FPL_bracket],
          perc_LB              = NA_real_,
@@ -122,13 +124,70 @@ demand_hh <- demand_hh %>%
                             pmax(0, premiumSLC - SLC_contribution),
                             0)) %>%
   select(-subsidy_eligible_fpl, -fpl_LB, -fpl_UB, -perc_LB, -perc_UB)
-cat(sprintf("    subsidy: enrolled mean $%.0f, off-year mean $%.0f (formula, zip3 benchmark)\n",
+formula_only_mean <- mean(demand_hh$subsidy[demand_hh$insured == 1L & demand_hh$aptc_amt_int > 0], na.rm = TRUE)
+
+
+# Tax-household size from the observed advance credit ----------------------
+# The poverty guideline is for the tax household, which can be larger than the
+# enrolled group (children on Medi-Cal, a spouse with employer coverage). An
+# enrolled row with an advance credit below its plan premium reveals the
+# contribution the exchange applied, premiumSLC - APTC, and with it the
+# guideline: the contribution percentage does not depend on size, so the
+# implied guideline is the enrolled-count guideline scaled by observed over
+# formula contribution. Guidelines are linear in family size, so the nearest
+# size is read off directly; it becomes the household's tax size on every row
+# (enrolled and off-year), taken from its earliest enrolled year with a usable
+# credit. Households without one keep the enrolled count. Rows with a usable
+# credit keep the observed contribution itself.
+cat("  Tax-household size from the advance credit...\n")
+pov_year <- poverty_guidelines_long %>%
+  group_by(year) %>%
+  summarize(g1     = poverty_threshold[Family_Size == 1],
+            g_step = poverty_threshold[Family_Size == 2] - poverty_threshold[Family_Size == 1],
+            g_max  = max(Family_Size), .groups = "drop")
+n_before <- nrow(demand_hh)
+demand_hh <- demand_hh %>%
+  mutate(year_cap = pmin(year, 2019L)) %>%
+  left_join(pov_year, by = c("year_cap" = "year")) %>%
+  mutate(contrib_obs = if_else(insured == 1L & is.finite(SLC_contribution) & SLC_contribution > 0 &
+                                 is.finite(aptc_amt_int) & aptc_amt_int > 0 &
+                                 is.finite(net_premium_amt_int) & net_premium_amt_int > 0,
+                               premiumSLC - aptc_amt_int, NA_real_),
+         size_raw     = 1 + (poverty_threshold * contrib_obs / SLC_contribution - g1) / g_step,
+         size_implied = if_else(is.finite(size_raw) & size_raw >= 0.5 & size_raw < g_max + 0.5,
+                                pmin(pmax(round(size_raw), 1), g_max), NA_real_))
+tax_size <- demand_hh %>%
+  filter(!is.na(size_implied)) %>%
+  arrange(household_id, year) %>%
+  distinct(household_id, .keep_all = TRUE) %>%
+  select(household_id, tax_household_size = size_implied)
+demand_hh <- demand_hh %>%
+  left_join(tax_size, by = "household_id") %>%
+  mutate(tax_household_size = coalesce(tax_household_size, as.numeric(household_size)),
+         pct_contribution   = SLC_contribution / (poverty_threshold / 12 * FPL),
+         poverty_threshold  = g1 + g_step * (tax_household_size - 1),
+         SLC_contribution   = coalesce(contrib_obs, pct_contribution * (poverty_threshold / 12 * FPL)),
+         subsidy            = if_else(FPL <= 4.0, pmax(0, premiumSLC - SLC_contribution), 0)) %>%
+  select(-year_cap, -g1, -g_step, -g_max, -contrib_obs, -size_raw, -size_implied, -pct_contribution)
+stopifnot(nrow(demand_hh) == n_before)
+rm(pov_year, tax_size)
+enr <- demand_hh %>% filter(insured == 1L)
+cat(sprintf("    usable credit on %d of %d enrolled rows (%.1f%%); tax size above enrolled count for %.1f%% of households\n",
+            sum(enr$aptc_amt_int > 0 & enr$net_premium_amt_int > 0 & enr$FPL <= 4.0, na.rm = TRUE), nrow(enr),
+            100 * mean(enr$aptc_amt_int > 0 & enr$net_premium_amt_int > 0 & enr$FPL <= 4.0, na.rm = TRUE),
+            100 * mean((enr %>% distinct(household_id, .keep_all = TRUE) %>%
+                          mutate(up = tax_household_size > household_size))$up, na.rm = TRUE)))
+cat(sprintf("    enrolled rows with a credit: observed APTC mean $%.0f, formula-only subsidy $%.0f, subsidy now $%.0f\n",
+            mean(enr$aptc_amt_int[enr$aptc_amt_int > 0], na.rm = TRUE), formula_only_mean,
+            mean(enr$subsidy[enr$aptc_amt_int > 0], na.rm = TRUE)))
+cat(sprintf("    subsidy: enrolled mean $%.0f, off-year mean $%.0f\n",
             mean(demand_hh$subsidy[demand_hh$insured == 1L], na.rm = TRUE),
             mean(demand_hh$subsidy[demand_hh$insured == 0L], na.rm = TRUE)))
+rm(enr, formula_only_mean, n_before)
 # SLC_contribution (the income contribution cap zeta_it) and premiumSLC (the HH
 # benchmark premium) are RETAINED: the structural counterfactual endogenizes the
 # subsidy = pmax(0, premiumSLC(p) - SLC_contribution) as the benchmark price moves.
-# NA SLC_contribution flags subsidy-ineligible HHs (outside 138-400% FPL).
+# NA SLC_contribution flags subsidy-ineligible HHs (above 400% FPL).
 
 
 # Mandate penalty ----------------------------------------------------------

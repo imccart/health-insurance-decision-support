@@ -58,7 +58,7 @@ cat("\n--- Step 2: Aggregate to HH-year ---\n")
 source("code/data-build/2_aggregate-to-hh.R")
 
 # ----------------------------------------------------------------------------
-# Step 3: Process SIPP (fit immigration, ESI, market-transition logits)
+# Step 3: Process SIPP (fit the market-transition logit)
 # ----------------------------------------------------------------------------
 cat("\n--- Step 3: Process SIPP ---\n")
 source("code/data-build/3_process-sipp.R")

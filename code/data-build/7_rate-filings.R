@@ -23,7 +23,7 @@ harmonize_puf <- function(d, yr) {
     d <- d %>% rename(PRJ_REIN = PRJ_REINS)
   }
   # 2014-2015 have EXP_PRM_PMPM but not EXP_PLN_ADJ_INDX; later years reversed
-  d$year <- yr
+  d$filing <- yr
   d
 }
 
@@ -31,10 +31,10 @@ keep_cols <- c("PLAN_ID", "STATE", "MARKET", "COMPANY", "ISSUER_ID",
                "METAL", "AV_METAL", "PLAN_TYPE", "EXCHANGE",
                "EXP_MM", "EXP_TP", "EXP_INC_CLM", "EXP_RSK_ADJ", "EXP_REIN",
                "PRJ_MM", "PRJ_TP", "PRJ_INC_CLM", "PRJ_RSK_ADJ", "PRJ_REIN",
-               "EXP_INC_CLM_PMPM", "year")
+               "EXP_INC_CLM_PMPM", "filing")
 
 puf_list <- list()
-for (yr in 2014:2019) {
+for (yr in 2014:2020) {
   obj_name <- paste0("PUF_", yr)
   d <- harmonize_puf(get(obj_name), yr)
   # Keep only columns that exist
@@ -105,6 +105,13 @@ cat("  Insurers:", paste(sort(unique(rdata$insurer_small)), collapse = ", "), "\
 
 metal_map <- c(Bronze = "BR", Silver = "SIL", Gold = "G", Platinum = "P")
 
+# Health Net's HSP plans. The PUF types them EPO in most filings but HMO in
+# 2016 and in part of 2019; they are the non-HMO network on the demand side,
+# so the type is set from the plan id rather than the filing's field.
+HN_HSP_IDS <- paste0("67138CA06300", sprintf("%02d", 1:5))
+rdata <- rdata %>%
+  mutate(PLAN_TYPE = if_else(substr(PLAN_ID, 1, 14) %in% HN_HSP_IDS, "HSP", PLAN_TYPE))
+
 rdata <- rdata %>%
   mutate(
     insurer_prefix = case_when(
@@ -131,33 +138,72 @@ rdata <- rdata %>%
       PLAN_TYPE == "HMO"             ~ "3",
       TRUE                           ~ ""
     ),
-    plan_id = paste0(insurer_prefix, "_", metal_abbr, network_suffix)
+    plan_id = paste0(insurer_prefix, "_", metal_abbr, network_suffix),
+    # Network follows the plan code, as on the demand side: the "3" suffix and
+    # the HMO-only carriers. Taking it from the filing's PLAN_TYPE instead splits
+    # a plan-year whenever the filing labels the same product PPO in one row and
+    # EPO in another.
+    hmo = as.integer(network_suffix == "3" |
+                     insurer_small %in% c("Kaiser", "Molina", "LA_Care", "SHARP",
+                                          "Chinese_Community", "Western", "Valley")),
+    # Risk-score key. Only Health Net files separate scores by network; every
+    # other carrier files one combined row.
+    network = if_else(insurer_small == "Health_Net",
+                      if_else(network_suffix == "3", "HMO", "PPO"), "Both")
   )
 
 cat("  Plan names:", length(unique(rdata$plan_id)), "unique\n")
 cat("  Examples:", paste(head(sort(unique(rdata$plan_id)), 10), collapse = ", "), "\n")
 
 
-# Aggregate to plan-name × year level ------------------------------------
-# This is the level at which risk scores and claims regressions run.
-# No region dimension in rate filings — insurers file at plan level.
+# Aggregate to plan-name x year level ------------------------------------
+# This is the level at which risk scores and claims regressions run. No
+# region dimension in rate filings; insurers file at plan level. A filing's
+# experience block reports the calendar year two years before its rate year
+# (the 2016 filing carries 2014 experience) and its projection block the rate
+# year itself, so experience rows are keyed to the year they describe and the
+# projection for that year comes from the filing two years earlier.
 
-rsdata <- rdata %>%
-  filter(EXP_MM > 0 | PRJ_MM > 0) %>%
-  group_by(plan_id, year, insurer_small, METAL, AV_METAL, PLAN_TYPE) %>%
+# A filing carries placeholder rows for products the carrier did not sell in the
+# experience year (one member month, a token claims figure), which are not
+# experience and are dropped at a member-year.
+MIN_EXP_MM <- 12
+
+experience <- rdata %>%
+  mutate(year = filing - 2L) %>%
+  filter(EXP_MM > 0, year >= 2014) %>%
+  group_by(plan_id, year, insurer_small, METAL, hmo, network) %>%
   summarize(
+    AV_METAL    = first(AV_METAL),
     EXP_MM      = sum(EXP_MM, na.rm = TRUE),
     EXP_TP      = sum(EXP_TP, na.rm = TRUE),
     EXP_INC_CLM = sum(EXP_INC_CLM, na.rm = TRUE),
     EXP_RSK_ADJ = sum(EXP_RSK_ADJ, na.rm = TRUE),
     EXP_REIN    = sum(EXP_REIN, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(EXP_MM >= MIN_EXP_MM, EXP_INC_CLM > 0)
+
+projection <- rdata %>%
+  mutate(year = filing) %>%
+  filter(PRJ_MM > 0) %>%
+  group_by(plan_id, year, insurer_small, METAL, hmo, network) %>%
+  summarize(
     PRJ_MM      = sum(PRJ_MM, na.rm = TRUE),
     PRJ_INC_CLM = sum(PRJ_INC_CLM, na.rm = TRUE),
     PRJ_RSK_ADJ = sum(PRJ_RSK_ADJ, na.rm = TRUE),
     PRJ_REIN    = sum(PRJ_REIN, na.rm = TRUE),
     .groups = "drop"
-  ) %>%
-  filter(EXP_MM > 0)
+  )
+
+cat("  Experience plan-years:", nrow(experience), " (", paste(range(experience$year), collapse = "-"),
+    ")  projection plan-years:", nrow(projection), " (", paste(range(projection$year), collapse = "-"), ")\n")
+
+rsdata <- experience %>%
+  left_join(projection, by = c("plan_id", "year", "insurer_small", "METAL", "hmo", "network")) %>%
+  mutate(across(c(PRJ_MM, PRJ_INC_CLM, PRJ_RSK_ADJ, PRJ_REIN), ~ ifelse(is.na(.x), 0, .x)))
+stopifnot(nrow(rsdata) == nrow(experience),
+          !any(duplicated(rsdata[, c("plan_id", "year")])))
 
 # Compute PMPM measures
 rsdata <- rsdata %>%
@@ -214,7 +260,7 @@ rsdata <- rsdata %>%
     Silver   = as.integer(METAL == "Silver"),
     Gold     = as.integer(METAL == "Gold"),
     Platinum = as.integer(METAL == "Platinum"),
-    HMO      = as.integer(PLAN_TYPE == "HMO"),
+    HMO      = hmo,
     Anthem      = as.integer(insurer_small == "Anthem"),
     Blue_Shield = as.integer(insurer_small == "Blue_Shield"),
     Health_Net  = as.integer(insurer_small == "Health_Net"),

@@ -49,7 +49,7 @@ CH_TERMS <- c(nav_av = "assisted_av",  nav_pr = "assisted_premium",
 #                  were built without them)
 
 load_one_cell <- function(path, covars, filter_assisted = -1L) {
-  raw_cols <- c("av", "premium", "comm_pmpm",
+  raw_cols <- c("av", "premium", "comm_pmpm", "comm_hh",
                 "p_none_hat", "p_nav_hat", "p_agent_hat")
   needed <- unique(c("household_number", "plan_id", "choice", "hh_weight",
                      if (filter_assisted >= 0) "assisted",
@@ -80,11 +80,15 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
       X_full[, k] <- as.numeric(vals)
     }
   }
-  raw <- sapply(c("av", "premium", "comm_pmpm"), function(cn) {
+  # The commission ingredient of the agent-state add-on is the household-level
+  # value where the cells carry it, matching the commission_broker covariate
+  comm_src <- if ("comm_hh" %in% names(df)) "comm_hh" else "comm_pmpm"
+  raw <- sapply(c("av", "premium", comm_src), function(cn) {
     v <- if (cn %in% names(df)) as.numeric(df[[cn]]) else numeric(n_rows)
     v[is.na(v)] <- 0
     v
   })
+  colnames(raw) <- c("av", "premium", "comm_pmpm")
   p_cols <- c("p_none_hat", "p_nav_hat", "p_agent_hat")
   for (cn in setdiff(p_cols, names(df))) df[, (cn) := NA_real_]
 

@@ -29,7 +29,7 @@
 # --- Rate filing PUF (claims, moment 2) and SRRT plan risk scores (moment 1) ---
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE) %>%
   filter(!is.na(log_cost), is.finite(log_cost), EXP_MM > 0)
-for (yy in 2015:2019) rsdata[[paste0("year_", yy)]] <- as.integer(rsdata$year == yy)
+for (yy in SUPPLY_YEARS[-1]) rsdata[[paste0("year_", yy)]] <- as.integer(rsdata$year == yy)
 rs_srrt      <- read_csv("data/output/plan_risk_scores.csv", show_col_types = FALSE)
 rs_srrt_year <- read_csv("data/output/plan_risk_scores_year.csv", show_col_types = FALSE)
 supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
@@ -90,8 +90,8 @@ rsdata <- rsdata %>%
   mutate(across(all_of(CLAIMS_REGION_TERMS), ~ ifelse(is.na(.x), 0, .x))) %>%
   mutate(insurer_prefix = sub("_.*", "", plan_id), metal = METAL) %>%
   # The SRRT plan-year score instruments the predicted score in the claims moment
-  left_join(rs_srrt_year %>% transmute(insurer_prefix, metal, year, log_rs_srrt = log_risk_score),
-            by = c("insurer_prefix", "metal", "year")) %>%
+  left_join(rs_srrt_year %>% transmute(insurer_prefix, metal, year, network, log_rs_srrt = log_risk_score),
+            by = c("insurer_prefix", "metal", "year", "network")) %>%
   filter(if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)),
          !is.na(HMO), !is.na(log_rs_srrt))
 cat("  Rate filing claims observations (M2):", nrow(rsdata), "\n")
@@ -133,9 +133,18 @@ cat("  Risk-score OLS (fixed): N =", nrow(rs_srrt), " R2 =", round(summary(rs_ol
 cat("    ", paste(alpha_names, round(ALPHA_FIXED, 3), collapse = "; "), "\n")
 
 # --- M2 data matrices (rate filing PUF claims) ---
-# Weights: member months normalized within insurer, so every insurer carries the
-# same total weight
-w_rf <- rsdata$EXP_MM / ave(rsdata$EXP_MM, rsdata$insurer_prefix, FUN = sum)
+# Weights: member months normalized within insurer group, so every group carries
+# the same total weight. The groups are the big four and one pooled small
+# carrier, as on the claims side of Evan's code; normalizing within each of the
+# twelve prefixes instead gives a carrier with a quarter of one percent of the
+# member months the same weight as Blue Shield with a third of them.
+rsdata <- rsdata %>%
+  mutate(claims_group = if_else(insurer_prefix %in% c("ANT", "BS", "HN", "KA"),
+                                insurer_prefix, "Small"))
+w_rf <- rsdata$EXP_MM / ave(rsdata$EXP_MM, rsdata$claims_group, FUN = sum)
+cat("  Claims-moment weight groups:",
+    paste(names(table(rsdata$claims_group)), as.integer(table(rsdata$claims_group)),
+          sep = ":", collapse = "  "), "\n")
 X_rs_cl <- as.matrix(rsdata %>% select(Silver, Gold, Platinum, all_of(RS_DEMO_TERMS)))
 # Claims equation exogenous part (CLAIMS_EXOG_TERMS): HMO, year dummies,
 # big-four insurer indicators, rating-area shares. AV is OMITTED, since the
@@ -175,7 +184,7 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Platinum <- as.integer(plan_metal == "Platinum")
   # Network type from the plan attributes s3 saved (falls back to the Kaiser prefix)
   foc_cells[[k]]$HMO <- if (!is.null(fc$hmo)) as.integer(fc$hmo[pn]) else as.integer(str_detect(pn, "^KA"))
-  for (yy in 2015:2019) foc_cells[[k]][[paste0("year_", yy)]] <- as.integer(y == yy)
+  for (yy in SUPPLY_YEARS[-1]) foc_cells[[k]][[paste0("year_", yy)]] <- as.integer(y == yy)
   for (ins in INS_COST) {
     foc_cells[[k]][[ins]] <- as.integer(str_detect(pn, paste0("^", COST_PREFIX[[ins]])))
   }

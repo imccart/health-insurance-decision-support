@@ -39,7 +39,7 @@ cat("\nEstimating RA regressions...\n")
 # Claims rows: rate filing PUF plan-years with observed plan-year demographics
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
-for (yy in 2015:2019) rsdata[[paste0("year_", yy)]] <- as.integer(rsdata$year == yy)
+for (yy in SUPPLY_YEARS[-1]) rsdata[[paste0("year_", yy)]] <- as.integer(rsdata$year == yy)
 rsdata <- rsdata %>%
   left_join(plan_demo, by = c("plan_id", "year")) %>%
   left_join(plan_choice %>%
@@ -65,18 +65,27 @@ plan_metal_map <- plan_choice %>%
   distinct(plan_id, metal) %>%
   mutate(metal = sub(" - Enhanced.*", "", metal)) %>%
   distinct(plan_id, metal)
+# Risk-score key: only Health Net files separate scores by network, so its plans
+# carry HMO or PPO and every other carrier's carry "Both".
+plan_net_map <- plan_choice %>%
+  distinct(plan_id, network_type) %>%
+  mutate(network = if_else(sub("_.*", "", plan_id) == "HN",
+                           if_else(network_type == "HMO", "HMO", "PPO"), "Both")) %>%
+  distinct(plan_id, network)
+stopifnot(!any(duplicated(plan_net_map$plan_id)))
 pdr <- read_csv(file.path(TEMP_DIR, "plan_demographics_region.csv"), show_col_types = FALSE) %>%
   inner_join(plan_metal_map, by = "plan_id") %>%
+  inner_join(plan_net_map, by = "plan_id") %>%
   mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
-  group_by(insurer_prefix, metal, region, year) %>%
+  group_by(insurer_prefix, metal, region, year, network) %>%
   summarize(across(all_of(RS_DEMO_TERMS), ~ weighted.mean(.x, enrollment)),
             .groups = "drop")
 rs_srrt <- rs_srrt %>%
-  inner_join(pdr, by = c("insurer_prefix", "metal", "region", "year")) %>%
+  inner_join(pdr, by = c("insurer_prefix", "metal", "region", "year", "network")) %>%
   mutate(Silver = as.integer(metal == "Silver"), Gold = as.integer(metal == "Gold"),
          Platinum = as.integer(metal == "Platinum"))
 cat("  SRRT risk-score rows with demographics:", nrow(rs_srrt), "\n")
-rm(pdr, plan_metal_map)
+rm(pdr, plan_metal_map, plan_net_map)
 
 ra_regs <- estimate_ra_regressions(rsdata, rs_srrt)
 
@@ -116,7 +125,7 @@ pass1 <- vector("list", nrow(cells))   # per-cell demand-side pieces for pass 2
 n_done <- 0L
 n_skip <- 0L
 
-for (i in seq_len(nrow(cells))) {
+for (i in which(cells$year %in% SUPPLY_YEARS)) {
   tryCatch({
   r <- cells$region[i]
   y <- cells$year[i]
@@ -130,18 +139,10 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; rm(hhs); next }
 
-  # Add commission PMPM if not already present
-  if (!"comm_pmpm" %in% names(plans)) {
-    comm_yr <- commission_lookup %>% filter(year == !!y) %>% select(-year)
-    plans <- plans %>%
-      mutate(insurer_prefix = sub("_.*", "", plan_id),
-             # HSP is a closed-network product and pays the HMO schedule
-             hmo_join = as.integer(!is.na(network_type) & network_type %in% c("HMO", "HSP"))) %>%
-      left_join(comm_yr, by = c("insurer_prefix", "hmo_join" = "hmo")) %>%
-      mutate(comm_pmpm = case_when(is.na(rate) ~ 0, is_pct ~ rate * premium, TRUE ~ rate)) %>%
-      select(-insurer_prefix, -hmo_join, -rate, -is_pct)
-    rm(comm_yr)
-  }
+  # Commissions arrive on the plans from build3 (comm_pmpm plan-level basis;
+  # rate and is_pct for the household-level covariate)
+  if (!all(c("comm_pmpm", "rate", "is_pct") %in% names(plans)))
+    stop("plans lack comm_pmpm/rate/is_pct: re-run build3_data-prep.R")
 
   # Build supply choice data (same seed/sample as demand)
   build_result <- build_structural(plans, hhs, SAMPLE_FRAC, spec = STRUCTURAL_SPEC)
@@ -167,14 +168,10 @@ for (i in seq_len(nrow(cells))) {
     cell_data$nonbroker        <- nb   # raw_demo for the premium interactions
     cell_data$broker           <- br
   }
-  # Commission x broker interaction (broker/agent only, not navigators)
-  if (!"commission_broker" %in% names(cell_data)) {
-    if ("any_agent" %in% names(cell_data)) {
-      cell_data$commission_broker <- cell_data$comm_pmpm * ifelse(cell_data$any_agent == 1L, cell_data$assisted, 0L)
-    } else {
-      cell_data$commission_broker <- cell_data$comm_pmpm * cell_data$assisted
-    }
-  }
+  # commission_broker is built from comm_hh in build_structural; a cell without
+  # it was built from stale inputs
+  if (!"commission_broker" %in% names(cell_data))
+    stop("cell data lack commission_broker: rebuild the cells (s2)")
 
   # Plan names and attributes from plan_attrs (post-collapse, always consistent)
   plan_ids_cell <- sort(plan_attrs$plan_id)
@@ -256,7 +253,7 @@ for (i in seq_len(nrow(cells))) {
     Platinum    = as.integer(unname(plan_metal) == "Platinum"),
     AV          = unname(pa$av),
     HMO         = unname(setNames(pa$hmo, pa$plan_id)[plan_ids_cell]),
-    !!!setNames(as.list(as.integer(2015:2019 == y)), CLAIMS_YEAR_TERMS),
+    !!!setNames(as.list(as.integer(SUPPLY_YEARS[-1] == y)), CLAIMS_YEAR_TERMS),
     !!!setNames(lapply(CLAIMS_REGION_TERMS, function(rc)
       as.numeric(ifelse(is.na(plans[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans$plan_id))]), 0,
                         plans[[rc]][match(plan_ids_cell, gsub("SIL(94|73|87)", "SIL", plans$plan_id))]))),
@@ -352,6 +349,7 @@ rm(cell_recs)
 
 foc_inputs_dir <- file.path(TEMP_DIR, "foc_inputs")
 if (!dir.exists(foc_inputs_dir)) dir.create(foc_inputs_dir, recursive = TRUE)
+unlink(list.files(foc_inputs_dir, pattern = "^foc_.*\\.rds$", full.names = TRUE))
 for (k in seq_along(pass1)) {
   cl <- pass1[[k]]
   r <- cl$region; y <- cl$year; plan_ids_cell <- cl$plan_ids; J <- length(plan_ids_cell)

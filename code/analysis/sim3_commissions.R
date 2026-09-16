@@ -15,25 +15,28 @@
 ##                levels, drawn uniformly over the span of the estimated
 ##                levels; a joint guard keeps the effective commission cost
 ##                (1 - beta_f) + wedge_f away from zero, where a carrier
-##                type would corner. Firms choose premiums and their dollar
-##                commission scale jointly each year to maximize exchange
-##                profit B minus ((1 - beta_f) + wedge_f) per commission
-##                dollar, so the commission FOC
-##                MB/MC = (1 - beta_f) + wedge_f holds at any interior
-##                optimum. Marginal costs drift across years. Each rep
-##                estimates demand exactly as on real data, then recovers
-##                each firm's wedge the way s4's M4 block does: the FOC gap
+##                type would corner. Commissions are set at the unit level
+##                as in M4: firm A's HMO and PPO plans are separate
+##                commission-setting units with their own scale k (firm B is
+##                a single unit), while beta_f and wedge_f stay firm
+##                objects shared across units. Firms choose premiums and
+##                each unit's dollar commission scale jointly each year to
+##                maximize exchange profit B minus
+##                ((1 - beta_f) + wedge_f) per commission dollar, so the
+##                commission FOC MB/MC = (1 - beta_f) + wedge_f holds per
+##                unit at any interior optimum, with MB spanning the firm's
+##                margins and MC the unit's own outlay derivative. Marginal
+##                costs drift across years. Each rep estimates demand
+##                exactly as on real data, then recovers each firm's wedge
+##                the way s4's M4 block does: the FOC gap
 ##                phi = MB/MC - 1 + beta_f computed at the ESTIMATED demand
-##                parameters per firm-market-year, averaged over the firm's
-##                years with commission-base weights.
-##                Firm-years at a search bound are excluded from the wedge
+##                parameters per unit-market-year, averaged over the firm's
+##                unit-years with commission-base weights.
+##                Unit-years at a search bound are excluded from the wedge
 ##                recovery, as M4 gates its conditions; the share at a bound is
-##                printed after the panel solve. The steering coefficient is
-##                set below the production estimate so the stylized market's
-##                equilibrium schedules sit at the empirical scale (a market
-##                with 4-8 plans concentrates the same steering response far
-##                more than a 30-plan cell); the estimator estimates it, so
-##                recovery is tested at the truth that generated the data.
+##                printed after the panel solve. Truths sit at the production
+##                demand estimates; the estimator estimates them, so recovery
+##                is tested at the truth that generated the data.
 ##                Simplification: flat per-member commission bases in
 ##                dollars pmpm (premiums are in hundred-dollar units; the
 ##                /100 in the outlay converts). Standalone; not sourced by
@@ -57,7 +60,7 @@ T_YEARS <- 6L
 MC_DRIFT_SD <- 0.15            # year-to-year log drift of marginal costs
 K_MAX <- 25                    # commission-scale search ceiling; MB/MC falls
                                # below any drawn effective cost well inside it
-WEDGE_RANGE <- c(-1.1, 0.7)    # span of the estimated carrier wedge levels
+WEDGE_RANGE <- c(-1.0, 0.05)   # span of the estimated carrier wedge levels
 MC_SEED <- 81520L
 MC_DIR  <- file.path(TEMP_DIR, "sim3_cells")
 OUT_DIR <- "results/simulations"
@@ -66,12 +69,12 @@ if (!dir.exists(OUT_DIR)) dir.create(OUT_DIR, recursive = TRUE)
 if (!dir.exists(COEF_DIR)) dir.create(COEF_DIR, recursive = TRUE)
 
 theta_true <- c(
-  inside = 0.45, premium = -0.05, av = 0.55, hmo = -0.03, brand1 = 0.05,
-  hh_size_prem = -0.004,
-  assisted_av = 0.171, broker_av = 0.088,
-  assisted_premium = -0.014, broker_premium = -0.002,
-  commission_broker = 0.0005,
-  lambda = 0.0534
+  inside = 0.41, premium = -0.053, av = 0.55, hmo = -0.029, brand1 = 0.05,
+  hh_size_prem = -0.0044,
+  assisted_av = 0.171, broker_av = 0.097,
+  assisted_premium = -0.014, broker_premium = -0.0035,
+  commission_broker = 0.0004,
+  lambda = 0.0538
 )
 ASST <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
           "commission_broker")
@@ -118,6 +121,9 @@ markets <- lapply(seq_len(N_CELLS), function(m) {
     mc      = runif(Jm, 0.5, 2.0),
     basis   = ifelse(firm == "C", 0, runif(Jm, 8, 20))
   )
+  # Commission-setting units: firm A splits by network (where it has both),
+  # firms B and C are single units, as in M4
+  plans[, unit := fifelse(firm == "A", paste0("A.", fifelse(hmo == 1L, "HMO", "PPO")), firm)]
   repeat {
     beta_f  <- setNames(sample(bb$beta, 2), c("A", "B"))
     wedge_f <- setNames(runif(2, WEDGE_RANGE[1], WEDGE_RANGE[2]), c("A", "B"))
@@ -153,11 +159,12 @@ state_shares <- function(theta, hh, pl, P, Cvec) {
 }
 
 # Per-firm margin part B (revenue minus risk-scaled claims plus the budget-
-# neutral risk-adjustment transfer) and raw commission outlay O; the DGP
-# objective is B - cost_mult_f * O, whose interior optimum satisfies
-# dB/dk = cost_mult_f * dO/dk, i.e. MB/MC = (1 - beta_f) + wedge_f
+# neutral risk-adjustment transfer) and raw commission outlay O per UNIT; the
+# DGP objective is B_f - cost_mult_f * sum of the firm's unit outlays, whose
+# interior optimum satisfies, unit by unit, dB_f/dk_u = cost_mult_f * dO_u/dk_u,
+# i.e. MB/MC = (1 - beta_f) + wedge_f
 firm_BO <- function(theta, hh, pl, mc_t, P, kvec, Cvec = NULL) {
-  if (is.null(Cvec)) Cvec <- unname(kvec[pl$firm]) * pl$basis
+  if (is.null(Cvec)) Cvec <- unname(kvec[pl$unit]) * pl$basis
   ss <- state_shares(theta, hh, pl, P, Cvec)
   w <- hh$hh_size
   q_j   <- colSums(w * ss$q)
@@ -170,12 +177,13 @@ firm_BO <- function(theta, hh, pl, mc_t, P, kvec, Cvec = NULL) {
   T_j <- p_mkt * (rq_j / pmax(q_j, 1e-12) - rs_mkt) / rs_mkt
   B_j <- rev_j - mc_t * rq_j + T_j * q_j
   O_j <- Cvec / 100 * colSums(w * ss$qB)
-  list(B = tapply(B_j, pl$firm, sum), O = tapply(O_j, pl$firm, sum))
+  list(B = tapply(B_j, pl$firm, sum), O = tapply(O_j, pl$unit, sum))
 }
 
 firm_profit_dgp <- function(hh, pl, mc_t, P, kvec, cost_mult) {
   bo <- firm_BO(theta_true, hh, pl, mc_t, P, kvec)
-  bo$B - cost_mult[names(bo$B)] * bo$O
+  O_f <- tapply(bo$O, sub("[.].*$", "", names(bo$O)), sum)
+  bo$B - cost_mult[names(bo$B)] * O_f[names(bo$B)]
 }
 
 # Damped plan-by-plan Newton on each plan's own first-order condition, with
@@ -204,12 +212,13 @@ solve_P <- function(refhh, pl, mc_t, kvec, P_start, cost_mult) {
   list(x = P, termcd = if (conv) 1L else 9L)
 }
 
-# Continuous commission optimum for firm f given premiums (the FOC holds at an
+# Continuous commission optimum for unit u given premiums (the FOC holds at an
 # interior point rather than a grid corner because the wedge raises the
-# effective cost of a commission dollar)
-best_k <- function(refhh, pl, mc_t, P, kvec, f, cost_mult) {
+# effective cost of a commission dollar); the objective is the owning firm's
+best_k <- function(refhh, pl, mc_t, P, kvec, u, cost_mult) {
+  f <- sub("[.].*$", "", u)
   optimize(function(k) {
-    kv <- kvec; kv[f] <- k
+    kv <- kvec; kv[u] <- k
     firm_profit_dgp(refhh, pl, mc_t, P, kv, cost_mult)[[f]]
   }, interval = c(0, K_MAX), maximum = TRUE, tol = 1e-4)$maximum
 }
@@ -224,30 +233,30 @@ eq <- lapply(markets, function(mk) {
   pl <- mk$plans
   years <- vector("list", T_YEARS)
   mc_t <- pl$mc
-  kvec <- c(A = 1, B = 1, C = 0)
+  units <- unique(pl$unit)
+  kvec <- setNames(fifelse(units == "C", 0, 1), units)
+  k_units <- setdiff(units, "C")
   P <- mc_t + 1
   for (t in seq_len(T_YEARS)) {
     if (t > 1) mc_t <- pmin(pmax(mc_t * exp(rnorm(length(mc_t), 0, MC_DRIFT_SD)), 0.3), 3)
     for (round in 1:6) {
       sol <- solve_P(refhh, pl, mc_t, kvec, P, mk$cost_mult); P <- sol$x
       k_old <- kvec
-      for (f in c("A", "B")) kvec[f] <- best_k(refhh, pl, mc_t, P, kvec, f, mk$cost_mult)
+      for (u in k_units) kvec[u] <- best_k(refhh, pl, mc_t, P, kvec, u, mk$cost_mult)
       if (max(abs(kvec - k_old)) < 1e-3) break
     }
     sol <- solve_P(refhh, pl, mc_t, kvec, P, mk$cost_mult); P <- sol$x
     years[[t]] <- list(t = t, mc_t = mc_t, P = P, kvec = kvec, termcd = sol$termcd)
   }
-  cat(sprintf("  market %d: wedge = (%.2f, %.2f), k range A [%.2f, %.2f] B [%.2f, %.2f]\n",
+  kk_m <- unlist(lapply(years, function(y) y$kvec[k_units]))
+  cat(sprintf("  market %d: wedge = (%.2f, %.2f), %d units, k in [%.2f, %.2f]\n",
               mk$m, mk$wedge_f[["A"]], mk$wedge_f[["B"]],
-              min(vapply(years, function(y) y$kvec[["A"]], numeric(1))),
-              max(vapply(years, function(y) y$kvec[["A"]], numeric(1))),
-              min(vapply(years, function(y) y$kvec[["B"]], numeric(1))),
-              max(vapply(years, function(y) y$kvec[["B"]], numeric(1)))))
-  list(years = years, refhh = refhh)
+              length(k_units), min(kk_m), max(kk_m)))
+  list(years = years, refhh = refhh, k_units = k_units)
 })
 kk <- unlist(lapply(eq, function(e)
-  lapply(e$years, function(y) y$kvec[c("A", "B")])))
-cat(sprintf("panels done, %.1f min; k in [%.2f, %.2f], %.1f%% of firm-years at a search bound\n",
+  lapply(e$years, function(y) y$kvec[e$k_units])))
+cat(sprintf("panels done, %.1f min; k in [%.2f, %.2f], %.1f%% of unit-years at a search bound\n",
             as.numeric(difftime(Sys.time(), t0, units = "mins")),
             min(kk), max(kk), 100 * mean(kk < 0.05 | kk > K_MAX - 0.05)))
 
@@ -258,7 +267,7 @@ simulate_rep <- function(r) {
     for (yy in eq[[i]]$years) {
       set.seed(MC_SEED + r * 10000L + mk$m * 100L + yy$t)
       hh <- draw_hh(N_HH, mk$z, mk$m * 1e7 + yy$t * 1e6)
-      Cvec <- unname(yy$kvec[pl$firm]) * pl$basis
+      Cvec <- unname(yy$kvec[pl$unit]) * pl$basis
       ss <- state_shares(theta_true, hh, pl, yy$P, Cvec)
       hh[, enroll := as.integer(runif(.N) < ss$s_g)]
       u <- runif(N_HH)
@@ -361,27 +370,29 @@ for (r in seq_len(N_REPS)) {
 
   # Wedge recovery, the M4 logic: the FOC gap phi = MB/MC - 1 + beta_f at the
   # ESTIMATED demand parameters, true costs, and the equilibrium premiums and
-  # commissions, per firm-market-year; each firm-market's wedge level is the
-  # commission-base-weighted mean of its phi over years
+  # commissions, one condition per unit-market-year, MB spanning the owning
+  # firm's margins and MC the unit's own outlay derivative; each firm-market's
+  # wedge level is the commission-base-weighted mean of phi over its unit-years
   h <- 0.02
   wrows <- rbindlist(lapply(seq_along(markets), function(i) {
     mk <- markets[[i]]; e <- eq[[i]]; pl <- mk$plans
     rbindlist(lapply(e$years, function(yy) {
-      rbindlist(lapply(c("A", "B"), function(f) {
-        kp <- yy$kvec; kp[f] <- kp[f] + h
-        km <- yy$kvec; km[f] <- km[f] - h
+      rbindlist(lapply(e$k_units, function(u) {
+        f <- sub("[.].*$", "", u)
+        kp <- yy$kvec; kp[u] <- kp[u] + h
+        km <- yy$kvec; km[u] <- km[u] - h
         bop <- firm_BO(theta_r, e$refhh, pl, yy$mc_t, yy$P, kp)
         bom <- firm_BO(theta_r, e$refhh, pl, yy$mc_t, yy$P, km)
         MB <- (bop$B[[f]] - bom$B[[f]]) / (2 * h)
-        MCd <- (bop$O[[f]] - bom$O[[f]]) / (2 * h)
+        MCd <- (bop$O[[u]] - bom$O[[u]]) / (2 * h)
         bo0 <- firm_BO(theta_r, e$refhh, pl, yy$mc_t, yy$P, yy$kvec)
-        data.table(market = mk$m, t = yy$t, firm = f,
+        data.table(market = mk$m, t = yy$t, firm = f, unit = u,
                    phi = MB / MCd - (1 - mk$beta_f[[f]]),
-                   wedge_true = mk$wedge_f[[f]], w_o = bo0$O[[f]], k_eq = yy$kvec[[f]])
+                   wedge_true = mk$wedge_f[[f]], w_o = bo0$O[[u]], k_eq = yy$kvec[[u]])
       }))
     }))
   }))
-  # corner guard, mirroring M4's gating: a firm-year at a bound of the search
+  # corner guard, mirroring M4's gating: a unit-year at a bound of the search
   # interval does not satisfy the FOC and is excluded from the wedge recovery
   wrows <- wrows[is.finite(phi) & w_o > 0 & k_eq > 0.05 & k_eq < K_MAX - 0.05]
   wfm <- wrows[, .(delta_hat = weighted.mean(phi, w_o), delta_true = wedge_true[1],

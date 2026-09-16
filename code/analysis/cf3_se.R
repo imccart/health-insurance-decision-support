@@ -86,8 +86,9 @@ pt <- tryCatch(summarize_cf_headline(read_csv("results/counterfactual_welfare.cs
 
 # Tasks, one per cell. Frozen re-score (no solve): score_cf_cell reloads the cached
 # cell data and takes premiums from cf_base.
-n_cells_total <- nrow(cells)
-tasks <- lapply(seq_len(nrow(cells)), function(i)
+idx_supply <- which(cells$year %in% SUPPLY_YEARS)
+n_cells_total <- length(idx_supply)
+tasks <- lapply(idx_supply, function(i)
   list(r = cells$region[i], y = cells$year[i], idx = i, n_total = n_cells_total))
 rm(hh_split); gc(verbose = FALSE)
 

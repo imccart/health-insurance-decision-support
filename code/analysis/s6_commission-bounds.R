@@ -44,6 +44,7 @@ SPLIT_KEYS_S6 <- read_csv("data/output/commission_lookup.csv", show_col_types = 
 
 CELL_DIR_S6 <- file.path(TEMP_DIR, "choice_cells")
 cell_files_s6 <- list.files(CELL_DIR_S6, pattern = "^cell_.*_data\\.csv$", full.names = TRUE)
+cell_files_s6 <- cell_files_s6[as.integer(str_match(basename(cell_files_s6), "_(\\d{4})_data\\.csv$")[, 2]) %in% SUPPLY_YEARS]
 cat("  cells:", length(cell_files_s6), "| lambda", round(LAMBDA_S6, 4),
     "| commission coefficient", round(BETA_COMM_S6, 4), "\n")
 
@@ -91,9 +92,10 @@ profit_cell_s6 <- function(fp) {
     f_carrier <- sub("[.].*$", "", f)
     beta_f <- if (f_carrier %in% names(BETA_F)) BETA_F[[f_carrier]] else BETA_DEFAULT_S6
     for (k in K_GRID_S6) {
-      ins[, d_k := fifelse(unit == f, BETA_COMM_S6 * (k - 1) * comm_pmpm, 0)]
+      # Utility delta on the household's own commission (comm_hh); the outlay
+      # below uses the same household values summed over broker members
+      ins[, d_k := fifelse(unit == f, BETA_COMM_S6 * (k - 1) * comm_hh, 0)]
       # Broker households' within-nest shares at the deviated commissions
-      # (commission_broker = comm_pmpm on their rows)
       ins[, s_jg_k := s_jg]
       ins[is_b == TRUE, s_jg_k := {
         w <- exp((V + d_k) / LAMBDA_S6 - max((V + d_k) / LAMBDA_S6))
@@ -114,11 +116,12 @@ profit_cell_s6 <- function(fp) {
       # unit's schedule, the sister network stays at its observed rates
       mem <- ins[prefix == f_carrier,
                  .(mem = sum(hh_weight * s_jg_k * s_g_k),
-                   mem_b = sum(hh_weight * s_jg_k * s_g_k * is_b)), by = plan_id]
+                   mem_b = sum(hh_weight * s_jg_k * s_g_k * is_b),
+                   comm_b = sum(hh_weight * s_jg_k * s_g_k * is_b * comm_hh)), by = plan_id]
       pf <- merge(plan_info[prefix == f_carrier], mem, by = "plan_id", all.x = TRUE)
-      pf[is.na(mem), mem := 0]; pf[is.na(mem_b), mem_b := 0]
+      pf[is.na(mem), mem := 0]; pf[is.na(mem_b), mem_b := 0]; pf[is.na(comm_b), comm_b := 0]
       pi_m <- pf[, sum((premium_posted - mc_gmm) * mem -
-                       (1 - beta_f) * fifelse(unit == f, k, 1) * comm_pmpm * mem_b)]
+                       (1 - beta_f) * fifelse(unit == f, k, 1) * comm_b)]
       out[[length(out) + 1]] <- data.table(region = r, year = y, firm = f, k = k,
         profit_month = pi_m, members = pf[, sum(mem)], members_b = pf[, sum(mem_b)])
     }

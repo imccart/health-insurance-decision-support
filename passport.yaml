@@ -116,7 +116,7 @@ claims:
     artifact_key: "SAMPLE_FRAC pipeline parameter"
     expected_value: 0.20
     tolerance: 0
-    status: UNVERIFIED
+    status: STALE
     explanation: "Fixed pipeline parameter (SAMPLE_FRAC=0.20), not an estimated quantity; no results artifact."
     last_verified: 2026-08-17
 
@@ -1823,7 +1823,7 @@ claims:
     artifact_key: "flat-fee commission figure (Kaiser 6.25; Anthem 9-16.50)"
     expected_value: 6.25
     tolerance: 0.01
-    status: UNVERIFIED
+    status: STALE
     explanation: "Descriptive commission levels shown in the commission figure; the underlying values come from the rate-filings build, not extracted to a numeric results CSV, so not confirmed against a machine-readable artifact."
     last_verified: 2026-08-17
 

@@ -48,14 +48,21 @@ demo_het  <- c("hh_size_prem", "perc_0to17_prem", "perc_18to34_prem",
                "perc_35to54_av", "perc_male_av", "perc_black_av",
                "perc_hispanic_av", "perc_asian_av", "perc_other_av",
                "FPL_250to400_av", "FPL_400plus_av")
+enroll_int <- c("hh_size_insured", "perc_0to17_insured", "perc_18to34_insured",
+                "perc_35to54_insured", "perc_male_insured", "perc_black_insured",
+                "perc_hispanic_insured", "perc_asian_insured", "perc_other_insured",
+                "FPL_250to400_insured", "FPL_400plus_insured")
 steering  <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
                "commission_broker")
 cfun      <- "cf_resid"
 
 spec1 <- c(price, plan_attr)
-spec2 <- c(spec1, demo_het)
+spec2 <- c(spec1, demo_het, enroll_int)
 spec3 <- c(spec2, steering)          # = body model
 spec4 <- c(spec3, cfun)
+# spec3 must equal the body spec; a drifted duplicate makes the sanity check
+# below meaningless
+stopifnot(setequal(spec3, read.csv(file.path(TEMP_DIR, "demand_spec.csv"))$term))
 
 # Fitter ------------------------------------------------------------------
 fit_nested <- function(covars) {
@@ -91,12 +98,13 @@ cat(sprintf("\n  Col (3) vs body demand estimates: max abs diff = %.6f\n",
 prem_map <- get_prem_interactions(spec4)
 raw_demo <- unique(unlist(prem_map))
 need <- unique(c("region", "year", "household_number", "plan_id", "choice",
-                 "hh_weight", "hh_size", "premium", "silver", "bronze", "av", "comm_pmpm",
-                 spec4, raw_demo))
+                 "hh_weight", "hh_size", "premium", "silver", "bronze", "av",
+                 "comm_pmpm", "comm_hh", spec4, raw_demo))
 dat <- rbindlist(lapply(list.files(CELL_DIR, full.names = TRUE), function(f) {
   d <- fread(f); d[, intersect(need, names(d)), with = FALSE]
 })) %>% as_tibble()
-feat <- intersect(unique(c(spec4, raw_demo, "premium", "silver", "bronze", "av", "comm_pmpm")),
+feat <- intersect(unique(c(spec4, raw_demo, "premium", "silver", "bronze", "av",
+                           "comm_pmpm", "comm_hh")),
                   names(dat))
 dat <- dat %>% mutate(across(all_of(feat), ~ replace_na(as.numeric(.), 0)))
 
@@ -154,8 +162,9 @@ assist_mfx <- function(fit) {
   Vbase  <- as.numeric(as.matrix(dat[, nonass]) %*% fit[nonass])
   b <- function(nm) if (nm %in% names(fit)) fit[[nm]] else 0
   V_nav <- Vbase + b("assisted_av") * dat$av + b("assisted_premium") * dat$premium
+  comm_val <- if ("comm_hh" %in% names(dat)) dat$comm_hh else dat$comm_pmpm
   V_brk <- Vbase + b("broker_av") * dat$av +
-           b("broker_premium") * dat$premium + b("commission_broker") * dat$comm_pmpm
+           b("broker_premium") * dat$premium + b("commission_broker") * comm_val
   s_un  <- silver_share(Vbase, lambda)
   s_nav <- silver_share(V_nav, lambda)
   s_brk <- silver_share(V_brk, lambda)
@@ -194,7 +203,7 @@ rows <- list(
   list(lab = "$\\lambda$ (nesting parameter)",        v = lambda_v,  f = "%.2f"),
   list(lab = "Navigator effect on silver (pp)",       v = nav_mfx,   f = "%.1f"),
   list(lab = "Agent effect on silver (pp)",          v = brk_mfx,   f = "%.1f"),
-  list(lab = "Commission $\\times$ broker",           v = comm_v,    f = "%.3f")
+  list(lab = "Commission $\\times$ agent",            v = comm_v,    f = "%.3f")
 )
 lines <- c("\\begin{tabular}{lcccc}", "\\hline\\hline",
            " & (1) & (2) & (3) & (4) \\\\", "\\hline")

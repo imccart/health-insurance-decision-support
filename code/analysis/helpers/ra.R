@@ -30,11 +30,14 @@
 RS_DEMO_RAWCOL <- c(share_0to34 = "perc_0to34", share_male = "perc_male",
                     share_family = "family", share_minority = "perc_minority")
 RS_DEMO_TERMS <- names(RS_DEMO_RAWCOL)
+# The supply side (s3 through cf3) runs on the years with realized claims in
+# the rate filings, 2014-2018; demand is estimated on 2014-2019.
+SUPPLY_YEARS <- 2014:2018
 # Claims equation (Eq. 9): HMO, year dummies (2014 the base), big-four insurer
 # indicators, and the rating-area shares of the plan-year's enrollment (region
 # 1 the base), which stand in for market fixed effects.
 CLAIMS_REGION_TERMS <- paste0("share_ra", 2:19)
-CLAIMS_YEAR_TERMS <- paste0("year_", 2015:2019)
+CLAIMS_YEAR_TERMS <- paste0("year_", SUPPLY_YEARS[-1])
 CLAIMS_EXOG_TERMS <- c("HMO", CLAIMS_YEAR_TERMS, "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
                        CLAIMS_REGION_TERMS)
 

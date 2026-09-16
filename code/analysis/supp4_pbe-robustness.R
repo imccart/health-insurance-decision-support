@@ -77,7 +77,7 @@ lab <- c(premium = "Premium",
          broker_av = "Agent $\\times$ AV",
          assisted_premium = "Navigator $\\times$ premium",
          broker_premium = "Agent $\\times$ premium",
-         commission_broker = "Commission $\\times$ broker",
+         commission_broker = "Commission $\\times$ agent",
          lambda = "$\\lambda$ (nesting parameter)")
 rownames(comp) <- comp$term
 tl <- c("\\begin{tabular}{lcc}", "\\hline\\hline",

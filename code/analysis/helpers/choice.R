@@ -61,11 +61,21 @@ build_rf <- function(plans, hhs, sample_frac,
   ), by = plan_id]
   choice_set[, plan_id := as.character(plan_id)]
 
-  # Carry commission PMPM if present (structural path only)
+  # Carry commission PMPM if present (structural path only), plus the filed
+  # rate and percentage flag for the household-level commission covariate
   if ("comm_pmpm" %in% names(plans_dt)) {
     cs_comm <- plans_dt[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)), by = plan_id]
+    if (all(c("rate", "is_pct") %in% names(plans_dt))) {
+      cs_rate <- plans_dt[, .(rate = mean(rate, na.rm = TRUE),
+                              is_pct = as.integer(any(is_pct == 1L))), by = plan_id]
+      cs_comm <- merge(cs_comm, cs_rate, by = "plan_id", all.x = TRUE)
+    }
     choice_set <- merge(choice_set, cs_comm, by = "plan_id", all.x = TRUE)
     choice_set[is.na(comm_pmpm), comm_pmpm := 0]
+    if ("rate" %in% names(choice_set)) {
+      choice_set[is.na(rate), rate := 0]
+      choice_set[is.na(is_pct), is_pct := 0L]
+    }
   }
 
   uninsured_row <- data.table(
@@ -75,6 +85,7 @@ build_rf <- function(plans, hhs, sample_frac,
     msp = NA_real_, hsa = NA_real_, cf_resid = 0
   )
   if ("comm_pmpm" %in% names(choice_set)) uninsured_row$comm_pmpm <- 0
+  if ("rate" %in% names(choice_set)) { uninsured_row$rate <- 0; uninsured_row$is_pct <- 0L }
   choice_set <- rbind(choice_set, uninsured_row)
 
   # 2. Cross-join sampled HH x choice set. `cutoff` (year-specific ACA
@@ -205,8 +216,15 @@ build_rf <- function(plans, hhs, sample_frac,
     ))
     small <- small_raw[, eval(agg_exprs), by = .(household_id, base_metal)]
     if (has_comm) {
-      comm_agg <- small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)),
-                             by = .(household_id, base_metal)]
+      comm_agg <- if (all(c("rate", "is_pct") %in% names(small_raw))) {
+        small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE),
+                      rate = mean(rate, na.rm = TRUE),
+                      is_pct = as.integer(any(is_pct == 1L))),
+                  by = .(household_id, base_metal)]
+      } else {
+        small_raw[, .(comm_pmpm = mean(comm_pmpm, na.rm = TRUE)),
+                  by = .(household_id, base_metal)]
+      }
       small <- merge(small, comm_agg, by = c("household_id", "base_metal"), all.x = TRUE)
     }
     small[, `:=`(
@@ -453,14 +471,17 @@ build_rf <- function(plans, hhs, sample_frac,
   }
 
   # Commission x broker interaction (structural path only)
-  # Only broker/agent-assisted HH receive commission steering; navigators do not
+  # Only broker/agent-assisted HH receive commission steering; navigators do
+  # not. The commission is the household-level value (comm_hh) where the rate
+  # columns are available, the plan-level basis otherwise.
   if ("comm_pmpm" %in% names(untreated)) {
+    comm_col <- if ("comm_hh" %in% names(untreated)) "comm_hh" else "comm_pmpm"
     if ("any_agent" %in% names(untreated)) {
-      untreated[, commission_broker := comm_pmpm * fifelse(any_agent == 1L, assisted, 0L)]
-      treated[, commission_broker := comm_pmpm * fifelse(any_agent == 1L, assisted, 0L)]
+      untreated[, commission_broker := get(comm_col) * fifelse(any_agent == 1L, assisted, 0L)]
+      treated[, commission_broker := get(comm_col) * fifelse(any_agent == 1L, assisted, 0L)]
     } else {
-      untreated[, commission_broker := comm_pmpm * assisted]
-      treated[, commission_broker := comm_pmpm * assisted]
+      untreated[, commission_broker := get(comm_col) * assisted]
+      treated[, commission_broker := get(comm_col) * assisted]
     }
   }
 

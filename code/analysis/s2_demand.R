@@ -29,7 +29,12 @@ STRUCTURAL_SPEC <- c(
   "FPL_250to400_prem", "FPL_400plus_prem",
   "hh_size_av", "perc_0to17_av", "perc_18to34_av", "perc_35to54_av",
   "perc_male_av", "perc_black_av", "perc_hispanic_av", "perc_asian_av", "perc_other_av",
-  "FPL_250to400_av", "FPL_400plus_av"
+  "FPL_250to400_av", "FPL_400plus_av",
+  # Demographic enrollment intercepts: demographics x the inside-good
+  # indicator, shifting the propensity to enroll at all.
+  "hh_size_insured", "perc_0to17_insured", "perc_18to34_insured", "perc_35to54_insured",
+  "perc_male_insured", "perc_black_insured", "perc_hispanic_insured", "perc_asian_insured",
+  "perc_other_insured", "FPL_250to400_insured", "FPL_400plus_insured"
 )
 
 # Assistance terms. They enter plan choice at the household's realized channel

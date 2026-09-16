@@ -299,6 +299,17 @@ if (nrow(coefs_structural) > 0) {
     "assisted_premium"   = "Navigator $\\times$ premium",
     "broker_premium"     = "Agent $\\times$ premium",
     "commission_broker"  = "Commission $\\times$ agent",
+    "hh_size_insured"       = "Enrolled $\\times$ HH size",
+    "perc_0to17_insured"    = "Enrolled $\\times$ share 0--17",
+    "perc_18to34_insured"   = "Enrolled $\\times$ share 18--34",
+    "perc_35to54_insured"   = "Enrolled $\\times$ share 35--54",
+    "perc_male_insured"     = "Enrolled $\\times$ share male",
+    "perc_black_insured"    = "Enrolled $\\times$ share Black",
+    "perc_hispanic_insured" = "Enrolled $\\times$ share Hispanic",
+    "perc_asian_insured"    = "Enrolled $\\times$ share Asian",
+    "perc_other_insured"    = "Enrolled $\\times$ share other race",
+    "FPL_250to400_insured"  = "Enrolled $\\times$ FPL 250--400\\%",
+    "FPL_400plus_insured"   = "Enrolled $\\times$ FPL $>$400\\%",
     "lambda"             = "$\\lambda$ (nesting parameter)"
   )
 
@@ -860,12 +871,14 @@ cell_files <- list.files(file.path(TEMP_DIR, "choice_cells"),
                          pattern = "_data\\.csv$", full.names = TRUE)
 if (length(cell_files) > 0) {
   broker_hh <- lapply(cell_files, function(f) {
-    fread(f, select = c("choice", "broker", "comm_pmpm", "premium",
+    hdr <- names(fread(f, nrows = 0L))
+    fread(f, select = intersect(c("choice", "broker", "comm_pmpm", "comm_hh", "premium",
                         "uninsured_plan", "hh_size", "perc_0to17", "perc_18to34",
                         "perc_35to54", "perc_male", "perc_black", "perc_hispanic",
-                        "perc_asian", "perc_other", "FPL_250to400", "FPL_400plus")) %>%
+                        "perc_asian", "perc_other", "FPL_250to400", "FPL_400plus"), hdr)) %>%
       filter(broker == 1, choice == 1, uninsured_plan == 0)
   }) %>% bind_rows()
+  if (!"comm_hh" %in% names(broker_hh)) broker_hh$comm_hh <- broker_hh$comm_pmpm
 
   equiv <- broker_hh %>%
     mutate(alpha100 = b[["premium"]] + b[["broker_premium"]] +
@@ -883,7 +896,7 @@ if (length(cell_files) > 0) {
     summarize(n_broker_hh = n(),
               alpha_per100 = weighted.mean(alpha100, hh_size),
               mean_net_premium = weighted.mean(100 * premium, hh_size),
-              mean_commission = weighted.mean(comm_pmpm, hh_size)) %>%
+              mean_commission = weighted.mean(comm_hh, hh_size)) %>%
     mutate(dollar_equiv = b[["commission_broker"]] / (abs(alpha_per100) / 100),
            elast_ratio = (b[["commission_broker"]] * mean_commission) /
                          (abs(alpha_per100) / 100 * mean_net_premium))

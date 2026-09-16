@@ -142,17 +142,43 @@ plan_choice$cf_resid <- residuals(first_stage)
 cat("  Premium first-stage F:", round(summary(first_stage)$fstatistic[1], 1), "\n")
 rm(first_stage)
 
+# Commission basis. Percentage schedules are paid on collected premiums, so
+# the plan-level basis is the rate on the enrollee-weighted average premium:
+# the filed 40-year-old premium converted by the mean member rating factor
+# among the plan-cell's observed enrollees. Cells without observed enrollees
+# fall back to the region-year mean factor. rate and is_pct stay in the table
+# for the household-level commission covariate built at the cell stage.
+# The CSR silver variants collapse into one plan downstream, so the enrollee
+# mean is pooled across them; a per-variant mean would leave the basis varying
+# within the collapsed plan
+mu_plan <- hh_full %>%
+  filter(insured == 1L, !is.na(plan_id)) %>%
+  mutate(plan_id_c = gsub("SIL(94|73|87)", "SIL", plan_id)) %>%
+  group_by(region, year, plan_id_c) %>%
+  summarize(mu_member = sum(rating_factor) / sum(weight), .groups = "drop")
+mu_region <- hh_full %>%
+  filter(insured == 1L) %>%
+  group_by(region, year) %>%
+  summarize(mu_member_r = sum(rating_factor) / sum(weight), .groups = "drop")
+
 plan_choice <- plan_choice %>%
   mutate(insurer_prefix = sub("_.*", "", plan_id),
+         plan_id_c = gsub("SIL(94|73|87)", "SIL", plan_id),
          # HSP is a closed-network product and pays the HMO schedule
          hmo_join = as.integer(!is.na(network_type) & network_type %in% c("HMO", "HSP"))) %>%
   left_join(commission_lookup, by = c("insurer_prefix", "year", "hmo_join" = "hmo")) %>%
-  mutate(comm_pmpm = case_when(
-    is.na(rate) ~ 0,
-    is_pct      ~ rate * premium,
-    TRUE        ~ rate
-  )) %>%
-  select(-insurer_prefix, -hmo_join, -rate, -is_pct)
+  left_join(mu_plan, by = c("region", "year", "plan_id_c")) %>%
+  left_join(mu_region, by = c("region", "year")) %>%
+  mutate(mu_member = coalesce(mu_member, mu_member_r, RATING_FACTOR_AGE40),
+         comm_pmpm = case_when(
+           is.na(rate) ~ 0,
+           is_pct      ~ rate * (premium / RATING_FACTOR_AGE40) * mu_member,
+           TRUE        ~ rate
+         ),
+         is_pct = ifelse(is.na(rate), 0L, as.integer(is_pct)),
+         rate   = ifelse(is.na(rate), 0, rate)) %>%
+  select(-insurer_prefix, -hmo_join, -plan_id_c, -mu_member, -mu_member_r)
+rm(mu_plan, mu_region)
 
 # Rating-area shares of each plan-year's enrollment (claims equation, Eq. 9;
 # region 1 the base). Attached to every region row of the plan-year.

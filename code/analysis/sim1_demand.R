@@ -46,12 +46,12 @@ if (!dir.exists(OUT_DIR)) dir.create(OUT_DIR, recursive = TRUE)
 # Truth (near the real estimates; premium in $100/member/month, commission in
 # $/member/month as in the real cells)
 theta_true <- c(
-  inside = 0.45, premium = -0.05, av = 0.55, hmo = -0.03, brand1 = 0.05,
-  hh_size_prem = -0.004,
-  assisted_av = 0.17, broker_av = 0.07,
-  assisted_premium = -0.014, broker_premium = -0.002,
-  commission_broker = 0.001,
-  lambda = 0.054
+  inside = 0.41, premium = -0.053, av = 0.55, hmo = -0.029, brand1 = 0.05,
+  hh_size_prem = -0.0044,
+  assisted_av = 0.171, broker_av = 0.097,
+  assisted_premium = -0.014, broker_premium = -0.0035,
+  commission_broker = 0.0004,
+  lambda = 0.0538
 )
 ASST <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
           "commission_broker")

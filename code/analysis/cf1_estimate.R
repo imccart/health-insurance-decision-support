@@ -73,14 +73,12 @@ BAND_EDGES     <- c(0.75, 1.25)    # band-edge runs on the headline scenario
 # the warm start for the next run's baseline iteration.
 CF_YEAR_DIR <- file.path(TEMP_DIR, "cf_years")
 if (!dir.exists(CF_YEAR_DIR)) dir.create(CF_YEAR_DIR, recursive = TRUE)
-old_rows <- list.files(CF_YEAR_DIR, pattern = "^(year|firms)_", full.names = TRUE)
-if (length(old_rows) > 0) invisible(file.remove(old_rows))
 
 hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
 hh_split_cf <- split(hh_all, by = c("region", "year"))
 rm(hh_all); gc(verbose = FALSE)
 
-years <- sort(unique(cells$year))
+years <- intersect(sort(unique(cells$year)), SUPPLY_YEARS)
 
 # =========================================================================
 # PHASE 2: solve each year
@@ -89,6 +87,12 @@ years <- sort(unique(cells$year))
 t_start <- Sys.time()
 year_results <- list()
 base_comm_rows <- list()
+
+# Clear only the years about to be solved; other years' checkpoints stay so
+# the final assembly keeps them. Clear cf_years by hand when the spec changes.
+old_rows <- list.files(CF_YEAR_DIR, full.names = TRUE,
+                       pattern = paste0("^(year|firms|basecomm)_(", paste(years, collapse = "|"), ")[_.]"))
+if (length(old_rows) > 0) invisible(file.remove(old_rows))
 
 for (y in years) {
   cat(sprintf("\n=== Year %d ===\n", y))
@@ -202,11 +206,11 @@ for (y in years) {
     }
   }
   fp <- solve_cf_year_fixed_point(yr, "baseline", solve_ids, P_start)
-  if (is.null(fp)) { cat("  baseline iteration failed; year skipped\n"); parallel::stopCluster(cl); next }
-  cat(sprintf("  baseline fixed point: %d iterations, converged %s, %.1f min\n", fp$iter, fp$converged, fp$elapsed))
+  if (is.null(fp)) { cf_log(sprintf("  [%s] baseline iteration failed; year skipped\n", y)); parallel::stopCluster(cl); next }
+  cf_log(sprintf("  [%s] baseline fixed point: %d iterations, converged %s, %.1f min\n", y, fp$iter, fp$converged, fp$elapsed))
   write_csv(tibble(kind = "P", id = names(fp$P), value = unname(fp$P)), fp_file)
   J_P_year <- cf_year_jacobian_P(yr, solve_ids, fp$P)
-  if (is.null(J_P_year)) { cat("  jacobian evaluation failed; year skipped\n"); parallel::stopCluster(cl); next }
+  if (is.null(J_P_year)) { cf_log(sprintf("  [%s] jacobian evaluation failed; year skipped\n", y)); parallel::stopCluster(cl); next }
   data.table::fwrite(data.table::data.table(row = rownames(J_P_year), J_P_year),
                      file.path(CF_YEAR_DIR, sprintf("jacobian_%d.csv", y)))
 
@@ -247,10 +251,10 @@ for (y in years) {
     }
     res <- solve_cf_year(yr, label, ids, P_run, J_P_year, tol_dollars = 5,
                          om_base = om_base)
-    if (is.null(res)) { cat("  ", label, "- did not converge\n"); return(NULL) }
+    if (is.null(res)) { cf_log(paste("  ", label, "- did not converge\n")); return(NULL) }
     P_full <- P_obs; P_full[names(res$P)] <- res$P
-    cat(sprintf("   %s - converged (termcd %d, %d iterations, %d evaluations, %.1f min)\n",
-                label, res$sol$termcd, res$sol$iter, res$n_eval, res$elapsed))
+    cf_log(sprintf("   [%s] %s - converged (termcd %d, %d iterations, %d evaluations, %.1f min)\n",
+                   y, label, res$sol$termcd, res$sol$iter, res$n_eval, res$elapsed))
     save_rows(label, cf_year_rows(yr, label, tau, res$pieces, P_full, comm_scale,
                                   res$sol$termcd, res$sol$iter))
     data.table::fwrite(cf_year_firm_rows(yr, label, res$pieces),
@@ -303,7 +307,9 @@ for (y in years) {
         eta_obs = unname(etabar_y[firms_solve]),
         eta_base = unname((agb$MC / agb$qB)[firms_solve]),
         converged = base_c$converged)
-    } else cat("  baseline commission solve failed; commissions held at observed\n")
+      write_csv(base_comm_rows[[as.character(y)]],
+                file.path(CF_YEAR_DIR, sprintf("basecomm_%d.csv", y)))
+    } else cf_log(sprintf("  [%s] baseline commission solve failed; commissions held at observed\n", y))
   }
 
   # Commission ban with the agent-to-navigator gradient (chained warm starts)
@@ -354,7 +360,7 @@ for (y in years) {
                                 firms = firms_solve, beta_f = beta_gate,
                                 wedge_f = wedge_gate, k_init = k_base,
                                 om_base = om_base)
-    if (is.null(out)) { cat("  ", label, "- dropped\n"); return(invisible(NULL)) }
+    if (is.null(out)) { cf_log(paste("  ", label, "- dropped\n")); return(invisible(NULL)) }
     P_full <- P_obs; P_full[names(out$P)] <- out$P
     save_rows(label, cf_year_rows(yr, label, tau_row, out$pieces, P_full, NA_real_,
                                   if (out$converged) 1L else 9L, out$rounds))
@@ -381,11 +387,16 @@ rm(hh_split_cf); gc(verbose = FALSE)
 # PHASE 3: Collect and write results
 # =========================================================================
 
-cf_results <- bind_rows(year_results)
+# Assembled from the checkpoint files so a run over a subset of years keeps the
+# other years' results. Clear TEMP_DIR/cf_years when the model spec changes.
+year_files <- list.files(CF_YEAR_DIR, pattern = "^year_[0-9]+_.*\\.csv$", full.names = TRUE)
+cf_results <- bind_rows(lapply(year_files, read_csv, show_col_types = FALSE))
 if (nrow(cf_results) == 0) stop("No counterfactual results")
 write_csv(cf_results, "results/counterfactual_results.csv")
-if (length(base_comm_rows) > 0)
-  write_csv(bind_rows(base_comm_rows), "results/cf_baseline_commissions.csv")
+bc_files <- list.files(CF_YEAR_DIR, pattern = "^basecomm_[0-9]+\\.csv$", full.names = TRUE)
+if (length(bc_files) > 0)
+  write_csv(bind_rows(lapply(bc_files, read_csv, show_col_types = FALSE)) %>% arrange(year, firm),
+            "results/cf_baseline_commissions.csv")
 
 firm_files <- list.files(CF_YEAR_DIR, pattern = "^firms_", full.names = TRUE)
 if (length(firm_files) > 0) {
