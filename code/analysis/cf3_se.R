@@ -20,14 +20,13 @@ DRAWS_PATH <- "results/cf_bootstrap_draws.csv"
 SE_PATH    <- "results/cf_bootstrap_se.csv"
 HH_SINK    <- file.path(TEMP_DIR, "cf_boot_hh")   # per-draw per-household welfare (transient)
 
-cat("=== CF parametric bootstrap ===\n  draws:", N_BOOT_CF, "\n")
 
 # Shared structural inputs (cells, cell_seeds, hh_split, plan_choice, commission)
 source("code/analysis/s1_inputs.R")
 
 # Scorer config (score_cf_cell is loaded by the driver, re-sourced per worker):
 CELL_DIR          <- file.path(TEMP_DIR, "choice_cells")
-COMM_TERMS        <- c("commission_broker")
+COMM_TERMS        <- c("commission_broker", "commission_broker_sq")
 SPENDING_SCHEDULE <- load_spending_schedule()
 UNINS_SCHED       <- load_uninsured_oop()   # uninsured valued at realized OOP + social cost
 
@@ -124,7 +123,6 @@ parallel::clusterEvalQ(cl, {
 parallel::clusterExport(cl, c("run_one_boot", "cf_base", "supply_results",
   "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK", "CELL_DIR", "COMM_TERMS",
   "SPENDING_SCHEDULE", "UNINS_SCHED", "TEMP_DIR"))
-message("  Parallel: ", n_workers, " workers; ", length(tasks), " cells/draw")
 
 # Draw loop ---------------------------------------------------------------
 set.seed(BOOT_SEED)
@@ -195,5 +193,3 @@ summ <- data.frame(
 rownames(summ) <- NULL
 write.csv(summ, SE_PATH, row.names = FALSE)
 
-cat("\n  lambda draws rejected and redrawn:", n_clamp, "\n")
-print(summ %>% mutate(across(where(is.numeric), ~round(., 3))), row.names = FALSE)

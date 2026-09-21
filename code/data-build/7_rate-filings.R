@@ -156,6 +156,33 @@ cat("  Plan names:", length(unique(rdata$plan_id)), "unique\n")
 cat("  Examples:", paste(head(sort(unique(rdata$plan_id)), 10), collapse = ", "), "\n")
 
 
+
+# Company-level experience stamped on every plan row --------------------------
+# Some carriers file one company figure and repeat it on every plan row (the
+# 2016 filing gives all 45 Health Net Life plans the same 14,215 member months
+# and $7,619,103 of claims), so aggregating multiplies it by the plan count.
+# Those rows carry no plan-level experience and are dropped.
+
+exp_flat <- rdata %>%
+  filter(EXP_MM > 0) %>%
+  group_by(filing, COMPANY) %>%
+  summarize(n_plans = n_distinct(PLAN_ID), n_mm = n_distinct(EXP_MM),
+            n_clm = n_distinct(EXP_INC_CLM), .groups = "drop") %>%
+  filter(n_plans > 1, n_mm == 1, n_clm == 1) %>%
+  transmute(filing, COMPANY, exp_company_level = TRUE)
+
+if (nrow(exp_flat) > 0) {
+  cat("  experience block is company-level, dropped:",
+      paste(paste0(exp_flat$COMPANY, " (", exp_flat$filing - 2L, ")"),
+            collapse = "; "), "\n")
+}
+
+rdata <- rdata %>%
+  left_join(exp_flat, by = c("filing", "COMPANY")) %>%
+  mutate(across(c(EXP_MM, EXP_TP, EXP_INC_CLM, EXP_RSK_ADJ, EXP_REIN),
+                ~ if_else(coalesce(exp_company_level, FALSE), NA_real_, as.numeric(.x)))) %>%
+  select(-exp_company_level)
+
 # Aggregate to plan-name x year level ------------------------------------
 # This is the level at which risk scores and claims regressions run. No
 # region dimension in rate filings; insurers file at plan level. A filing's

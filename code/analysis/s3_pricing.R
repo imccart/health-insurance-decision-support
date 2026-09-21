@@ -28,14 +28,11 @@ STRUCTURAL_SPEC <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$all
 
 coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
 lambda <- coefs %>% filter(term == "lambda") %>% pull(estimate)
-cat("  lambda =", round(lambda, 4), "\n")
-cat("  Coefficients:", nrow(coefs), "terms\n")
 
 # =========================================================================
 # Estimate RA regressions from rate filing data
 # =========================================================================
 
-cat("\nEstimating RA regressions...\n")
 # Claims rows: rate filing PUF plan-years with observed plan-year demographics
 rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
@@ -47,7 +44,6 @@ rsdata <- rsdata %>%
               distinct(plan_id, year, .keep_all = TRUE),
             by = c("plan_id", "year"))
 n_matched <- sum(!is.na(rsdata$share_18to34))
-cat("  Demographics merged:", n_matched, "of", nrow(rsdata), "plan-years matched\n")
 rm(plan_demo)
 
 # Risk-score rows: SRRT scores at insurer x metal x region x year, with the
@@ -60,7 +56,6 @@ rs_srrt <- read_csv("data/output/plan_risk_scores.csv", show_col_types = FALSE)
 mlr_admin <- read_csv("data/output/mlr_admin.csv", show_col_types = FALSE)
 ADMIN_LOOKUP <- setNames(mlr_admin$admin0_pmpm, paste(mlr_admin$insurer_prefix, mlr_admin$year, sep = "_"))
 BETA_ADMIN <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
-cat("  administrative cost per member: ", length(ADMIN_LOOKUP), " insurer-years; beta0 =", round(BETA_ADMIN, 3), "\n")
 plan_metal_map <- plan_choice %>%
   distinct(plan_id, metal) %>%
   mutate(metal = sub(" - Enhanced.*", "", metal)) %>%
@@ -84,7 +79,6 @@ rs_srrt <- rs_srrt %>%
   inner_join(pdr, by = c("insurer_prefix", "metal", "region", "year", "network")) %>%
   mutate(Silver = as.integer(metal == "Silver"), Gold = as.integer(metal == "Gold"),
          Platinum = as.integer(metal == "Platinum"))
-cat("  SRRT risk-score rows with demographics:", nrow(rs_srrt), "\n")
 rm(pdr, plan_metal_map, plan_net_map)
 
 ra_regs <- estimate_ra_regressions(rsdata, rs_srrt)
@@ -100,7 +94,6 @@ reins_df <- rsdata %>%
   filter(!is.na(reins_factor))
 write_csv(reins_df, file.path(TEMP_DIR, "reinsurance_factors.csv"))
 
-cat("  RA coefficients and reinsurance factors saved.\n")
 rm(rsdata, rs_srrt)
 
 # =========================================================================
@@ -112,13 +105,11 @@ rm(rsdata, rs_srrt)
 hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
 hh_split <- split(hh_all, by = c("region", "year"))
 rm(hh_all)
-cat("  Region-year cells:", nrow(cells), "\n")
 
 # =========================================================================
 # Loop over cells: build data, compute markups
 # =========================================================================
 
-cat("\nComputing supply-side markups...\n")
 
 results_list <- vector("list", nrow(cells))
 pass1 <- vector("list", nrow(cells))   # per-cell demand-side pieces for pass 2
@@ -211,6 +202,9 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   )
   shares    <- se_result$shares
   elast_mat <- se_result$elast_mat
+  relast_mat <- se_result$relast_mat
+  rshares <- se_result$rshares
+  zelast <- se_result$zelast
 
   # -----------------------------------------------------------------------
   # Step 3: Ownership matrix and Omega
@@ -222,6 +216,10 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   # = t(elast_mat)[j,k]. Transpose before forming Omega. (Symmetric off the benchmark,
   # so this only moves the silver/benchmark insurer's markups, but it is the correct FOC.)
   Omega <- -own_mat * t(elast_mat)  # positive diagonal
+  # Revenue counterpart: the same derivative weighted by the household's
+  # age-rating pass-through, since a household pays rf_i times the posted
+  # (age-40) premium. Claims and transfers stay per member, on Omega.
+  Omega_r <- -own_mat * t(relast_mat)
 
   # -----------------------------------------------------------------------
   # Step 4: Broker shares and elasticities (assisted HH only)
@@ -235,12 +233,14 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
 
   # Commission-condition inputs for the s4 diagnostics: broker enrollment qB_j and the
   # broker commission-derivative matrix D[j,k] = dqB_j/deta_k. Both are fixed given the
-  # demand estimates (they run through beta_comm, not the cost parameters), so we
+  # demand estimates (they run through the commission coefficients, not the cost parameters), so we
   # precompute them here and the cost GMM evaluates the commission FOC at its own theta
   # using these plus the cost-implied marginal cost. [D %*% w_f]_j = dqB_j/dk_f.
   comm_deriv <- compute_commission_derivatives(cell_data, V, lambda, coefs,
                                                V_base = V_base, add_N = add_N, add_A = add_A)
   comm_D  <- comm_deriv$D[plan_ids_cell, plan_ids_cell, drop = FALSE]
+  comm_D_r <- comm_deriv$D_r[plan_ids_cell, plan_ids_cell, drop = FALSE]
+  comm_Dz <- lapply(comm_deriv$D_z, function(m) m[plan_ids_cell, plan_ids_cell, drop = FALSE])
   comm_qB <- comm_deriv$qB[plan_ids_cell]
 
   # -----------------------------------------------------------------------
@@ -251,6 +251,9 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
     Silver      = as.integer(unname(plan_metal) == "Silver"),
     Gold        = as.integer(unname(plan_metal) == "Gold"),
     Platinum    = as.integer(unname(plan_metal) == "Platinum"),
+    !!!setNames(lapply(RS_IM_TERMS, function(t)
+      as.integer(paste0("im_", sub("_.*", "", plan_ids_cell), "_", unname(plan_metal)) == t)),
+      RS_IM_TERMS),
     AV          = unname(pa$av),
     HMO         = unname(setNames(pa$hmo, pa$plan_id)[plan_ids_cell]),
     !!!setNames(as.list(as.integer(SUPPLY_YEARS[-1] == y)), CLAIMS_YEAR_TERMS),
@@ -295,8 +298,10 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
                             pa$plan_id)[plan_ids_cell]
   pass1[[i]] <- list(
     region = r, year = y, plan_ids = plan_ids_cell, N = N_cell,
-    shares = shares, elast_mat = elast_mat, own_mat = own_mat, Omega = Omega,
-    Omega_broker = Omega_broker, comm_D = comm_D, comm_qB = comm_qB, comm_vec = comm_vec,
+    shares = shares, rshares = rshares, elast_mat = elast_mat,
+    relast_mat = relast_mat, zelast = zelast, own_mat = own_mat, Omega = Omega, Omega_r = Omega_r,
+    Omega_broker = Omega_broker, comm_D = comm_D, comm_D_r = comm_D_r, comm_Dz = comm_Dz,
+    comm_qB = comm_qB, comm_vec = comm_vec,
     posted_premium = posted_premium, plan_avs = plan_avs, plan_metal = plan_metal,
     plan_issuer = plan_issuer, plan_chars_cell = plan_chars_cell, demo_shares = demo_shares,
     reins_vec = reins_vec, comm_hmo = comm_hmo_cell
@@ -304,7 +309,8 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   n_done <- n_done + 1L
 
   rm(cell_data, plans, plan_attrs, pa, V, V_base, se_result, broker_result, util_result,
-     shares, elast_mat, own_mat, Omega, broker_elast_mat, Omega_broker, comm_deriv,
+     shares, rshares, elast_mat, relast_mat, own_mat, Omega, Omega_r,
+     broker_elast_mat, Omega_broker, comm_deriv,
      comm_D, comm_qB, comm_vec, posted_premium, plan_metal, plan_issuer, plan_chars_cell,
      plan_avs, demo_shares, reins_vec, rf_cell, N_cell)
   gc(verbose = FALSE)
@@ -322,7 +328,6 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
 
 gc(verbose = FALSE)
 
-cat("  Completed:", n_done, "  Skipped:", n_skip, "\n")
 
 # =========================================================================
 # Pass 2: statewide transfer sums, then transfers, marginal costs, and markups
@@ -332,19 +337,19 @@ cat("  Completed:", n_done, "  Skipped:", n_skip, "\n")
 # and members at the OLS cost coefficients; s4 recomputes them at each GMM
 # evaluation, and the counterfactual holds the rest of the state at its
 # baseline contribution.
-cat("\nPass 2: transfers, marginal costs, and markups...\n")
 pass1 <- Filter(Negate(is.null), pass1)
 cell_recs <- lapply(pass1, function(cl) {
   rs <- predict_risk_scores(ra_regs$rs_coefs, cl$plan_chars_cell, cl$demo_shares)
-  list(region = cl$region, year = cl$year, N = cl$N, shares = cl$shares,
+  list(region = cl$region, year = cl$year, N = cl$N, shares = cl$shares, rshares = cl$rshares,
        rs = setNames(rs$predicted_risk_score, rs$plan_id), av = cl$plan_avs,
        arf = setNames(cl$demo_shares$arf, cl$demo_shares$plan_id),
        gcf = ra_gcf(cl$region, cl$year), premium = cl$posted_premium)
 })
 stopifnot(all(is.finite(sapply(cell_recs, function(x) x$gcf))))
-ra_state <- ra_state_totals(cell_recs)
-cat("  Statewide average premium (net of the admin share) by year:",
-    paste(ra_state$totals$year, round(ra_state$totals$pbar), sep = ": ", collapse = ", "), "\n")
+# The transfer formula's premium total by year: premiums collected at the
+# observed premiums
+RA_TP <- ra_premium_total(cell_recs)
+ra_state <- ra_state_totals(cell_recs, RA_TP)
 rm(cell_recs)
 
 foc_inputs_dir <- file.path(TEMP_DIR, "foc_inputs")
@@ -353,7 +358,7 @@ unlink(list.files(foc_inputs_dir, pattern = "^foc_.*\\.rds$", full.names = TRUE)
 for (k in seq_along(pass1)) {
   cl <- pass1[[k]]
   r <- cl$region; y <- cl$year; plan_ids_cell <- cl$plan_ids; J <- length(plan_ids_cell)
-  ra_env <- ra_env_for_cell(r, y, cl$N, cl$demo_shares, ra_state$totals, ra_state$own)
+  ra_env <- ra_env_for_cell(r, y, cl$N, cl$demo_shares, ra_state)
 
   mc_result <- compute_mc(ra_regs$rs_coefs, ra_regs$claims_coefs, cl$plan_chars_cell,
                           cl$demo_shares, cl$shares, ra_env, cl$plan_avs, cl$reins_vec)
@@ -367,7 +372,13 @@ for (k in seq_along(pass1)) {
   # RA derivative for the FOC: price changes shift enrollment composition and
   # the cell's own contribution to the statewide sums
   rs_levels <- setNames(rs_pred$predicted_risk_score, rs_pred$plan_id)
-  ra_foc <- compute_ra_foc(rs_levels, cl$shares, cl$plan_avs, ra_env, cl$elast_mat, cl$own_mat)
+  mix <- mix_response(cl$elast_mat, cl$zelast, cl$demo_shares, ra_regs$rs_coefs)
+  mkt_rev <- setNames(cl$rshares + as.vector(t(cl$relast_mat) %*% cl$posted_premium), plan_ids_cell)
+  ra_foc <- compute_ra_foc(rs_levels, cl$shares, cl$plan_avs, ra_env, cl$elast_mat, cl$own_mat,
+                           mix, mkt_rev)$total
+  # Claims moving with the enrollee mix (marginal against average cost)
+  cc <- compute_claims_comp(pred_claims, cl$reins_vec, mix, cl$own_mat,
+                            ra_regs$claims_coefs[["log_risk_score"]])
 
   # Per-cell pricing FOC residual (share units per member): s + ra_foc -
   # Omega (p - mc - a) + (1 - beta) Omega_broker comm, with a the insurer's
@@ -377,9 +388,15 @@ for (k in seq_along(pass1)) {
   # inversion mc_foc stays as a diagnostic only.
   admin_vec <- setNames(ADMIN_LOOKUP[paste(sub("_.*", "", plan_ids_cell), y, sep = "_")], plan_ids_cell)
   admin_vec[is.na(admin_vec)] <- 0
-  rhs <- cl$shares + ra_foc + (1 - BETA_ADMIN) * as.numeric(cl$Omega_broker %*% cl$comm_vec)
-  foc_resid <- rhs - as.vector(cl$Omega %*% (cl$posted_premium - mc_structural - admin_vec))
-  markup_inv <- tryCatch(solve(cl$Omega, rhs), error = function(e) rep(NA_real_, J))
+  rhs <- cl$rshares + ra_foc - cc + (1 - BETA_ADMIN) * as.numeric(cl$Omega_broker %*% cl$comm_vec)
+  foc_resid <- rhs - as.vector(cl$Omega_r %*% cl$posted_premium -
+                               cl$Omega %*% (mc_structural + admin_vec))
+  # The condition is rhs = Omega_r p - Omega (mc + admin), so the cost the
+  # observed price implies is Omega^-1 (Omega_r p - rhs) and the markup is the
+  # premium less that.
+  mc_plus_admin <- tryCatch(solve(cl$Omega, as.vector(cl$Omega_r %*% cl$posted_premium) - rhs),
+                            error = function(e) rep(NA_real_, J))
+  markup_inv <- cl$posted_premium - mc_plus_admin
 
   # RA factor = AV * induced demand factor per plan
   ra_factor_static <- setNames(
@@ -387,16 +404,22 @@ for (k in seq_along(pass1)) {
                          RA_IDF_BY_AV[as.character(round(cl$plan_avs, 1))]),
     plan_ids_cell)
   mc_foc <- cl$posted_premium - markup_inv - admin_vec
-  markup <- cl$posted_premium - mc_structural - admin_vec
-  lerner <- ifelse(cl$posted_premium > 0, markup / cl$posted_premium, NA_real_)
+  # Premium collected per member: the posted (age-40) premium times the
+  # plan's average rating pass-through, rshares / shares
+  realized_premium <- ifelse(cl$shares > 0, cl$posted_premium * cl$rshares / cl$shares,
+                             NA_real_)
+  markup <- realized_premium - mc_structural - admin_vec
+  lerner <- ifelse(realized_premium > 0, markup / realized_premium, NA_real_)
 
   saveRDS(list(
     region         = r,
     year           = y,
     plan_ids       = plan_ids_cell,
     Omega          = cl$Omega,
+    Omega_r        = cl$Omega_r,
     Omega_broker   = cl$Omega_broker,
     shares         = cl$shares,
+    rshares        = cl$rshares,     # rating-weighted, the revenue level term
     comm_vec       = cl$comm_vec,
     posted_premium = cl$posted_premium,
     reins_vec      = cl$reins_vec,
@@ -408,6 +431,10 @@ for (k in seq_along(pass1)) {
     hmo            = setNames(cl$plan_chars_cell$HMO, cl$plan_chars_cell$plan_id),
     comm_hmo       = cl$comm_hmo,    # schedule side (HMO/HSP vs PPO/EPO) for the M4 units
     comm_D         = cl$comm_D,      # broker commission-derivative matrix dqB_j/deta_k (M4 commission FOC)
+    comm_D_r       = cl$comm_D_r,    # the same, rating-weighted, for the revenue half of MB
+    comm_Dz        = cl$comm_Dz,     # the same, weighted by each enrollee characteristic
+    relast_mat     = cl$relast_mat,  # rating-weighted premium derivative (premiums collected)
+    zelast         = cl$zelast,      # premium derivatives weighted by each enrollee characteristic
     comm_qB        = cl$comm_qB,     # broker enrollment per plan, share units (M4 commission FOC)
     N              = cl$N,           # members in the cell (transfer formula)
     gcf            = ra_env$gcf,     # geographic cost factor of the cell
@@ -422,6 +449,7 @@ for (k in seq_along(pass1)) {
     metal           = unname(cl$plan_metal),
     share           = unname(cl$shares),
     posted_premium  = unname(cl$posted_premium),
+    realized_premium = unname(realized_premium),
     markup          = unname(markup),
     mc_foc          = unname(mc_foc),
     mc_structural   = unname(mc_structural),
@@ -472,41 +500,9 @@ foc_plan_year <- supply_results %>%
 
 supply_results <- supply_results %>% select(-foc_resid, -omega_own, -members)
 write_csv(supply_results, "results/supply_results.csv")
-cat("\nSupply results:", nrow(supply_results), "rows -> results/supply_results.csv\n")
-cat("  Plan-years:", nrow(foc_plan_year), "; regional factors reproduce posted premiums:",
-    isTRUE(all.equal(supply_results$base_premium * supply_results$region_factor,
-                     supply_results$posted_premium)), "\n")
+stopifnot(isTRUE(all.equal(supply_results$base_premium * supply_results$region_factor,
+                           supply_results$posted_premium)))
 
-# =========================================================================
-# Diagnostics
-# =========================================================================
-
-cat("\n--- Supply Diagnostics ---\n")
-cat("  Median Lerner index:", round(median(supply_results$lerner_index, na.rm = TRUE), 3), "\n")
-cat("  Markup range: [", round(min(supply_results$markup, na.rm = TRUE), 1),
-    ",", round(max(supply_results$markup, na.rm = TRUE), 1), "]\n")
-cat("  Median markup:", round(median(supply_results$markup, na.rm = TRUE), 1), "$/month\n")
-cat("  Negative MC (FOC) count:", sum(supply_results$mc_foc < 0, na.rm = TRUE),
-    "of", nrow(supply_results), "\n")
-cat("  Commission FOC summary (commission_pmpm):\n")
-print(summary(supply_results$commission_pmpm))
-
-# Plan-year pricing FOC residuals at the OLS cost estimates, in dollars per
-# member-month (positive = the structural cost sits below what pricing implies)
-cat("\n--- Plan-year pricing FOC residuals ($ per member-month, member-weighted) ---\n")
-cat("  By metal:\n")
-print(foc_plan_year %>% group_by(metal) %>%
-        summarize(plan_years = n(), residual = round(weighted.mean(G_dollars, members), 1),
-                  .groups = "drop"))
-cat("  By insurer:\n")
-print(foc_plan_year %>% group_by(issuer) %>%
-        summarize(plan_years = n(), residual = round(weighted.mean(G_dollars, members), 1),
-                  .groups = "drop") %>% arrange(residual), n = Inf)
-mc_valid <- supply_results %>%
-  filter(!is.na(mc_foc), !is.na(mc_structural), share >= SHARE_FLOOR_FOC)
-if (nrow(mc_valid) > 0)
-  cat("  Per-cell inversion diagnostic: correlation of mc_foc with mc_structural",
-      round(cor(mc_valid$mc_foc, mc_valid$mc_structural), 3), "\n")
 
 # =========================================================================
 # Figures
@@ -580,4 +576,3 @@ p_mc_compare <- plot_data %>%
   theme_bw()
 ggsave("results/figures/supply_mc_foc_vs_structural_startvals.png", p_mc_compare, width = 7, height = 5)
 
-cat("Figures saved to results/figures/.\n")

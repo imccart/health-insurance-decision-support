@@ -8,7 +8,6 @@
 ##                premiums to the cf1 solution, and scores (via score_cf.R). Sourced by
 ##                _analysis.R after cf1; standalone-safe (reads its own inputs).
 
-cat("\n=== cf2: welfare scoring from solved equilibria ===\n")
 
 # Inputs ------------------------------------------------------------------
 coefs <- read_csv("results/choice_coefficients_structural.csv", show_col_types = FALSE)
@@ -18,7 +17,7 @@ cfres <- as.data.table(read_csv("results/counterfactual_results.csv", show_col_t
 
 demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 STRUCTURAL_SPEC <- demand_spec$all
-COMM_TERMS <- c("commission_broker")
+COMM_TERMS <- c("commission_broker", "commission_broker_sq")
 
 source("code/analysis/helpers/welfare.R")
 CS_TABLE <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors = FALSE)
@@ -49,7 +48,6 @@ score_one <- function(task) {
 }
 
 if (!is.null(cl)) {
-  cat("  Parallel:", n_workers, "workers\n")
   parallel::clusterEvalQ(cl, {
     suppressMessages({ library(tidyverse); library(data.table) })
     source("code/data-build/_helpers.R"); source("code/analysis/helpers/constants.R")
@@ -65,7 +63,7 @@ if (!is.null(cl)) {
   welfare_list <- parallel::parLapplyLB(cl, tasks, score_one)
   parallel::stopCluster(cl)
 } else {
-  cat("  Serial\n"); welfare_list <- lapply(tasks, score_one)
+  welfare_list <- lapply(tasks, score_one)
 }
 
 cf_welfare <- rbindlist(welfare_list)

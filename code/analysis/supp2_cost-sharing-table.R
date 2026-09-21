@@ -1,7 +1,7 @@
 # Meta --------------------------------------------------------------------
 #
 ## Author:        Ian McCarthy
-## Description:   Standalone appendix table build. Formats the Covered
+## Description:   Appendix table build, sourced by _analysis.R. Formats the Covered
 ##                California standardized cost-sharing schedule
 ##                (data/input/ca_standard_cost_sharing.csv) into a bare
 ##                tabular for the supplemental appendix. Shows 2019 as a
@@ -9,7 +9,6 @@
 ##                varies by year, is what the welfare objective uses.
 ##                Not part of the numbered pipeline.
 
-pacman::p_load(data.table)
 
 cs <- fread("data/input/ca_standard_cost_sharing.csv")
 

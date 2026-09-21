@@ -74,9 +74,6 @@ hh <- hh %>%
 # correctly set for the years immediately following these gaps.
 n_before <- nrow(hh)
 hh <- hh %>% filter(market_eligible == 1L)
-cat(sprintf("  Dropped %d market-ineligible uninsured HH-years (%.1f%%)\n",
-            n_before - nrow(hh),
-            100 * (n_before - nrow(hh)) / n_before))
 
 
 # Save working datasets ---------------------------------------------------
@@ -86,10 +83,6 @@ cat(sprintf("  Dropped %d market-ineligible uninsured HH-years (%.1f%%)\n",
 hh_full <- hh
 rm(hh)
 
-cat("Decision analysis data ready:\n")
-cat("  hh_full: ", nrow(hh_full), "HH-years (",
-    sum(hh_full$insured == 1L), "insured +",
-    sum(hh_full$insured == 0L), "uninsured )\n")
 
 fwrite(hh_full, "data/output/hh_full.csv")
 gc(verbose = FALSE)

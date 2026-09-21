@@ -15,9 +15,9 @@
 # --- Calibration scalars (literature values; confirm before final results) ----
 # Coefficient of variation of annual individual health spending. Right-skewed;
 # from AHRQ MEPS 2022 concentration tabulation (Stat. Brief #560), CV >= 2.5 as a
-# strict lower bound, plausibly 3-4 with within-group dispersion. Using the lower
-# bound; sensitivity to 3 and 4 is reported in the appendix. Gives the lognormal spending
-# distribution its spread, which is what makes risk aversion bite.
+# strict lower bound, plausibly 3-4 with within-group dispersion. We use the lower
+# bound. It gives the lognormal spending distribution its spread, which is what
+# makes risk aversion bite.
 SPENDING_CV <- 2.5
 # CARA absolute risk aversion, PER DOLLAR. Handel (2013, AER) mean ~2.3e-4/$ is
 # the common ESI/marketplace benchmark; defensible range ~1e-4 to 1e-3. Units:
@@ -264,7 +264,7 @@ vN_navigator_coefs <- function(coefs) {
   if ("premium" %in% names(cm)) cm["premium"] <- g("premium") + g("assisted_premium")
   if ("av"      %in% names(cm)) cm["av"]      <- g("av")      + g("assisted_av")
   for (z in c("assisted_premium", "assisted_av", "broker_premium", "broker_av",
-              "commission_broker"))
+              "commission_broker", "commission_broker_sq"))
     if (z %in% names(cm)) cm[z] <- 0
   data.frame(term = names(cm), estimate = as.numeric(cm), stringsAsFactors = FALSE)
 }

@@ -19,10 +19,9 @@
 ##                shifts utility, swept from no selection to strong, both aligned
 ##                with commission (realistic) and orthogonal to it (adversarial).
 ##
-##                Self-contained (no data). Standalone, not in the driver.
+##                Self-contained (no data). Sourced by _analysis.R.
 ##                Writes menu_simulation.tex and gatekeeper_selection.tex.
 
-pacman::p_load(tidyverse, data.table)
 
 # Market primitives --------------------------------------------------------
 K          <- 6

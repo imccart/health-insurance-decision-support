@@ -51,3 +51,5 @@ Thumbs.db
 .Renviron
 .positai
 agent_history.md
+.mode-write.md
+.mode-code.jsonl

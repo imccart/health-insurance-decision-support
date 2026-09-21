@@ -40,7 +40,6 @@ rm(hh_all); gc(verbose = FALSE)
 
 # Phase 1: build cell data ------------------------------------------------
 
-cat("Phase 1: Building cell data (", nrow(cells), "cells)...\n")
 
 set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))
@@ -87,11 +86,9 @@ for (i in seq_len(nrow(cells))) {
 
 rm(plan_choice, hh_split)
 gc(verbose = FALSE)
-cat("  Built:", n_built, "  Skipped:", n_skip, "\n")
 
 # Phase 2: pool insured + unassisted, fit MNL ------------------------------
 
-cat("\nPhase 2: Pooling cells and fitting MNL...\n")
 
 pool_list <- vector("list", nrow(cells))
 for (i in seq_len(nrow(cells))) {
@@ -118,15 +115,9 @@ pooled[, chid := paste(region, year, household_number, sep = "_")]
 # this filter separately and the bootstrap did not, which left each bootstrap
 # draw with a different effective sample size. Applied once, here.
 pooled <- pooled[chid %in% pooled[choice == 1L, unique(chid)]]
-cat(sprintf("  Analysis sample: %s rows, %s HH-years\n",
-            format(nrow(pooled), big.mark = ","),
-            format(uniqueN(pooled$chid), big.mark = ",")))
 
 # Estimation sample for the body baseline: unassisted households only
 unassist <- pooled[assisted == 0L]
-cat(sprintf("  Unassisted (baseline fit): %s rows, %s HH-years\n",
-            format(nrow(unassist), big.mark = ","),
-            format(uniqueN(unassist$chid), big.mark = ",")))
 
 # Baseline = observational, NO control function. The cf_ terms must not sit in
 # the estimation: including them distorts every other coefficient through
@@ -142,8 +133,6 @@ fit <- mlogit(fmla, data = unassist,
               chid.var = "chid", alt.var = "plan_id",
               weights = ipweight)
 
-cat("\n  Coefficients:\n")
-print(summary(fit)$CoefTable)
 
 coefs <- tibble(term = names(coef(fit)), estimate = coef(fit))
 fwrite(coefs, "results/choice_coefficients.csv")
@@ -151,7 +140,6 @@ rm(unassist); gc(verbose = FALSE)
 
 # Phase 3: OOS predictions for assisted, ATT by cell × plan ---------------
 
-cat("\nPhase 3: OOS predictions on assisted enrollees...\n")
 
 assist <- pooled[assisted == 1L]
 
@@ -182,8 +170,6 @@ plan_summary <- assist[, .(
 ), by = .(plan_id, region, year)]
 
 fwrite(plan_summary, "results/choice_point_estimates.csv")
-cat("  Predictions:", nrow(plan_summary),
-    "rows -> results/choice_point_estimates.csv\n")
 
 rm(assist); gc(verbose = FALSE)
 
@@ -194,7 +180,6 @@ rm(assist); gc(verbose = FALSE)
 # appendix can show the body result is not driven by the sample. Baseline =
 # unassisted-only fit, no control function, IPW.
 
-cat("\nPhase 3b: New-enrollee baseline ATT (appendix sample check)...\n")
 
 un_new <- pooled[assisted == 0L & new_enrollee == 1L]
 fit_new <- mlogit(fmla, data = un_new, chid.var = "chid",
@@ -228,7 +213,6 @@ rm(un_new, as_new, fit_new); gc(verbose = FALSE)
 n_boot <- if (exists("N_BOOT")) N_BOOT else 50L
 
 if (n_boot > 0L) {
-  cat("\nPhase 4: Bootstrap (", n_boot, "reps)...\n")
   set.seed(MASTER_SEED + 1L)
 
   chid_cells <- unique(pooled[, .(chid, region, year)])
@@ -284,8 +268,6 @@ if (n_boot > 0L) {
 
   boot_long <- rbindlist(boot_results, fill = TRUE)
   fwrite(boot_long, "results/choice_bootstrap_pred.csv")
-  cat("  Bootstrap output:", nrow(boot_long),
-      "rows -> results/choice_bootstrap_pred.csv\n")
   rm(boot_results, boot_long, chid_cells)
 }
 
@@ -304,7 +286,6 @@ if (n_boot > 0L) {
 # empty wherever an insurer does not operate. So region is uncontrolled in this
 # model rather than absorbed, and the text says so.
 
-cat("\nPhase 5: Appendix pooled assistance-as-covariate MNL (progressive specs)...\n")
 
 ap1 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
                 Anthem + Blue_Shield + Kaiser + Health_Net +
@@ -312,7 +293,6 @@ ap1 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
                 broker_silver + broker_bronze | 0 | 0,
               data = pooled, chid.var = "chid", alt.var = "plan_id",
               weights = ipweight)
-print(summary(ap1)$CoefTable)
 
 ap2 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
                 Anthem + Blue_Shield + Kaiser + Health_Net +
@@ -324,7 +304,6 @@ ap2 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
                 broker_silver + broker_bronze | 0 | 0,
               data = pooled, chid.var = "chid", alt.var = "plan_id",
               weights = ipweight)
-print(summary(ap2)$CoefTable)
 
 ap3 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
                 Anthem + Blue_Shield + Kaiser + Health_Net +
@@ -338,7 +317,6 @@ ap3 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
                 cf_silver + cf_bronze | 0 | 0,
               data = pooled, chid.var = "chid", alt.var = "plan_id",
               weights = ipweight)
-print(summary(ap3)$CoefTable)
 
 ap_tab <- bind_rows(
   tibble(spec = "attrs",   term = names(coef(ap1)), estimate = coef(ap1),

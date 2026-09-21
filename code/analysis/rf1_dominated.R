@@ -17,7 +17,6 @@
 # Regression specifications
 # =========================================================================
 
-cat("Dominated choice regressions...\n")
 
 # Prepped HH panel (augmented with v_hat) from build3_data-prep.
 hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
@@ -180,7 +179,6 @@ writeLines(as.character(dom_tab), "results/tables/dominated_choice_regression.te
 # control function anywhere in it. The appendix companion is the pooled sequence
 # above. Same demographic set and year-FE-only structure as those models.
 
-cat("Baseline prediction-based ATT...\n")
 
 po_formula <- dominated_choice ~
   perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
@@ -213,8 +211,6 @@ compute_att <- function(df, channel_filter) {
 hh_po <- hh_clean %>% filter(!is.na(dominated_choice))
 rm(hh_clean)
 gc(verbose = FALSE)
-cat("  Main (all enrollees):", nrow(hh_po_all),
-    " comparison (new enrollees):", nrow(hh_po), "CSR-eligible\n")
 
 # Main estimates: baseline prediction-based ATT on ALL enrollees.
 att_any   <- compute_att(hh_po_all, "any_assist")
@@ -232,7 +228,6 @@ dom_sample_tab <- tibble(
   ATT_new_enrollees = c(att_any_new$att, att_agent_new$att, att_nav_new$att)
 )
 fwrite(dom_sample_tab, "results/dominated_new_vs_all.csv")
-cat("  Dominated baseline ATT, all vs new enrollees:\n"); print(dom_sample_tab)
 
 # Bare tabular for the appendix (the appendix supplies table env and caption).
 dom_sample_tex <- dom_sample_tab %>%
@@ -292,7 +287,6 @@ att_summary <- tibble(
                quantile(boot_nav, 0.975, na.rm = TRUE))
 )
 fwrite(att_summary, "results/dominated_att.csv")
-cat("  Dominated ATT with baseline rates and 95% CIs:\n"); print(att_summary)
 
 theme_paper <- theme_bw() +
   theme(text = element_text(size = 12), panel.grid.minor = element_blank(),
@@ -306,8 +300,6 @@ plot_att <- ggplot(att_summary, aes(x = Channel, y = ATT)) +
   theme_paper
 ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4, bg = "white")
 
-
-print(att_summary)
 
 # Free hh_po and bootstrap residues; the structural block is done with HH data.
 rm(hh_po, hh_po_all, boot_any, boot_agent, boot_nav,

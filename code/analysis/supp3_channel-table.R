@@ -1,13 +1,12 @@
 # Meta --------------------------------------------------------------------
 #
 ## Author:        Ian McCarthy
-## Description:   Standalone appendix table build. Tabulates the Covered
+## Description:   Appendix table build, sourced by _analysis.R. Tabulates the Covered
 ##                California service-channel codes in the raw enrollment file,
 ##                with each code's description, the higher-level category we
 ##                group it into (agent / navigator / unassisted), and its share
 ##                of enrollment records. Not part of the numbered pipeline.
 
-pacman::p_load(data.table)
 
 enroll <- fread("data/input/Covered California/pra_07192019.csv")
 sc <- enroll[, .N, by = service_channel]

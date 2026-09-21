@@ -18,4 +18,3 @@ commission_lookup <- fread("data/output/commission_lookup.csv")    %>% as_tibble
 set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))
 
-cat("  Cells:", nrow(cells), "\n\n")

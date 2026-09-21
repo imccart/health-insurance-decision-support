@@ -20,7 +20,7 @@
 ##                implied effect. The static effect should match the cumulative,
 ##                not the direct.
 ##
-##                Self-contained. Not in the driver.
+##                Self-contained. Sourced by _analysis.R.
 
 set.seed(20260224)
 

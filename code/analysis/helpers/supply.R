@@ -410,7 +410,7 @@ build_structural <- function(plans, hhs, sample_frac,
   if ("comm_pmpm" %in% names(dt)) {
     # Household-level commission per member per month: percentage schedules pay
     # on the household's own age-rated premium, flat schedules the filed rate.
-    # comm_pmpm stays the plan-level basis (outlays, s6).
+    # comm_pmpm stays the plan-level basis (outlays).
     if (all(c("rate", "is_pct") %in% names(dt))) {
       dt[, comm_hh := fifelse(is_pct == 1L,
                               rate * (premium_posted / RATING_FACTOR_AGE40) * rating_factor / pmax(hh_size, 1L),
@@ -423,10 +423,12 @@ build_structural <- function(plans, hhs, sample_frac,
       dt[, nonbroker := assisted * fifelse(any_agent == 1L, 0L, 1L, na = 1L)]
       dt[, broker    := assisted * fifelse(any_agent == 1L, 1L, 0L, na = 0L)]
       dt[, commission_broker := comm_hh * fifelse(any_agent == 1L, assisted, 0L, na = 0L)]
+      dt[, commission_broker_sq := comm_hh^2 / 100 * fifelse(any_agent == 1L, assisted, 0L, na = 0L)]
     } else {
       dt[, nonbroker := assisted]
       dt[, broker    := 0L]
       dt[, commission_broker := comm_hh * assisted]
+      dt[, commission_broker_sq := comm_hh^2 / 100 * assisted]
     }
     dt[, `:=`(
       assisted_av      = nonbroker * av,
@@ -493,7 +495,7 @@ compute_utility <- function(cell_data, coefs_cell) {
   comm_r <- if ("comm_hh" %in% names(cell_data)) raw0("comm_hh") else raw0("comm_pmpm")
   add_N <- gc0("assisted_av") * av_r + gc0("assisted_premium") * prem_r
   add_A <- gc0("broker_av") * av_r + gc0("broker_premium") * prem_r +
-           gc0("commission_broker") * comm_r
+           gc0("commission_broker") * comm_r + gc0("commission_broker_sq") * comm_r^2 / 100
 
   list(V = V, V_base = V - V_excl, lambda = lambda, add_N = add_N, add_A = add_A)
 }
@@ -600,9 +602,6 @@ add_nest_probs <- function(ins_dt) {
 
     ins_dt[, s_jg_b := p_none_hat * s_jg_0 + p_nav_hat * s_jg_N + p_agent_hat * s_jg_A]
     ins_dt[, log_D := p_none_hat * log_D0 + p_nav_hat * log_DN + p_agent_hat * log_DA]
-    # State inclusive values retained (iv_*) for re-scoring at deviated
-    # channel terms (s6 recomputes the agent state at each commission scale)
-    setnames(ins_dt, c("log_D0", "log_DN", "log_DA"), c("iv_0", "iv_N", "iv_A"))
   } else {
     ins_dt[, Vb_scaled := V_base / lambda_i]
     ins_dt[, max_Vb_scaled := max(Vb_scaled), by = household_number]
@@ -718,6 +717,7 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
                                           (premiumSLC - SLC_contribution) > 0)]
   ins_dt[is.na(kink_m), kink_m := 1]
   ins_dt[is.na(sub_interior), sub_interior := 0]
+  ins_dt <- add_mix_columns(ins_dt)
 
   # Total weight over ALL households (the normalization every FOC term uses),
   # computed BEFORE any channel filter
@@ -727,20 +727,42 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
   if (!is.null(channel_filter)) {
     ins_dt <- ins_dt[get(channel_filter) == 1L]
     if (nrow(ins_dt) == 0) {
+      zero <- matrix(0, J, J, dimnames = list(plan_ids, plan_ids))
       return(list(shares = setNames(rep(0, J), plan_ids),
-                  elast_mat = matrix(0, J, J, dimnames = list(plan_ids, plan_ids)),
+                  rshares = setNames(rep(0, J), plan_ids),
+                  elast_mat = zero, relast_mat = zero,
+                  zelast = setNames(rep(list(zero), length(MIX_COLS)), names(MIX_COLS)),
                   plan_ids = plan_ids))
     }
   }
 
   # --- Weighted market shares ---
-  shares_dt <- ins_dt[, .(share = sum(hh_weight * q_j) / total_weight), by = plan_id]
+  # `shares` are member shares, the cost side's units: cost accrues per member,
+  # so each household counts hh_weight times. `rshares` are the revenue side: a
+  # household pays rf_i times the posted (age-40) premium, and rating_factor is
+  # already the household total, so rf_i REPLACES the member weight rather than
+  # multiplying it. The ratio of the two runs about 1.33.
+  shares_dt <- ins_dt[, .(share = sum(hh_weight * q_j) / total_weight,
+                          rshare = sum(rf_i * q_j) / total_weight), by = plan_id]
   shares <- setNames(shares_dt$share, shares_dt$plan_id)
   shares <- shares[plan_ids]
   shares[is.na(shares)] <- 0
+  rshares <- setNames(shares_dt$rshare, shares_dt$plan_id)
+  rshares <- rshares[plan_ids]
+  rshares[is.na(rshares)] <- 0
 
   # --- Derivative matrix (J x J), rows respond, columns move ---
   elast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_ids, plan_ids))
+  relast_mat <- matrix(0, nrow = J, ncol = J, dimnames = list(plan_ids, plan_ids))
+  # One matrix per enrollee characteristic z: sum_i w_i z_i dq_im / dp_l. With
+  # elast_mat they give how a plan's enrollee mix moves with each premium, which
+  # is what moves its risk score, its average rating factor, and its claims.
+  zelast <- setNames(rep(list(relast_mat), length(MIX_COLS)), names(MIX_COLS))
+  wz_cols <- paste0("wz_", names(MIX_COLS))
+  for (z in names(MIX_COLS)) {
+    v <- ins_dt$hh_weight * ins_dt[[MIX_COLS[[z]]]]; v[is.na(v)] <- 0
+    set(ins_dt, j = paste0("wz_", z), value = v)
+  }
 
   for (l_idx in seq_along(plan_ids)) {
     l <- plan_ids[l_idx]
@@ -793,14 +815,26 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
                (alpha_i * (kink_m * (1 - own_l) - S_f) / lambda_i + (1 - s_g) * enr_S)]
     }
 
-    contrib <- merged[, .(elast = sum(hh_weight * dq_dposted) / total_weight), by = plan_id]
+    contrib <- merged[, .(elast = sum(hh_weight * dq_dposted) / total_weight,
+                          relast = sum(rf_i * dq_dposted) / total_weight),
+                      by = plan_id]
+    zsum <- rowsum(as.matrix(merged[, ..wz_cols]) * merged$dq_dposted, merged$plan_id) / total_weight
     vals <- setNames(contrib$elast, contrib$plan_id)[plan_ids]
     vals[is.na(vals)] <- 0
     elast_mat[, l_idx] <- vals
+    rvals <- setNames(contrib$relast, contrib$plan_id)[plan_ids]
+    rvals[is.na(rvals)] <- 0
+    relast_mat[, l_idx] <- rvals
+    for (z in names(MIX_COLS)) {
+      zv <- zsum[, paste0("wz_", z)][plan_ids]
+      zv[is.na(zv)] <- 0
+      zelast[[z]][, l_idx] <- zv
+    }
     rm(merged, l_info, contrib)
   }
 
-  list(shares = shares, elast_mat = elast_mat, plan_ids = plan_ids)
+  list(shares = shares, rshares = rshares, elast_mat = elast_mat,
+       relast_mat = relast_mat, zelast = zelast, plan_ids = plan_ids)
 }
 
 
@@ -834,13 +868,21 @@ compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
 # in the same share units. Two parts. Within the nest, the commission moves the
 # realized-channel utility of broker households:
 #
-#   beta_comm * sum_{i in broker} w_i q_ij (1{j=k} - s_ik|g) / lambda_i / W_total
+#   sum_{i in broker} mu_i w_i q_ij (1{j=k} - s_ik|g) / lambda_i / W_total
 #
 # And through the agent state's inclusive value, the commission moves the
 # enrollment margin (the expected-IV term; p_agent-weighted, present when the
 # cells carry the channel probabilities):
 #
-#   + beta_comm * sum_{i in broker} w_i q_ij (1 - s_gi) p_agent_i s_ik_A / W_total
+#   + sum_{i} mu_i w_i q_ij (1 - s_gi) p_agent_i s_ik_A / W_total
+#
+# mu_i is the household's marginal utility of a commission dollar on the
+# perturbed plan, b1 + 2 b2 c_i / 100 under the quadratic commission terms.
+#
+# The first sum runs over broker households, whose plan choice carries the
+# commission. The second runs over every household: enrollment depends on the
+# expected inclusive value, in which the agent state has weight p_agent_i for
+# broker and non-broker households alike.
 #
 # No alpha_i, no rating factor, and no benchmark 4-case logic (commissions do
 # not touch the subsidy). Used by the CF commission FOC (helpers/cf_cell.R):
@@ -856,50 +898,88 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
 
   coef_map <- setNames(coefs_cell$estimate, coefs_cell$term)
   beta_comm <- if ("commission_broker" %in% names(coef_map)) coef_map[["commission_broker"]] else 0
+  beta_comm2 <- if ("commission_broker_sq" %in% names(coef_map)) coef_map[["commission_broker_sq"]] else 0
 
   # Total weight over ALL households, before the channel filter
   total_weight <- ins_dt[, .(w = first(hh_weight)), by = household_number][, sum(w)]
 
-  ins_dt <- ins_dt[broker == 1L]
-
-  if (nrow(ins_dt) == 0) {
-    return(list(qB = setNames(rep(0, J), plan_ids),
-                D = matrix(0, J, J, dimnames = list(plan_ids, plan_ids)),
-                plan_ids = plan_ids, W_total = total_weight))
-  }
-
-  # Wide matrices (household x plan); dcast sorts rows by household_number.
+  # Age-rating pass-through and the enrollee characteristics, as in
+  # compute_shares_and_elasticities. D_r weights the derivative by rf_i (the
+  # revenue an enrollee brings is rf_i times the posted premium), D_z by each
+  # characteristic z (how the commission moves a plan's enrollee mix).
+  ins_dt[, rf_i := rating_factor / RATING_FACTOR_AGE40]
+  ins_dt <- add_mix_columns(ins_dt)
   # Phi is the household's commission per dollar of the plan-level basis: a $1
   # basis increase raises household i's commission on a percentage plan by its
   # rating ratio (1 on flat plans), so the perturbed-plan index carries Phi.
-  ins_dt[, wq := hh_weight * q_j]
   if ("comm_hh" %in% names(ins_dt)) {
     ins_dt[, comm_ratio := fifelse(comm_pmpm > 0, comm_hh / comm_pmpm, 1)]
     ins_dt[!is.finite(comm_ratio), comm_ratio := 1]
   } else ins_dt[, comm_ratio := 1]
-  Wq_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
-                          value.var = "wq", fill = 0)[, ..plan_ids])
-  Sm_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
-                          value.var = "s_jg", fill = 0)[, ..plan_ids])
-  Phi_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
-                           value.var = "comm_ratio", fill = 1)[, ..plan_ids])
-  lam <- ins_dt[, .(lam = first(lambda_i)), by = household_number][order(household_number), lam]
+  # The perturbed-plan index also carries the household's marginal utility of
+  # a commission dollar, so the kernels below multiply by 1 in place of a
+  # common coefficient
+  comm_lvl <- if ("comm_hh" %in% names(ins_dt)) ins_dt$comm_hh else ins_dt$comm_pmpm
+  comm_lvl[is.na(comm_lvl)] <- 0
+  ins_dt[, comm_ratio := comm_ratio * (beta_comm + 2 * beta_comm2 * comm_lvl / 100)]
+  beta_comm <- 1
+
+  wide <- function(dt, v, fill = 0) as.matrix(dcast(dt, household_number ~ plan_id,
+                                                    value.var = v, fill = fill)[, ..plan_ids])
+  hh_mix <- function(dt) dt[, lapply(.SD, function(v) v[1]), by = household_number,
+                            .SDcols = unname(MIX_COLS)][order(household_number)]
+  zeroJ <- matrix(0, J, J, dimnames = list(plan_ids, plan_ids))
+
+  # Enrollment margin, every household: q_ij (1 - s_g) p_agent s_ik_A
+  E <- E_r <- zeroJ
+  E_z <- setNames(rep(list(zeroJ), length(MIX_COLS)), names(MIX_COLS))
+  if (use_states) {
+    ins_dt[, wq2 := hh_weight * q_j * (1 - s_g) * p_agent_hat]
+    ins_dt[, wq2r := rf_i * q_j * (1 - s_g) * p_agent_hat]
+    Wq2_m <- wide(ins_dt, "wq2"); Wq2r_m <- wide(ins_dt, "wq2r")
+    SAPhi <- wide(ins_dt, "s_jg_A") * wide(ins_dt, "comm_ratio", fill = 1)
+    E   <- beta_comm * crossprod(Wq2_m, SAPhi) / total_weight
+    E_r <- beta_comm * crossprod(Wq2r_m, SAPhi) / total_weight
+    hz <- hh_mix(ins_dt)
+    E_z <- lapply(MIX_COLS, function(col) {
+      zv <- hz[[col]]; zv[is.na(zv)] <- 0
+      beta_comm * crossprod(Wq2_m * zv, SAPhi) / total_weight
+    })
+    rm(Wq2_m, Wq2r_m, SAPhi, hz)
+  }
+
+  # Plan choice, broker households: q_ij (1{j=k} - s_ik|g) / lambda_i
+  ins_b <- ins_dt[broker == 1L]
+  if (nrow(ins_b) == 0) {
+    dimnames(E) <- dimnames(E_r) <- list(plan_ids, plan_ids)
+    E_z <- lapply(E_z, function(m) { dimnames(m) <- list(plan_ids, plan_ids); m })
+    return(list(qB = setNames(rep(0, J), plan_ids), D = E, D_r = E_r, D_z = E_z,
+                plan_ids = plan_ids, W_total = total_weight))
+  }
+  ins_b[, wq := hh_weight * q_j]
+  ins_b[, wqr := rf_i * q_j]
+  Wq_m <- wide(ins_b, "wq"); Wqr_m <- wide(ins_b, "wqr")
+  SmPhi <- wide(ins_b, "s_jg") * wide(ins_b, "comm_ratio", fill = 1)
+  Phi_m <- wide(ins_b, "comm_ratio", fill = 1)
+  lam <- ins_b[, .(lam = first(lambda_i)), by = household_number][order(household_number), lam]
 
   D <- beta_comm * (diag(colSums(Wq_m * Phi_m / lam), nrow = J) -
-                    crossprod(Wq_m / lam, Sm_m * Phi_m)) / total_weight
-
-  if (use_states) {
-    # Enrollment-margin part: q_ij (1 - s_g) p_agent s_ik_A per household
-    ins_dt[, wq2 := hh_weight * q_j * (1 - s_g) * p_agent_hat]
-    Wq2_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
-                             value.var = "wq2", fill = 0)[, ..plan_ids])
-    SA_m <- as.matrix(dcast(ins_dt, household_number ~ plan_id,
-                            value.var = "s_jg_A", fill = 0)[, ..plan_ids])
-    D <- D + beta_comm * crossprod(Wq2_m, SA_m * Phi_m) / total_weight
-  }
+                    crossprod(Wq_m / lam, SmPhi)) / total_weight + E
+  D_r <- beta_comm * (diag(colSums(Wqr_m * Phi_m / lam), nrow = J) -
+                      crossprod(Wqr_m / lam, SmPhi)) / total_weight + E_r
   dimnames(D) <- list(plan_ids, plan_ids)
+  dimnames(D_r) <- list(plan_ids, plan_ids)
+
+  hz <- hh_mix(ins_b)
+  D_z <- lapply(setNames(names(MIX_COLS), names(MIX_COLS)), function(z) {
+    zv <- hz[[MIX_COLS[[z]]]]; zv[is.na(zv)] <- 0
+    Dz <- beta_comm * (diag(colSums(Wq_m * zv * Phi_m / lam), nrow = J) -
+                       crossprod(Wq_m * zv / lam, SmPhi)) / total_weight + E_z[[z]]
+    dimnames(Dz) <- list(plan_ids, plan_ids)
+    Dz
+  })
 
   qB <- setNames(colSums(Wq_m) / total_weight, plan_ids)
 
-  list(qB = qB, D = D, plan_ids = plan_ids, W_total = total_weight)
+  list(qB = qB, D = D, D_r = D_r, D_z = D_z, plan_ids = plan_ids, W_total = total_weight)
 }

@@ -3,14 +3,14 @@
 ## Author:        Ian McCarthy
 ## Description:   Monte Carlo validation, tier 3: demand, optimal premiums,
 ##                AND commissions set by the model's own first-order condition
-##                with the cross-market wedge. Households carry a risk score
+##                with the carrier wedge. Households carry a risk score
 ##                correlated with the channel-selection covariate, claims cost
 ##                is mc_j x risk, and a budget-neutral risk-adjustment
 ##                transfer compensates each plan to the market-average risk
 ##                mix, so margins have the structure of the estimated model.
 ##                Each firm-market draws its administrative offset beta_f
 ##                from the empirical carrier betas (known to the estimator,
-##                as the filings-based beta is) and a true cross-market
+##                as the filings-based beta is) and a true carrier
 ##                wedge wedge_f, one constant per firm as in M4's carrier
 ##                levels, drawn uniformly over the span of the estimated
 ##                levels; a joint guard keeps the effective commission cost

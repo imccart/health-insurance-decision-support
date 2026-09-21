@@ -11,7 +11,7 @@
 #       V^0 = base utility (ext_exclude terms zeroed)
 #       V^N = base + b_assisted_av*av + b_assisted_premium*premium
 #       V^A = base + b_broker_av*av + b_broker_premium*premium
-#                  + b_commission_broker*comm_pmpm
+#                  + b_commission_broker*comm + b_commission_broker_sq*comm^2/100
 #       I^c = logsumexp(V^c/lambda);  Ibar = p_none I^0 + p_nav I^N + p_agent I^A
 #       P(enroll) = exp(lambda Ibar) / (exp(lambda Ibar) + exp(V_0))
 #     The channel is a circumstance drawn at predictable rates, not a choice,
@@ -33,6 +33,8 @@
 CH_TERMS <- c(nav_av = "assisted_av",  nav_pr = "assisted_premium",
               brk_av = "broker_av",    brk_pr = "broker_premium",
               comm   = "commission_broker")
+# The squared commission term joins the agent state when the spec carries it
+CH_TERMS_OPT <- c(comm2 = "commission_broker_sq")
 
 # =========================================================================
 # Load one cell CSV into a vectorized structure
@@ -166,11 +168,9 @@ load_all_cells <- function(cell_dir, covars, filter_assisted = -1L) {
       cells[[n_loaded]] <- cell
       total_hh <- total_hh + cell$n_hh
     }
-    if (i %% 20 == 0) cat("    Loaded", i, "/", length(csv_files), "\n")
   }
 
   cells <- cells[seq_len(n_loaded)]
-  cat("  Loaded", n_loaded, "cells,", total_hh, "HH\n")
   list(cells = cells, total_hh = total_hh)
 }
 
@@ -191,7 +191,6 @@ normalize_weights <- function(cells) {
   for (ci in seq_along(cells)) {
     cells[[ci]]$wt <- cells[[ci]]$wt / global_mean
   }
-  cat("  Weights normalized: global mean was", round(global_mean, 4), "\n")
   cells
 }
 
@@ -210,6 +209,7 @@ prepare_cells <- function(cells, covars, ext_exclude) {
   names(ch_idx) <- names(CH_TERMS)
 
   has_channel <- !anyNA(ch_idx)
+  ch_idx <- c(ch_idx, setNames(match(CH_TERMS_OPT, covars), names(CH_TERMS_OPT)))
   has_p <- all(vapply(cells, function(cl)
     !anyNA(cl$p0) && !anyNA(cl$pN) && !anyNA(cl$pA), logical(1)))
   use_states <- has_channel && length(excl_idx) > 0
@@ -222,10 +222,6 @@ prepare_cells <- function(cells, covars, ext_exclude) {
     cells[[ci]]$ch_idx <- ch_idx
     cells[[ci]]$use_states <- use_states
   }
-  cat("  Enrollment margin:",
-      if (use_states) "expected IV over channel states"
-      else if (length(excl_idx) > 0) "base IV (excluded terms zeroed)"
-      else "ordinary nested logit", "\n")
   cells
 }
 
@@ -285,6 +281,7 @@ cell_ll_pieces <- function(beta, lambda, cell) {
     add_N <- beta[ch["nav_av"]] * cell$av_ins + beta[ch["nav_pr"]] * cell$prem_ins
     add_A <- beta[ch["brk_av"]] * cell$av_ins + beta[ch["brk_pr"]] * cell$prem_ins +
              beta[ch["comm"]] * cell$comm_ins
+    if (!is.na(ch["comm2"])) add_A <- add_A + beta[ch["comm2"]] * cell$comm_ins^2 / 100
     st0 <- nest_iv(V_base, lambda, hh_id, n_hh)
     stN <- nest_iv(V_base + add_N, lambda, hh_id, n_hh)
     stA <- nest_iv(V_base + add_A, lambda, hh_id, n_hh)
@@ -338,6 +335,8 @@ cell_grad_pieces <- function(beta, lambda, cell, pc) {
     xbA[, ch["brk_av"]] <- rowsum(pc$s_A * cell$av_ins, hh_id, reorder = FALSE)
     xbA[, ch["brk_pr"]] <- rowsum(pc$s_A * cell$prem_ins, hh_id, reorder = FALSE)
     xbA[, ch["comm"]]   <- rowsum(pc$s_A * cell$comm_ins, hh_id, reorder = FALSE)
+    if (!is.na(ch["comm2"]))
+      xbA[, ch["comm2"]] <- rowsum(pc$s_A * cell$comm_ins^2 / 100, hh_id, reorder = FALSE)
     xbar_bar <- cell$p0 * xb0 + cell$pN * xbN + cell$pA * xbA
 
     Vb0 <- as.numeric(rowsum(pc$s_0 * pc$V_base, hh_id, reorder = FALSE))
@@ -429,7 +428,6 @@ bfgs_bhhh <- function(theta_start, cells, max_iter = 500, ftol = 1e-8,
   theta <- theta_start
 
   # Initial eval with per-HH gradi for BHHH (accumulate crossprod per cell)
-  cat("  BFGS-BHHH: computing initial Hessian...\n"); flush.console()
   negll <- 0; g <- numeric(K + 1)
   bhhh <- matrix(0, K + 1, K + 1)
   for (ci in seq_along(cells)) {
@@ -437,7 +435,6 @@ bfgs_bhhh <- function(theta_start, cells, max_iter = 500, ftol = 1e-8,
     negll <- negll + res$negll
     g <- g + res$grad
     bhhh <- bhhh + crossprod(res$gradi)
-    if (ci %% 20 == 0) { cat("    BHHH cell", ci, "/", length(cells), "\n"); flush.console() }
   }
 
   if (any(!is.finite(bhhh))) {
@@ -450,8 +447,6 @@ bfgs_bhhh <- function(theta_start, cells, max_iter = 500, ftol = 1e-8,
   rm(bhhh)
   gc(verbose = FALSE)
 
-  cat(sprintf("  Init: negLL = %.2f  lambda = %.4f  beta1 = %.6f\n",
-              negll, theta[K + 1], theta[1]))
   flush.console()
 
   for (iter in seq_len(max_iter)) {
@@ -525,19 +520,11 @@ estimate_demand <- function(cell_dir, spec_path, out_path,
                             filter_assisted = -1L, temp_dir = NULL,
                             ext_exclude = character()) {
 
-  cat("=== Demand estimation (R) ===\n")
-  cat("  BFGS-BHHH optimizer (pure R, no optim)\n")
-  cat("  V_0 = beta'X_0 (NOT 0)\n")
-  cat("  CELL_DIR =", cell_dir, "\n")
-  cat("  SPEC =", spec_path, "\n")
-  cat("  OUTPUT =", out_path, "\n")
-  cat("  FILTER_ASSISTED =", filter_assisted, "\n")
 
   # Load spec
   spec_df <- read.csv(spec_path, stringsAsFactors = FALSE)
   covars <- spec_df$term
   K <- length(covars)
-  cat("  Covariates:", K, "terms\n")
 
   # Load cells
   loaded <- load_all_cells(cell_dir, covars, filter_assisted)
@@ -549,21 +536,9 @@ estimate_demand <- function(cell_dir, spec_path, out_path,
   cells <- prepare_cells(cells, covars, ext_exclude)
 
   # Run BFGS-BHHH from zeros + lambda=1
-  cat("\n  Starting BFGS-BHHH from zeros + lambda=1...\n")
-  flush.console()
 
   theta_opt <- bfgs_bhhh(c(rep(0, K), 1.0), cells)
-  negll_final <- accumulate(theta_opt, cells, compute_grad = FALSE)$negll
 
-  cat(sprintf("\n  Done: negLL = %.2f  lambda = %.4f\n",
-              negll_final, theta_opt[K + 1]))
-
-  # Print coefficients
-  cat("\n  Coefficients:\n")
-  for (k in seq_along(covars)) {
-    cat(sprintf("    %-25s = %12.6f\n", covars[k], theta_opt[k]))
-  }
-  cat(sprintf("    %-25s = %12.6f\n", "lambda", theta_opt[K + 1]))
 
   # Save
   coefs <- data.frame(term = c(covars, "lambda"),

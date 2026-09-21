@@ -6,10 +6,9 @@
 ##                Reads the processed file that accompanies the filings
 ##                (risk_score_data.csv; one row per insurer, plan type, metal,
 ##                rating area, and year, with the member months behind each
-##                score) and writes them keyed to our plan_id prefixes and base
-##                metals. Health Net's HMO and PPO/HSP rows are combined within
-##                insurer-metal-region-year (member-month weighted), since our
-##                plan ids do not carry the network type.
+##                score) and writes them keyed to our plan_id prefixes, base
+##                metals, and network: HMO or PPO for Health Net, the only
+##                carrier filing separate scores, and Both for every other.
 ## Input:         data/input/Covered California/rate-filings-srrt/risk_score_data.csv
 ## Output:        data/output/plan_risk_scores.csv        (insurer_prefix, metal, region, year)
 ##                data/output/plan_risk_scores_year.csv   (insurer_prefix, metal, year)

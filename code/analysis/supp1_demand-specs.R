@@ -22,17 +22,9 @@
 ##                silver metal share (percentage points), the structural
 ##                analogue of the reduced-form silver ATT.
 ##
-##                Standalone. Run AFTER s2_demand.R has built choice_cells.
-
-# Packages ----------------------------------------------------------------
-pacman::p_load(tidyverse, data.table)
-setDTthreads(1)
-
-source("code/analysis/helpers/estimate_demand.R")
-source("code/analysis/helpers/covariates.R")   # get_prem_interactions, menu
+##                Sourced by _analysis.R after s2_demand.R has built choice_cells.
 
 # Hyperparameters ---------------------------------------------------------
-TEMP_DIR <- "D:/temp-research-data/health-insurance-decision-support"
 CELL_DIR <- file.path(TEMP_DIR, "choice_cells")   # built by s2_demand (full spec, 20%)
 stopifnot("choice_cells not found — run s2_demand.R first" = dir.exists(CELL_DIR))
 
@@ -53,7 +45,7 @@ enroll_int <- c("hh_size_insured", "perc_0to17_insured", "perc_18to34_insured",
                 "perc_hispanic_insured", "perc_asian_insured", "perc_other_insured",
                 "FPL_250to400_insured", "FPL_400plus_insured")
 steering  <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
-               "commission_broker")
+               "commission_broker", "commission_broker_sq")
 cfun      <- "cf_resid"
 
 spec1 <- c(price, plan_attr)
@@ -153,7 +145,7 @@ price_and_elast <- function(fit) {
 # every household to unassisted / navigator / broker, recompute the within-nest
 # silver share, and difference vs unassisted. NA for specs without steering.
 assist_cols <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
-                 "commission_broker")
+                 "commission_broker", "commission_broker_sq")
 assist_mfx <- function(fit) {
   covars <- setdiff(names(fit), "lambda")
   if (!any(assist_cols %in% covars)) return(c(nav = NA_real_, brk = NA_real_))
@@ -164,7 +156,8 @@ assist_mfx <- function(fit) {
   V_nav <- Vbase + b("assisted_av") * dat$av + b("assisted_premium") * dat$premium
   comm_val <- if ("comm_hh" %in% names(dat)) dat$comm_hh else dat$comm_pmpm
   V_brk <- Vbase + b("broker_av") * dat$av +
-           b("broker_premium") * dat$premium + b("commission_broker") * comm_val
+           b("broker_premium") * dat$premium + b("commission_broker") * comm_val +
+           b("commission_broker_sq") * comm_val^2 / 100
   s_un  <- silver_share(Vbase, lambda)
   s_nav <- silver_share(V_nav, lambda)
   s_brk <- silver_share(V_brk, lambda)
@@ -186,11 +179,11 @@ getp <- function(f, t) if (t %in% names(f)) unname(f[t]) else NA_real_
 csv <- data.frame(
   parameter = c("mean_own_price_elasticity", "mean_price_coefficient", "lambda",
                 "navigator_silver_pp", "broker_silver_pp",
-                "assisted_av", "broker_av", "commission_broker"),
+                "assisted_av", "broker_av", "commission_broker", "commission_broker_sq"),
   t(sapply(seq_along(fits), function(i) c(
     avg_elast[i], avg_price[i], fits[[i]][["lambda"]], nav_mfx[i], brk_mfx[i],
     getp(fits[[i]], "assisted_av"), getp(fits[[i]], "broker_av"),
-    getp(fits[[i]], "commission_broker")))) %>% t()
+    getp(fits[[i]], "commission_broker"), getp(fits[[i]], "commission_broker_sq")))) %>% t()
 )
 names(csv)[-1] <- paste0("col", seq_along(fits))
 write.csv(csv, "results/demand_spec_sensitivity.csv", row.names = FALSE)
@@ -198,12 +191,14 @@ write.csv(csv, "results/demand_spec_sensitivity.csv", row.names = FALSE)
 # Bare tabular for \input in the appendix ---------------------------------
 lambda_v <- sapply(fits, function(f) f[["lambda"]])
 comm_v   <- sapply(fits, getp, t = "commission_broker")
+comm2_v  <- sapply(fits, getp, t = "commission_broker_sq")
 rows <- list(
   list(lab = "Mean own-price elasticity",           v = avg_elast, f = "%.2f"),
   list(lab = "$\\lambda$ (nesting parameter)",        v = lambda_v,  f = "%.2f"),
   list(lab = "Navigator effect on silver (pp)",       v = nav_mfx,   f = "%.1f"),
   list(lab = "Agent effect on silver (pp)",          v = brk_mfx,   f = "%.1f"),
-  list(lab = "Commission $\\times$ agent",            v = comm_v,    f = "%.3f")
+  list(lab = "Commission $\\times$ agent",            v = comm_v,    f = "%.3f"),
+  list(lab = "Commission$^2$/100 $\\times$ agent",    v = comm2_v,   f = "%.3f")
 )
 lines <- c("\\begin{tabular}{lcccc}", "\\hline\\hline",
            " & (1) & (2) & (3) & (4) \\\\", "\\hline")

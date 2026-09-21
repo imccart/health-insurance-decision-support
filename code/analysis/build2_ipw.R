@@ -11,7 +11,6 @@
 # it after deriving its own subsets.
 if (!exists("hh_full")) {
   hh_full <- fread("data/output/hh_full.csv") %>% as_tibble()
-  cat("  Loaded hh_full from disk\n")
 }
 hh_ins <- hh_full %>%
   filter(insured == 1L) %>%
@@ -50,7 +49,6 @@ ipweights <- hh_ins_ps %>%
   select(household_year, pred_assist, ipweight)
 
 fwrite(ipweights, "data/output/ipweights.csv")
-cat("  IPW weights:", nrow(ipweights), "rows -> data/output/ipweights.csv\n")
 
 rm(hh_ins_ps, ipweights, hh_ins)
 gc(verbose = FALSE)

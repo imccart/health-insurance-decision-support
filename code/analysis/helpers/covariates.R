@@ -178,7 +178,7 @@ get_covariate_menu <- function() {
 
     # --- Commission / CF ---
     commission_broker  = list(type = "commission"),
-    v_hat_commission   = list(type = "commission"),
+    commission_broker_sq = list(type = "commission"),
 
     # --- CF interactions (reduced-form selection correction) ---
     # v_hat × plan indicators, used for reduced-form CF approach
@@ -204,7 +204,6 @@ write_demand_spec <- function(spec, asst, path) {
     stringsAsFactors = FALSE
   )
   write.csv(df, path, row.names = FALSE)
-  cat("  Demand spec written:", nrow(df), "terms to", path, "\n")
 }
 
 read_demand_spec <- function(path) {

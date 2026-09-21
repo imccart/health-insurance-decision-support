@@ -51,7 +51,6 @@ source("code/analysis/s2_demand.R")          # writes demand_spec.csv, estimates
 source("code/analysis/s3_pricing.R")
 source("code/analysis/s4_cost-gmm.R")
 source("code/analysis/s5_se.R")
-source("code/analysis/s6_commission-bounds.R")   # commission revealed-preference bounds
 
 # cf: counterfactuals -----------------------------------------------------
 source("code/analysis/cf1_estimate.R")       # solve equilibria by year (writes premium_cf)
@@ -62,3 +61,11 @@ source("code/analysis/cf3_se.R")             # demand-parameter bootstrap (froze
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk
 source("code/analysis/sum2_results.R")
 source("code/analysis/sum3_retention.R")     # channel persistence + retention by channel
+
+# supp: supplemental appendix ---------------------------------------------
+source("code/analysis/supp1_demand-specs.R")          # demand-spec build-up (writes demand_spec_fits.csv)
+source("code/analysis/supp2_cost-sharing-table.R")
+source("code/analysis/supp3_channel-table.R")
+source("code/analysis/supp4_pbe-robustness.R")        # reads the body spec from supp1
+source("code/analysis/supp5_menu-simulation.R")
+source("code/analysis/supp6_commission-inertia-sim.R")

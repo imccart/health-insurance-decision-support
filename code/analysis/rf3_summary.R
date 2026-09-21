@@ -143,10 +143,6 @@ ins_final <- ins_summary %>%
 
 
 # Print summaries ----------------------------------------------------------
-cat("\nATT by Metal Level:\n")
-print(metal_final %>% select(metal, att, se, ci_lo, ci_hi), n = Inf)
-cat("\nATT by Insurer:\n")
-print(ins_final %>% select(insurer_abbr, att, se, ci_lo, ci_hi), n = Inf)
 
 # Figures ------------------------------------------------------------------
 
@@ -201,8 +197,6 @@ if (file.exists(new_file)) {
     left_join(ins_new, by = "insurer_abbr")
   write_csv(metal_cmp, "results/choice_new_vs_all_metal.csv")
   write_csv(ins_cmp,   "results/choice_new_vs_all_insurer.csv")
-  cat("\nPlan-choice baseline ATT, all vs new enrollees (metal):\n");   print(metal_cmp, n = Inf)
-  cat("\nPlan-choice baseline ATT, all vs new enrollees (insurer):\n"); print(ins_cmp, n = Inf)
 }
 
 
@@ -243,7 +237,4 @@ ap_notes <- tibble(
 ap_tex <- kable(bind_rows(ap_body, ap_notes), format = "latex", booktabs = TRUE,
                 align = c("l", "c", "c", "c"), linesep = "", escape = FALSE)
 writeLines(as.character(ap_tex), "results/tables/choice_appendix_pooled.tex")
-cat("\nAppendix plan-choice specs:\n")
-print(ap_body, n = Inf)
 
-cat("Choice summary complete. Figures saved to results/figures/.\n")

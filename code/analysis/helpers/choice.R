@@ -479,16 +479,14 @@ build_rf <- function(plans, hhs, sample_frac,
     if ("any_agent" %in% names(untreated)) {
       untreated[, commission_broker := get(comm_col) * fifelse(any_agent == 1L, assisted, 0L)]
       treated[, commission_broker := get(comm_col) * fifelse(any_agent == 1L, assisted, 0L)]
+      untreated[, commission_broker_sq := get(comm_col)^2 / 100 * fifelse(any_agent == 1L, assisted, 0L)]
+      treated[, commission_broker_sq := get(comm_col)^2 / 100 * fifelse(any_agent == 1L, assisted, 0L)]
     } else {
       untreated[, commission_broker := get(comm_col) * assisted]
       treated[, commission_broker := get(comm_col) * assisted]
+      untreated[, commission_broker_sq := get(comm_col)^2 / 100 * assisted]
+      treated[, commission_broker_sq := get(comm_col)^2 / 100 * assisted]
     }
-  }
-
-  # CF corrections (structural path only)
-  if ("v_hat" %in% names(untreated) && "commission_broker" %in% names(untreated)) {
-    untreated[, v_hat_commission := v_hat * commission_broker]
-    treated[, v_hat_commission := v_hat * commission_broker]
   }
 
   as_tibble(rbind(untreated, treated))

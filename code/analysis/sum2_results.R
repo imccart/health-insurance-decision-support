@@ -67,16 +67,11 @@ if (!is.null(cf_results)) {
       left_join(cf_welfare, by = c("region", "year", "scenario"))
 }
 
-cat("  hh_full:", nrow(hh_full), "rows\n")
-cat("  supply_results:", nrow(supply_results), "rows\n")
-if (!is.null(cf_results)) cat("  cf_results:", nrow(cf_results), "rows\n")
-
 
 # =========================================================================
 # 1. Summary Statistics Table
 # =========================================================================
 
-cat("\n--- Table: Summary Statistics ---\n")
 
 # Build summary stats by assistance status
 make_summary <- function(df, label) {
@@ -149,7 +144,6 @@ if (has_col(hh_full, "channel")) {
 
   # summary_stats.tex is owned by sum1_desc-stats.R, whose table carries the
   # dominated-choice row the paper caption references.
-  cat("  summary_stats.tex left to sum1_desc-stats.R (not overwritten)\n")
 } else {
   cat("  Skipped (channel column not found in hh_full)\n")
 }
@@ -159,7 +153,6 @@ if (has_col(hh_full, "channel")) {
 # 2. Commission Schedule Figures
 # =========================================================================
 
-cat("\n--- Figures: Commission Schedule ---\n")
 
 comm <- commission_lookup %>%
   filter(year >= 2014, year <= 2019)
@@ -231,7 +224,6 @@ ggsave("results/figures/perc_comm.pdf", p_pct, width = 6, height = 4)
 # 3. Structural Demand Estimates Table
 # =========================================================================
 
-cat("\n--- Table: Structural Demand Estimates ---\n")
 
 if (nrow(coefs_structural) > 0) {
   # Clean term names for display
@@ -299,6 +291,7 @@ if (nrow(coefs_structural) > 0) {
     "assisted_premium"   = "Navigator $\\times$ premium",
     "broker_premium"     = "Agent $\\times$ premium",
     "commission_broker"  = "Commission $\\times$ agent",
+    "commission_broker_sq" = "Commission$^2$/100 $\\times$ agent",
     "hh_size_insured"       = "Enrolled $\\times$ HH size",
     "perc_0to17_insured"    = "Enrolled $\\times$ share 0--17",
     "perc_18to34_insured"   = "Enrolled $\\times$ share 18--34",
@@ -363,7 +356,6 @@ if (nrow(coefs_structural) > 0) {
 # 3b. Cost Estimates Table (risk score + claims GMM, with s5 sandwich SEs)
 # =========================================================================
 
-cat("\n--- Table: Cost Estimates ---\n")
 
 if (file.exists("results/cost_coefficients_gmm_se.csv")) {
   cost_coefs <- read_csv("results/cost_coefficients_gmm_se.csv",
@@ -456,7 +448,6 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
 # 4. Supply-Side Results Table
 # =========================================================================
 
-cat("\n--- Table: Supply-Side Results ---\n")
 
 if (nrow(supply_results) > 0) {
   # Marginal cost at the GMM solution (s4's mc_gmm.csv), the final cost
@@ -465,9 +456,9 @@ if (nrow(supply_results) > 0) {
   mc_gmm_df <- read_csv(file.path(TEMP_DIR, "mc_gmm.csv"), show_col_types = FALSE)
   sr <- supply_results %>%
     inner_join(mc_gmm_df, by = c("region", "year", "plan_id")) %>%
-    mutate(markup = posted_premium - mc_gmm,
-           lerner_index = markup / posted_premium) %>%
-    filter(!is.na(mc_foc), !is.na(posted_premium))
+    mutate(markup = realized_premium - mc_gmm,
+           lerner_index = markup / realized_premium) %>%
+    filter(!is.na(mc_foc), !is.na(realized_premium))
 
   # Summary by metal tier. Report MEDIANS, not means: the tier mean markup is
   # dragged down (platinum's mean is negative) by negative-net-of-transfer-MC
@@ -477,7 +468,7 @@ if (nrow(supply_results) > 0) {
     group_by(metal) %>%
     summarize(
       n_plan_years = n(),
-      med_premium = median(posted_premium, na.rm = TRUE),
+      med_premium = median(realized_premium, na.rm = TRUE),
       med_markup  = median(markup, na.rm = TRUE),
       # mc_foc excludes admin; adding it back (mc_gmm - mc_gmm_net) puts both
       # MC columns on the full-cost basis the markup uses
@@ -535,7 +526,6 @@ if (nrow(supply_results) > 0) {
 # 5. Counterfactual Results Table and Welfare Gradient Figure
 # =========================================================================
 
-cat("\n--- Table/Figures: Counterfactual Results ---\n")
 
 if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
@@ -835,7 +825,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 # 6. Paper numbers (inline \newcommand definitions)
 # =========================================================================
 
-cat("\n--- Paper numbers ---\n")
 
 numbers <- c()
 add_num <- function(name, val, d = 1) {
@@ -897,16 +886,20 @@ if (length(cell_files) > 0) {
               alpha_per100 = weighted.mean(alpha100, hh_size),
               mean_net_premium = weighted.mean(100 * premium, hh_size),
               mean_commission = weighted.mean(comm_hh, hh_size)) %>%
-    mutate(dollar_equiv = b[["commission_broker"]] / (abs(alpha_per100) / 100),
-           elast_ratio = (b[["commission_broker"]] * mean_commission) /
+    # marginal utility of a commission dollar at the mean commission, and the
+    # commission at which it reaches zero
+    mutate(comm_mu = b[["commission_broker"]] + 2 * b[["commission_broker_sq"]] * mean_commission / 100,
+           comm_turning = -100 * b[["commission_broker"]] / (2 * b[["commission_broker_sq"]]),
+           dollar_equiv = comm_mu / (abs(alpha_per100) / 100),
+           elast_ratio = (comm_mu * mean_commission) /
                          (abs(alpha_per100) / 100 * mean_net_premium))
 
   write_csv(equiv, "results/commission_equivalence.csv")
   add_num("commPremRatio", equiv$dollar_equiv, 2)
   add_num("commPremElast", equiv$elast_ratio, 2)
-  cat("  Commission equivalence: $", formatC(equiv$dollar_equiv, format = "f", digits = 2),
-      " per $1 commission; elasticity ratio ",
-      formatC(equiv$elast_ratio, format = "f", digits = 2), "\n", sep = "")
+  add_num("commTurningPoint", equiv$comm_turning, 1)
+  add_num("meanCommission", equiv$mean_commission, 2)
+  add_num("meanNetPremium", equiv$mean_net_premium, 2)
 }
 
 lambda_hat <- coefs_structural$estimate[coefs_structural$term == "lambda"]
@@ -921,9 +914,9 @@ if (nrow(supply_results) > 0) {
   sr <- supply_results %>%
     inner_join(read_csv(file.path(TEMP_DIR, "mc_gmm.csv"), show_col_types = FALSE),
                by = c("region", "year", "plan_id")) %>%
-    mutate(markup = posted_premium - mc_gmm,
-           lerner_index = markup / posted_premium) %>%
-    filter(!is.na(mc_foc), !is.na(posted_premium))
+    mutate(markup = realized_premium - mc_gmm,
+           lerner_index = markup / realized_premium) %>%
+    filter(!is.na(mc_foc), !is.na(realized_premium))
   add_num("meanMarkup", mean(sr$markup, na.rm = TRUE))
   add_num("meanLerner", mean(sr$lerner_index, na.rm = TRUE), 3)
   add_num("nSupplyCells", length(unique(paste(sr$region, sr$year))), 0)
@@ -940,5 +933,3 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
 writeLines(numbers, "results/tables/paper-numbers.tex")
 
-
-cat("\n=== Paper results generation complete ===\n")

@@ -20,7 +20,7 @@
 .cf <- new.env(parent = emptyenv())
 
 # Commission utility terms, zeroed for the non-commission welfare metric
-COMM_TERMS <- c("commission_broker")
+COMM_TERMS <- c("commission_broker", "commission_broker_sq")
 
 # cf_cell_init --------------------------------------------------------------
 # Builds the cell's frozen state: the structural choice data at the sampled
@@ -101,6 +101,9 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
     Silver   = as.integer(pa$metal == "Silver"),
     Gold     = as.integer(pa$metal == "Gold"),
     Platinum = as.integer(pa$metal == "Platinum"),
+    !!!setNames(lapply(RS_IM_TERMS, function(t)
+      as.integer(paste0("im_", sub("_.*", "", plan_ids_cell), "_", pa$metal) == t)),
+      RS_IM_TERMS),
     AV       = unname(pa$av),
     HMO      = pa$hmo,
     !!!setNames(as.list(as.integer(SUPPLY_YEARS[-1] == y)), CLAIMS_YEAR_TERMS),
@@ -136,7 +139,7 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   admin_vec[is.na(admin_vec)] <- 0
   beta_vec <- setNames(beta_admin[paste(plan_prefix, y, sep = "_")], plan_ids_cell)
   # carriers absent from the beta table get the pooled MLR slope, the same
-  # fallback s4 and s6 use
+  # fallback s4 uses
   beta_vec[is.na(beta_vec)] <- read_csv("data/output/mlr_admin_beta.csv",
                                         show_col_types = FALSE)$beta0[1]
 
@@ -260,8 +263,10 @@ build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, 
     if ("comm_pmpm" %in% names(cd)) cd$comm_pmpm[idx] <- comm_sc[pn]
     if ("any_agent" %in% names(cd)) {
       cd$commission_broker[idx] <- val * fifelse(cd$any_agent[idx] == 1L, cd$assisted[idx], 0L)
+      cd$commission_broker_sq[idx] <- val^2 / 100 * fifelse(cd$any_agent[idx] == 1L, cd$assisted[idx], 0L)
     } else {
       cd$commission_broker[idx] <- val * cd$assisted[idx]
+      cd$commission_broker_sq[idx] <- val^2 / 100 * cd$assisted[idx]
     }
   }
 
@@ -272,11 +277,11 @@ build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, 
     if (nrow(agent_hh) > 0) {
       agent_hh <- agent_hh[order(-p_nav)]
       switch_ids <- agent_hh$household_number[seq_len(ceiling(tau * nrow(agent_hh)))]
-      cd[household_number %in% switch_ids, `:=`(commission_broker = 0, any_agent = 0L,
+      cd[household_number %in% switch_ids, `:=`(commission_broker = 0, commission_broker_sq = 0, any_agent = 0L,
                                                 channel_detail = "Navigator")]
       if (tau < 1 && !broker_remain) {
         remain_ids <- setdiff(agent_hh$household_number, switch_ids)
-        cd[household_number %in% remain_ids, `:=`(assisted = 0L, commission_broker = 0,
+        cd[household_number %in% remain_ids, `:=`(assisted = 0L, commission_broker = 0, commission_broker_sq = 0,
                                                   any_agent = 0L, channel_detail = "Unassisted")]
       }
     }
@@ -414,24 +419,30 @@ cf_cell_eval_p1 <- function(P) {
   rs_vec <- setNames(rs$predicted_risk_score, rs$plan_id)[pn]
 
   .cf$ev <- list(p = p_vec, eta = eta_cur, dt = dt, V = util$V, V_base = util$V_base,
-                 shares = se$shares[pn], elast = se$elast_mat[pn, pn], demo = demo, rs = rs_vec,
+                 shares = se$shares[pn], rshares = se$rshares[pn],
+                 elast = se$elast_mat[pn, pn], relast = se$relast_mat[pn, pn],
+                 zelast = lapply(se$zelast, function(m) m[pn, pn]),
+                 demo = demo, rs = rs_vec,
                  qB_plan = if (!is.null(br)) unname(br$broker_shares[pn]) else rep(0, length(pn)),
                  broker_elast = if (!is.null(br)) br$broker_elast_mat[pn, pn] else NULL,
                  comm_D = if (!is.null(ck)) ck$D[pn, pn] else NULL,
+                 comm_D_r = if (!is.null(ck)) ck$D_r[pn, pn] else NULL,
+                 comm_Dz = if (!is.null(ck)) lapply(ck$D_z, function(m) m[pn, pn]) else NULL,
                  comm_qB = if (!is.null(ck)) ck$qB[pn] else NULL)
-  list(region = cl$r, year = cl$y, N = cl$N, shares = .cf$ev$shares, rs = rs_vec,
-       av = cl$plan_avs, arf = setNames(demo$arf, demo$plan_id), gcf = cl$gcf, premium = p_vec)
+  list(region = cl$r, year = cl$y, N = cl$N, shares = .cf$ev$shares, rshares = .cf$ev$rshares,
+       rs = rs_vec, av = cl$plan_avs, arf = setNames(demo$arf, demo$plan_id), gcf = cl$gcf,
+       premium = p_vec)
 }
 
 # Phase 2: with the year's statewide sums (totals, own) from the master, the
 # transfers, marginal cost, the RA derivative, the per-plan pricing FOC residual
 # (share units per member), and the per-insurer commission pieces MB_f, MC_f,
 # qB_f in the cell's share units.
-cf_cell_eval_p2 <- function(totals, own) {
+cf_cell_eval_p2 <- function(st) {
   cl <- .cf$cell; sc <- .cf$scen; ev <- .cf$ev
   if (is.null(cl) || is.null(sc) || is.null(ev)) return(NULL)
   pn <- cl$plan_ids; J <- length(pn)
-  ra_env <- ra_env_for_cell(cl$r, cl$y, cl$N, ev$demo, totals, own)
+  ra_env <- ra_env_for_cell(cl$r, cl$y, cl$N, ev$demo, st)
   mc_res <- compute_mc(cl$rs_coefs, cl$claims_coefs, cl$plan_chars, ev$demo, ev$shares,
                        ra_env, cl$plan_avs, cl$reins_vec)
   # Marginal cost: claims net of reinsurance and the transfer, plus the insurer's
@@ -439,10 +450,22 @@ cf_cell_eval_p2 <- function(totals, own) {
   # costs (1 - beta) net of the administrative work the agent takes over.
   mc <- mc_res$mc[pn] + cl$admin
   cs <- 1 - cl$beta                              # (1 - beta) by plan (its insurer-year)
-  ra_foc <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$elast, cl$own_mat)
+  # The enrollee mix moves with the premium, and with it the risk score, the
+  # average rating factor and claims; mkt_rev is the premium's effect on
+  # premiums collected in the cell, which feeds the transfer's premium total
+  mu <- cl$claims_coefs[["log_risk_score"]]
+  mix <- mix_response(ev$elast, ev$zelast, ev$demo, cl$rs_coefs)
+  mkt_rev <- setNames(ev$rshares + as.vector(t(ev$relast) %*% ev$p), pn)
+  ra_res <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$elast, cl$own_mat, mix, mkt_rev)
+  ra_foc <- ra_res$total
+  cc <- compute_claims_comp(mc_res$predicted_claims, cl$reins_vec, mix, cl$own_mat, mu)
 
+  # Revenue is collected at rf_i times the posted (age-40) premium, so the
+  # level term and the premium half of the margin are rating-weighted; claims,
+  # transfers and the commission outlay are per member and are not.
   Omega <- -cl$own_mat * t(ev$elast)
-  resid <- ev$shares + ra_foc - as.vector(Omega %*% (ev$p - mc))
+  Omega_r <- -cl$own_mat * t(ev$relast)
+  resid <- ev$rshares + ra_foc - cc - as.vector(Omega_r %*% ev$p - Omega %*% mc)
   if (!is.null(ev$broker_elast)) {
     Omega_B <- -cl$own_mat * t(ev$broker_elast)
     resid <- resid + as.vector(Omega_B %*% (cs * ev$eta))
@@ -453,9 +476,15 @@ cf_cell_eval_p2 <- function(totals, own) {
   # d qB / d k + RA response, MC_f = outlay, qB_f = broker enrollment;
   # weights w = the plan's commission under the scenario's schedule.
   MB <- MC <- qB <- setNames(numeric(0), character(0))
+  MB_steer <- MB_ra <- MB_fb <- setNames(numeric(0), character(0))
   if (!is.null(ev$comm_D)) {
-    ra_eta <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$comm_D, cl$own_mat)
-    margin <- ev$p - mc - cs * ev$eta
+    mix_y <- mix_response(ev$comm_D, ev$comm_Dz, ev$demo, cl$rs_coefs)
+    mkt_rev_y <- setNames(as.vector(t(ev$comm_D_r) %*% ev$p), pn)
+    ra_y <- compute_ra_foc(ev$rs, ev$shares, cl$plan_avs, ra_env, ev$comm_D, cl$own_mat,
+                           mix_y, mkt_rev_y)
+    ra_eta <- ra_y$total
+    cc_eta <- compute_claims_comp(mc_res$predicted_claims, cl$reins_vec, mix_y, cl$own_mat, mu)
+    cost_side <- mc + cs * ev$eta
     w_basis <- sc$comm
     firms <- unique(cl$unit[sc$comm > 0])
     for (f in firms) {
@@ -463,7 +492,11 @@ cf_cell_eval_p2 <- function(totals, own) {
       jj <- which(cl$prefix == sub("[.].*$", "", f))  # the carrier's plans: its margins all enter MB
       w_f <- numeric(J); w_f[ii] <- w_basis[ii]
       dq <- as.numeric(ev$comm_D %*% w_f)
-      MB[f] <- sum(margin[jj] * dq[jj]) + sum(w_basis[ii] * ra_eta[ii])
+      dq_r <- as.numeric(ev$comm_D_r %*% w_f)
+      MB_steer[f] <- sum(ev$p[jj] * dq_r[jj] - cost_side[jj] * dq[jj]) - sum(w_basis[ii] * cc_eta[ii])
+      MB_ra[f] <- sum(w_basis[ii] * ra_eta[ii])
+      MB_fb[f] <- sum(w_basis[ii] * ra_y$feedback[ii])
+      MB[f] <- MB_steer[f] + MB_ra[f]
       MC[f] <- sum(ev$comm_qB[ii] * w_basis[ii])
       qB[f] <- sum(ev$comm_qB[ii])
     }
@@ -471,12 +504,13 @@ cf_cell_eval_p2 <- function(totals, own) {
   # Unit variable profit and agent enrollment in the cell (monthly, sample
   # units): margin on all members less the net commission outlay on agent members
   qBp <- if (!is.null(ev$qB_plan)) ev$qB_plan else rep(0, J)
-  prof_plan <- cl$N * ((ev$p - mc) * ev$shares - cs * ev$eta * qBp)
+  prof_plan <- cl$N * (ev$p * ev$rshares - mc * ev$shares - cs * ev$eta * qBp)
   firm_profit <- tapply(prof_plan, cl$unit, sum)
   firm_qB <- tapply(cl$N * qBp, cl$unit, sum)
 
   list(plan_ids = pn, N = cl$N, g = cl$g, resid = setNames(resid, pn),
-       MB = MB, MC = MC, qB = qB, shares = ev$shares, mc = mc, claims = mc_res$predicted_claims[pn],
+       ra_feedback = ra_res$feedback, rshares = ev$rshares,
+       MB = MB, MB_steer = MB_steer, MB_ra = MB_ra, MB_fb = MB_fb, MC = MC, qB = qB, shares = ev$shares, mc = mc, claims = mc_res$predicted_claims[pn],
        firm_profit = firm_profit, firm_qB = firm_qB,
        eta = ev$eta, p = ev$p, omega_own = setNames(diag(Omega), pn))
 }

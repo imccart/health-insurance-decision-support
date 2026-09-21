@@ -19,9 +19,11 @@
 ##                (navigator defunding, navigator expansion endog_tau) the
 ##                affected insurers re-solve their rates from the same
 ##                estimated condition. Every scenario solve is gated on the
-##                scenario's own shares, scaled by the baseline own-price
-##                terms, and pre-iterated when the start is far from its
-##                equilibrium. Writes results/counterfactual_results.csv.
+##                scenario's own shares. Premiums solve by best-response
+##                iteration on the pricing conditions in dollars, a plan at
+##                a benchmark kink sitting at the kink, with a Jacobian
+##                solve if the iteration stalls. Writes
+##                results/counterfactual_results.csv.
 ##                Sourced by _analysis.R.
 
 # PHASE 1: Load counterfactual-specific data ------------------------------
@@ -46,10 +48,9 @@ ADMIN_LOOKUP <- setNames(mlr_admin$admin0_pmpm, paste(mlr_admin$insurer_prefix, 
 beta_df <- read_csv(file.path(TEMP_DIR, "commission_beta.csv"), show_col_types = FALSE)
 BETA_LOOKUP <- setNames(beta_df$beta, paste(beta_df$firm, beta_df$year, sep = "_"))
 
-# The estimated cross-market wedge (s4's M4): the commission condition each
-# re-solving unit satisfies is MB/MC = (1 - beta_f) + delta_f, with delta_f
-# one level per carrier absorbing obligations outside the modeled market
-# (commission parity across the individual book under the QHP contract)
+# The estimated carrier wedge (s4's M4): the commission condition each
+# re-solving unit satisfies is MB/MC = (1 - beta_f) + delta_f, one level per
+# carrier, mechanism not established
 wedge_df <- read_csv(file.path(TEMP_DIR, "commission_wedge.csv"), show_col_types = FALSE)
 WEDGE_LOOKUP <- setNames(wedge_df$estimate, sub("^wedge_", "", wedge_df$term))
 
@@ -130,8 +131,6 @@ for (y in years) {
              error = function(e) { cat("  init error cell", task$r, task$y, ":", conditionMessage(e), "\n"); NULL })
   })
   active <- !vapply(inits, is.null, logical(1))
-  cat(sprintf("  cells initialized: %d of %d (%.1f min)\n", sum(active), length(tasks),
-              as.numeric(difftime(Sys.time(), t_init, units = "mins"))))
   if (!any(active)) { parallel::stopCluster(cl); next }
   yr <- list(y = y, cl = cl, cells = inits, active = active)
 
@@ -144,18 +143,20 @@ for (y in years) {
     tibble(plan_id = cs$plan_ids, N = cs$N, s = unname(cs$share_obs)))) %>%
     group_by(plan_id) %>% summarize(share = sum(N * s) / sum(N), .groups = "drop")
   solve_ids <- share_y$plan_id[share_y$share >= SHARE_FLOOR_FOC & share_y$plan_id %in% names(P_obs)]
-  cat("  plan-years:", length(P_obs), "; priced in the solve:", length(solve_ids), "\n")
 
   # Observed point: the pricing-residual fit diagnostic and the insurers'
   # observed mean commissions
   spec_obs <- list(comm = "observed", calib = TRUE)
   invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline", spec_obs))
+  # The transfer formula's premium total: premiums collected at the observed
+  # premiums, held at that value in every evaluation of the year
+  recs_obs <- parallel::clusterCall(cl, cf_cell_eval_p1, P_obs)
+  RA_TP <- ra_premium_total(recs_obs[!vapply(recs_obs, is.null, logical(1))])
   pieces_obs <- cf_year_evaluate(cl, P_obs)
   if (is.null(pieces_obs) || !all(!vapply(pieces_obs[active], is.null, logical(1)))) {
     cat("  observed-point evaluation failed; year skipped\n"); parallel::stopCluster(cl); next
   }
   ag_obs <- cf_year_aggregate(pieces_obs)
-  e_target <- ag_obs$G
   N_year <- sum(vapply(inits[active], function(cs) cs$N, numeric(1)))
   e_dollars <- ag_obs$G / ag_obs$omega_w
   metal_of <- sr_y %>% distinct(plan_id, metal) %>% { setNames(.$metal, .$plan_id) }
@@ -170,9 +171,6 @@ for (y in years) {
   gate <- firms[ag_obs$MC[firms] > 0 & is.finite(ag_obs$MB[firms]) &
                 unname(qB_carrier[sub("[.].*$", "", firms)]) / N_year >= SHARE_FLOOR_FOC]
   etabar_y <- ag_obs$MC[gate] / ag_obs$qB[gate]
-  cat("  pricing residual at observed premiums |e| =",
-      signif(sqrt(sum(e_target[solve_ids]^2)), 3), ";",
-      length(gate), "insurers with commissions\n")
 
   # Baseline: the model's premium equilibrium at the observed commissions. The
   # best-response iteration carries the system from the observed premiums to
@@ -198,16 +196,19 @@ for (y in years) {
     P_warm[fp_saved$id[fp_saved$kind == "P"]] <- fp_saved$value[fp_saved$kind == "P"]
     f_warm <- tryCatch({
       agw <- cf_year_aggregate(cf_year_evaluate(cl, P_warm))
-      max(abs((agw$G / ag_obs$omega_w)[solve_ids]))
+      max(abs((agw$G / agw$omega_w)[solve_ids]))
     }, error = function(e) Inf)
     if (is.finite(f_warm) && f_warm < max(abs(e_dollars[solve_ids]))) {
       P_start <- P_warm
-      cat("  baseline warm start from", basename(fp_file), "\n")
     }
   }
   fp <- solve_cf_year_fixed_point(yr, "baseline", solve_ids, P_start)
   if (is.null(fp)) { cf_log(sprintf("  [%s] baseline iteration failed; year skipped\n", y)); parallel::stopCluster(cl); next }
-  cf_log(sprintf("  [%s] baseline fixed point: %d iterations, converged %s, %.1f min\n", y, fp$iter, fp$converged, fp$elapsed))
+  k_tab <- if (is.null(fp$kappa_plan)) "none" else
+    paste(sprintf("%.2f:%d", as.numeric(names(table(fp$kappa_plan))),
+                  as.integer(table(fp$kappa_plan))), collapse = " ")
+  cf_log(sprintf("  [%s] baseline fixed point: %d evaluations, converged %s, %.1f min; step fractions %s\n",
+                 y, fp$iter, fp$converged, fp$elapsed, k_tab))
   write_csv(tibble(kind = "P", id = names(fp$P), value = unname(fp$P)), fp_file)
   J_P_year <- cf_year_jacobian_P(yr, solve_ids, fp$P)
   if (is.null(J_P_year)) { cf_log(sprintf("  [%s] jacobian evaluation failed; year skipped\n", y)); parallel::stopCluster(cl); next }
@@ -217,12 +218,10 @@ for (y in years) {
   run_scenario <- function(label, tau, spec, P_init, comm_scale = 1, set_scenario = TRUE) {
     if (set_scenario) invisible(parallel::clusterCall(cl, cf_cell_scenario, label, spec))
     ids <- solve_ids
-    P_run <- P_init
     if (set_scenario) {
       # One evaluation under the scenario at the start point: gate the solve
       # set on the scenario's own shares (a removed channel can empty a plan,
-      # whose pricing condition is then ill-conditioned) and pre-iterate when
-      # the start is far from the scenario's equilibrium.
+      # whose pricing condition is then ill-conditioned)
       pieces0 <- cf_year_evaluate(cl, P_init)
       if (is.null(pieces0) || !all(!vapply(pieces0[active], is.null, logical(1)))) {
         cat("  ", label, "- evaluation failed at the start\n"); return(NULL)
@@ -239,24 +238,20 @@ for (y in years) {
       share_scen <- sh_num / sh_den
       ids <- solve_ids[solve_ids %in% names(share_scen)[share_scen >= SHARE_FLOOR_FOC]]
       if (length(ids) == 0) { cat("  ", label, "- no plans above the share floor\n"); return(NULL) }
-      if (length(ids) < length(solve_ids))
-        cat(sprintf("    [%d %s] %d plans below the share floor held at the start premiums\n",
-                    y, label, length(solve_ids) - length(ids)))
-      f0 <- cf_year_aggregate(pieces0)$G[ids] / om_base[ids]
-      if (max(abs(f0), na.rm = TRUE) > 25) {
-        fp_s <- solve_cf_year_fixed_point(yr, label, ids, P_init, om_base = om_base,
-                                          maxit_P = 25, tol_dollars = 5)
-        if (!is.null(fp_s)) P_run <- fp_s$P
-      }
     }
-    res <- solve_cf_year(yr, label, ids, P_run, J_P_year, tol_dollars = 5,
-                         om_base = om_base)
-    if (is.null(res)) { cf_log(paste("  ", label, "- did not converge\n")); return(NULL) }
+    res <- solve_cf_year(yr, label, ids, P_init, J_P_year, tol_dollars = 5)
+    if (is.null(res)) { cf_log(paste("  ", label, "- evaluation failed, no point returned\n")); return(NULL) }
     P_full <- P_obs; P_full[names(res$P)] <- res$P
-    cf_log(sprintf("   [%s] %s - converged (termcd %d, %d iterations, %d evaluations, %.1f min)\n",
-                   y, label, res$sol$termcd, res$sol$iter, res$n_eval, res$elapsed))
+    cf_log(sprintf("   [%s] %s - %s (termcd %d, %d iterations, %d evaluations, %.1f min, max residual %.2f $)\n",
+                   y, label, if (res$converged) "converged" else "off tolerance",
+                   res$termcd, res$iter, res$n_eval, res$elapsed, res$max_miss))
+    data.table::fwrite(data.table::data.table(
+      year = y, scenario = label, plan_id = names(res$resid),
+      resid_dollars = unname(res$resid), kink = unname(res$kink[names(res$resid)]),
+      converged = res$converged),
+      file.path(CF_YEAR_DIR, sprintf("resid_%d_%s.csv", y, label)))
     save_rows(label, cf_year_rows(yr, label, tau, res$pieces, P_full, comm_scale,
-                                  res$sol$termcd, res$sol$iter))
+                                  res$termcd, res$iter))
     data.table::fwrite(cf_year_firm_rows(yr, label, res$pieces),
                        file.path(CF_YEAR_DIR, sprintf("firms_%d_%s.csv", y, label)))
     list(P = P_full, pieces = res$pieces)
@@ -265,13 +260,9 @@ for (y in years) {
   # Baseline polish with the Jacobian at the fixed point (the scenario is
   # already set on the workers): the premium equilibrium at observed
   # commissions, the warm start for the commission solve
-  om_base <- NULL
   base <- run_scenario("baseline", NA_real_, NULL, fp$P, set_scenario = FALSE)
-  if (is.null(base)) { cat("  baseline did not converge; year skipped\n"); parallel::stopCluster(cl); next }
+  if (is.null(base)) { cat("  baseline evaluation failed; year skipped\n"); parallel::stopCluster(cl); next }
   P_base <- base$P
-  # Baseline own-price terms: the residual scale and far-start gauge for every
-  # scenario solve
-  om_base <- cf_year_aggregate(base$pieces)$omega_w
 
   # The baseline commission equilibrium: each gated insurer's rate re-solved to
   # the estimated condition, so the baseline is the model's own equilibrium in
@@ -287,13 +278,11 @@ for (y in years) {
   if (length(firms_solve) > 0) {
     base_c <- solve_cf_commissions(yr, "baseline", solve_ids, P_base, J_P_year,
                                    list(), firms = firms_solve,
-                                   beta_f = beta_gate, wedge_f = wedge_gate,
-                                   om_base = om_base)
+                                   beta_f = beta_gate, wedge_f = wedge_gate)
     if (!is.null(base_c)) {
       P_base <- P_obs; P_base[names(base_c$P)] <- base_c$P
       base <- list(P = P_base, pieces = base_c$pieces)
       agb <- cf_year_aggregate(base_c$pieces)
-      om_base <- agb$omega_w
       k_base[names(base_c$k)] <- base_c$k
       save_rows("baseline", cf_year_rows(yr, "baseline", NA_real_, base_c$pieces, P_base,
                                          NA_real_, if (base_c$converged) 1L else 9L, base_c$rounds))
@@ -358,8 +347,7 @@ for (y in years) {
   run_comm_scenario <- function(label, spec_base, tau_row = NA_real_) {
     out <- solve_cf_commissions(yr, label, solve_ids, P_base, J_P_year, spec_base,
                                 firms = firms_solve, beta_f = beta_gate,
-                                wedge_f = wedge_gate, k_init = k_base,
-                                om_base = om_base)
+                                wedge_f = wedge_gate, k_init = k_base)
     if (is.null(out)) { cf_log(paste("  ", label, "- dropped\n")); return(invisible(NULL)) }
     P_full <- P_obs; P_full[names(out$P)] <- out$P
     save_rows(label, cf_year_rows(yr, label, tau_row, out$pieces, P_full, NA_real_,
@@ -398,38 +386,15 @@ if (length(bc_files) > 0)
   write_csv(bind_rows(lapply(bc_files, read_csv, show_col_types = FALSE)) %>% arrange(year, firm),
             "results/cf_baseline_commissions.csv")
 
+resid_files <- list.files(CF_YEAR_DIR, pattern = "^resid_", full.names = TRUE)
+if (length(resid_files) > 0)
+  write_csv(bind_rows(lapply(resid_files, read_csv, show_col_types = FALSE)) %>%
+              arrange(year, scenario, plan_id),
+            "results/cf_pricing_residuals.csv")
+
 firm_files <- list.files(CF_YEAR_DIR, pattern = "^firms_", full.names = TRUE)
 if (length(firm_files) > 0) {
   cf_firms <- bind_rows(lapply(firm_files, read_csv, show_col_types = FALSE))
   write_csv(cf_firms, "results/cf_firm_profits.csv")
-}
-
-# =========================================================================
-# PHASE 4: Summary
-# =========================================================================
-
-cat("\n--- Counterfactual Summary (equilibria only; welfare is scored in cf2) ---\n")
-scen_summary <- cf_results %>%
-  group_by(scenario) %>%
-  summarize(n_cells = length(unique(paste(region, year))),
-            mean_premium_change = mean(premium_change, na.rm = TRUE),
-            converged_pct = 100 * mean(nleqslv_termcd <= 2, na.rm = TRUE),
-            .groups = "drop")
-cat("\n"); print(scen_summary %>% mutate(across(where(is.numeric), ~round(., 2))), n = Inf)
-
-endog_scenarios <- cf_results %>%
-  filter(str_detect(scenario, "^uniform_low|^defund_|^flat_mandate|^endog_tau"))
-if (nrow(endog_scenarios) > 0) {
-  cat("\n--- Commission-level scenarios: point runs and band edges ---\n")
-  cat("    comm_scale = the commission multiplier applied (1 = the point run at observed schedules)\n")
-  endog_summary <- endog_scenarios %>%
-    group_by(scenario) %>%
-    summarize(comm_scale = if (all(is.na(comm_scale_cf))) NA_real_ else
-                weighted.mean(comm_scale_cf, share_cf, na.rm = TRUE),
-              mean_comm = weighted.mean(commission_pmpm, share_cf, na.rm = TRUE),
-              mean_premium_change = mean(premium_change, na.rm = TRUE),
-              converged_pct = 100 * mean(nleqslv_termcd <= 2, na.rm = TRUE),
-              .groups = "drop")
-  cat("\n"); print(endog_summary %>% mutate(across(where(is.numeric), ~round(., 3))), n = Inf)
 }
 

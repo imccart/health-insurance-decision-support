@@ -13,7 +13,6 @@
 ##               coefficients) and s4_cost-gmm run first.
 
 # --- Demand SE (HH-robust sandwich) --------------------------------------
-cat("\n--- Demand standard errors (sandwich) ---\n"); flush.console()
 covars  <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$all
 dcoef   <- read.csv("results/choice_coefficients_structural.csv", stringsAsFactors = FALSE)
 theta_d <- setNames(dcoef$estimate, dcoef$term)
@@ -38,7 +37,6 @@ rm(cells_se); gc(verbose = FALSE)
 # --- Cost SE (GMM sandwich) ----------------------------------------------
 # Reuse the GMM machinery left by s4_cost-gmm; source it if running standalone.
 if (!exists("compute_g_bar")) source("code/analysis/s4_cost-gmm.R")
-cat("\n--- Cost standard errors (sandwich) ---\n"); flush.console()
 cse <- cost_gmm_sandwich_se(
   theta_hat   = result2$par, W = W2, gbar_fn = compute_g_bar,
   N_ALPHA     = N_ALPHA, N_GAMMA = N_GAMMA, n_mom = N_MOMENTS,

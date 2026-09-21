@@ -10,13 +10,7 @@
 ##                demand specification on that same sample. No rebuild: uses the
 ##                cells s2_demand.R already produced.
 ##
-##                Standalone. Run AFTER s2_demand.R and supp1_demand-specs.R.
-
-# Packages ----------------------------------------------------------------
-pacman::p_load(tidyverse, data.table)
-setDTthreads(1)
-
-source("code/analysis/helpers/estimate_demand.R")
+##                Sourced by _analysis.R after s2_demand.R and supp1_demand-specs.R.
 
 CELL_DIR <- "D:/temp-research-data/health-insurance-decision-support/choice_cells"
 FILT_DIR <- "D:/temp-research-data/health-insurance-decision-support/choice_cells_noPBE"
@@ -62,7 +56,7 @@ cat("\n=== PBE-excluded (body spec) ===\n");     noPBE <- fit_nested(FILT_DIR, b
 
 # Compare the price, steering, and nesting parameters ----------------------
 key <- c("premium", "av", "assisted_av", "broker_av", "assisted_premium", "broker_premium",
-         "commission_broker", "lambda")
+         "commission_broker", "commission_broker_sq", "lambda")
 comp <- data.frame(term = key,
                    full = unname(full[key]),
                    no_PBE = unname(noPBE[key]),
@@ -78,6 +72,7 @@ lab <- c(premium = "Premium",
          assisted_premium = "Navigator $\\times$ premium",
          broker_premium = "Agent $\\times$ premium",
          commission_broker = "Commission $\\times$ agent",
+         commission_broker_sq = "Commission$^2$/100 $\\times$ agent",
          lambda = "$\\lambda$ (nesting parameter)")
 rownames(comp) <- comp$term
 tl <- c("\\begin{tabular}{lcc}", "\\hline\\hline",

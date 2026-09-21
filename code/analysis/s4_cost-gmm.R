@@ -10,12 +10,12 @@
 ##                  M2: claims regression on the rate-filing plan-years
 ##                  M3: plan-year pricing FOC residuals (cell-level instruments)
 ##                  M4: insurer-year commission conditions net of the
-##                      cross-market wedge (delta estimated)
+##                      carrier wedge (delta estimated)
 ##                beta, the administrative saving per commission dollar, is the
 ##                per-carrier substitution rate from the national MLR filings
 ##                (data-build step 9), held fixed; the commission conditions
-##                MB = (1 - beta) MC enter as moments net of the cross-market
-##                wedge delta0 + delta1 (1 - w)/w (M4).
+##                MB = (1 - beta) MC enter as moments net of the carrier
+##                wedge delta_f, one level per carrier (M4).
 ##                Writes the GMM coefficients, beta by insurer-year, and the
 ##                commission residuals.
 
@@ -40,7 +40,6 @@ supply_results <- read_csv("results/supply_results.csv", show_col_types = FALSE)
 # level enters through the FOC cells (s3).
 BETA0 <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
 beta_carrier <- read_csv("data/output/commission_beta_carrier.csv", show_col_types = FALSE)
-cat("  per-carrier substitution rates:", nrow(beta_carrier), "carriers\n")
 
 # --- FOC inputs per cell (moment 3) ---
 foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
@@ -48,7 +47,6 @@ foc_files <- list.files(file.path(TEMP_DIR, "foc_inputs"),
 if (length(foc_files) == 0) stop("No FOC input files found — run s3_pricing.R first")
 
 foc_cells <- lapply(foc_files, readRDS)
-cat("  FOC cells loaded:", length(foc_cells), "\n")
 if (any(sapply(foc_cells, function(fc) is.null(fc$demo_shares)))) {
   stop("foc_inputs lack demo_shares — re-run s3_pricing.R to save predicted demographic shares")
 }
@@ -76,7 +74,6 @@ rs_srrt <- rs_srrt %>%
          if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x))) %>%
   mutate(Silver = as.integer(metal == "Silver"), Gold = as.integer(metal == "Gold"),
          Platinum = as.integer(metal == "Platinum"))
-cat("  SRRT risk-score observations (M1):", nrow(rs_srrt), "\n")
 
 pred_py <- demo_all[, lapply(.SD, function(v) sum(v * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)),
                     by = .(plan_id, year), .SDcols = RS_DEMO_TERMS]
@@ -94,13 +91,11 @@ rsdata <- rsdata %>%
             by = c("insurer_prefix", "metal", "year", "network")) %>%
   filter(if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)),
          !is.na(HMO), !is.na(log_rs_srrt))
-cat("  Rate filing claims observations (M2):", nrow(rsdata), "\n")
 
 # Filter to cells with valid Omega (non-NA markup)
 foc_cells <- Filter(function(fc) {
   !any(is.na(fc$Omega)) && !any(is.na(fc$shares)) && length(fc$plan_ids) >= 2
 }, foc_cells)
-cat("  FOC cells with valid Omega:", length(foc_cells), "\n")
 
 
 # =========================================================================
@@ -125,12 +120,13 @@ N_INS_COST <- length(INS_COST)
 # --- Risk-score equation: weighted OLS on the SRRT rows (metal dummies and
 #     the predicted composition shares), estimated once and held fixed in the
 #     GMM ---
-rs_ols <- lm(reformulate(c("Silver", "Gold", "Platinum", RS_DEMO_TERMS), "log_risk_score"),
+rs_key <- paste0("im_", rs_srrt$insurer_prefix, "_", rs_srrt$metal)
+for (nm in RS_IM_TERMS) rs_srrt[[nm]] <- as.integer(rs_key == nm)
+rs_ols <- lm(reformulate(c(RS_IM_TERMS, RS_DEMO_TERMS), "log_risk_score"),
              data = rs_srrt, weights = rs_srrt$member_months)
-alpha_names <- c("(Intercept)", "Silver", "Gold", "Platinum", RS_DEMO_TERMS)
+rs_ols$coefficients[is.na(rs_ols$coefficients)] <- 0
+alpha_names <- c("(Intercept)", RS_IM_TERMS, RS_DEMO_TERMS)
 ALPHA_FIXED <- unname(coef(rs_ols)[alpha_names])
-cat("  Risk-score OLS (fixed): N =", nrow(rs_srrt), " R2 =", round(summary(rs_ols)$r.squared, 3), "\n")
-cat("    ", paste(alpha_names, round(ALPHA_FIXED, 3), collapse = "; "), "\n")
 
 # --- M2 data matrices (rate filing PUF claims) ---
 # Weights: member months normalized within insurer group, so every group carries
@@ -142,10 +138,9 @@ rsdata <- rsdata %>%
   mutate(claims_group = if_else(insurer_prefix %in% c("ANT", "BS", "HN", "KA"),
                                 insurer_prefix, "Small"))
 w_rf <- rsdata$EXP_MM / ave(rsdata$EXP_MM, rsdata$claims_group, FUN = sum)
-cat("  Claims-moment weight groups:",
-    paste(names(table(rsdata$claims_group)), as.integer(table(rsdata$claims_group)),
-          sep = ":", collapse = "  "), "\n")
-X_rs_cl <- as.matrix(rsdata %>% select(Silver, Gold, Platinum, all_of(RS_DEMO_TERMS)))
+cl_key <- paste0("im_", rsdata$insurer_prefix, "_", rsdata$metal)
+for (nm in RS_IM_TERMS) rsdata[[nm]] <- as.integer(cl_key == nm)
+X_rs_cl <- as.matrix(rsdata %>% select(all_of(c(RS_IM_TERMS, RS_DEMO_TERMS))))
 # Claims equation exogenous part (CLAIMS_EXOG_TERMS): HMO, year dummies,
 # big-four insurer indicators, rating-area shares. AV is OMITTED, since the
 # risk score carries generosity.
@@ -158,8 +153,6 @@ CLAIMS_SCALE <- mean(exp(y_cl))      # normalization of the level residual
 pred_log_rs_rf <- as.vector(ALPHA_FIXED[1] + X_rs_cl %*% ALPHA_FIXED[-1])
 rs_first_stage <- lm(rsdata$log_rs_srrt ~ pred_log_rs_rf + X_cl_exog, weights = rsdata$EXP_MM)
 log_rs_fs <- as.vector(fitted(rs_first_stage))
-cat("  Claims first stage: coefficient on the predicted score",
-    round(coef(rs_first_stage)[2], 3), " R2 =", round(summary(rs_first_stage)$r.squared, 3), "\n")
 W_cl <- cbind(1, log_rs_fs, X_cl_exog)   # claims regressors
 Z_cl <- W_cl                             # instruments
 
@@ -182,6 +175,8 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$Silver <- as.integer(plan_metal == "Silver")
   foc_cells[[k]]$Gold <- as.integer(plan_metal == "Gold")
   foc_cells[[k]]$Platinum <- as.integer(plan_metal == "Platinum")
+  for (t in RS_IM_TERMS)
+    foc_cells[[k]][[t]] <- as.integer(paste0("im_", sub("_.*", "", pn), "_", plan_metal) == t)
   # Network type from the plan attributes s3 saved (falls back to the Kaiser prefix)
   foc_cells[[k]]$HMO <- if (!is.null(fc$hmo)) as.integer(fc$hmo[pn]) else as.integer(str_detect(pn, "^KA"))
   for (yy in SUPPLY_YEARS[-1]) foc_cells[[k]][[paste0("year_", yy)]] <- as.integer(y == yy)
@@ -210,7 +205,7 @@ for (k in seq_along(foc_cells)) {
     foc_cells[[k]][[rc]] <- as.numeric(ifelse(is.na(v), 0, v))
   }
   # Per-cell design matrices for the two cost equations (intercepts excluded)
-  foc_cells[[k]]$X_rs <- do.call(cbind, lapply(c("Silver", "Gold", "Platinum", RS_DEMO_TERMS),
+  foc_cells[[k]]$X_rs <- do.call(cbind, lapply(c(RS_IM_TERMS, RS_DEMO_TERMS),
                                                function(v) as.numeric(foc_cells[[k]][[v]])))
   foc_cells[[k]]$X_cl <- do.call(cbind, lapply(CLAIMS_EXOG_TERMS,
                                                function(v) as.numeric(foc_cells[[k]][[v]])))
@@ -229,8 +224,22 @@ for (k in seq_along(foc_cells)) {
   foc_cells[[k]]$x_mult <- idf * foc_cells[[k]]$gcf                       # x_j = r_j * x_mult_j
   sh <- unname(fc$shares[pn])
   foc_cells[[k]]$A_own  <- fc$N * sum(sh * unname(fc$plan_avs[pn]) * arf * idf * foc_cells[[k]]$gcf, na.rm = TRUE)
-  foc_cells[[k]]$M_own  <- fc$N * sum(sh, na.rm = TRUE)
-  foc_cells[[k]]$PM_own <- fc$N * sum(sh * unname(fc$posted_premium), na.rm = TRUE)
+  foc_cells[[k]]$TP_own <- fc$N * sum(unname(fc$rshares[pn]) * unname(fc$posted_premium), na.rm = TRUE)
+  # The carrier's utilization sum in the cell, and the mix responses: the
+  # risk-score coefficients are fixed, so how each plan's enrollee mix moves
+  # with a premium or a commission does not depend on theta
+  firm <- sub("_.*", "", pn)
+  foc_cells[[k]]$firm   <- firm
+  yv <- sh * unname(fc$plan_avs[pn]) * arf * idf * foc_cells[[k]]$gcf; yv[is.na(yv)] <- 0
+  foc_cells[[k]]$Yf_own <- fc$N * tapply(yv, firm, sum)
+  rs_fixed <- setNames(ALPHA_FIXED[-1], c(RS_IM_TERMS, RS_DEMO_TERMS))
+  foc_cells[[k]]$mix <- mix_response(fc$elast_mat, fc$zelast, fc$demo_shares, rs_fixed)
+  foc_cells[[k]]$mkt_rev <- setNames(unname(fc$rshares[pn]) +
+                                       as.vector(t(fc$relast_mat) %*% fc$posted_premium), pn)
+  if (!is.null(fc$comm_D)) {
+    foc_cells[[k]]$mix_y <- mix_response(fc$comm_D, fc$comm_Dz, fc$demo_shares, rs_fixed)
+    foc_cells[[k]]$mkt_rev_y <- setNames(as.vector(t(fc$comm_D_r) %*% fc$posted_premium), pn)
+  }
 }
 stopifnot(all(is.finite(sapply(foc_cells, function(fc) fc$gcf))))
 
@@ -252,36 +261,38 @@ for (k in seq_along(foc_cells)) {
 FOC_YEARS <- sort(unique(sapply(foc_cells, function(fc) fc$year)))
 # Statewide sums that do not depend on theta, by year
 A_state  <- sapply(FOC_YEARS, function(y) sum(sapply(foc_cells, function(fc) if (fc$year == y) fc$A_own else 0)))
-M_state  <- sapply(FOC_YEARS, function(y) sum(sapply(foc_cells, function(fc) if (fc$year == y) fc$M_own else 0)))
-PM_state <- sapply(FOC_YEARS, function(y) sum(sapply(foc_cells, function(fc) if (fc$year == y) fc$PM_own else 0)))
-names(A_state) <- names(M_state) <- names(PM_state) <- FOC_YEARS
-PBAR_state <- setNames(vapply(FOC_YEARS, ra_pbar_cms, numeric(1)), FOC_YEARS)   # CMS statewide average premium
-miss <- is.na(PBAR_state)
-PBAR_state[miss] <- (PM_state / M_state * (1 - RA_ADMIN_SHARE[as.character(FOC_YEARS)]))[miss]
-cat("  Statewide average premium (net of the admin share) by year:",
-    paste(FOC_YEARS, round(PBAR_state), sep = ": ", collapse = ", "), "\n")
+# The transfer formula's premium total: premiums collected at the observed premiums
+TP_state <- sapply(FOC_YEARS, function(y) sum(sapply(foc_cells, function(fc) if (fc$year == y) fc$TP_own else 0)))
+names(A_state) <- names(TP_state) <- FOC_YEARS
+NU_state <- setNames(1 - RA_ADMIN_SHARE[as.character(FOC_YEARS)], FOC_YEARS)
+# Each carrier's statewide utilization sum by year
+Yf_state <- lapply(setNames(FOC_YEARS, FOC_YEARS), function(y) {
+  v <- unlist(lapply(foc_cells, function(fc) if (fc$year == y) fc$Yf_own else NULL))
+  tapply(v, names(v), sum)
+})
 # ra_env for cell k at predicted risk scores pred_rs, given the year's R total
-ra_env_cell <- function(fc, pred_rs, R_state_y) {
-  R_own <- fc$N * sum(unname(fc$shares[fc$plan_ids]) * pred_rs * fc$x_mult, na.rm = TRUE)
+ra_env_cell <- function(fc, pred_rs, R_state_y, Xf_state_y) {
+  xv <- unname(fc$shares[fc$plan_ids]) * pred_rs * fc$x_mult; xv[is.na(xv)] <- 0
   y <- as.character(fc$year)
-  list(gcf = fc$gcf, N = fc$N, pbar = PBAR_state[[y]], arf = fc$arf,
-       rest = list(R = R_state_y - R_own, A = A_state[[y]] - fc$A_own, M = M_state[[y]] - fc$M_own))
+  Xf_own <- fc$N * tapply(xv, fc$firm, sum)
+  X <- Xf_state_y; X[names(Xf_own)] <- X[names(Xf_own)] - Xf_own
+  Y <- Yf_state[[y]]; Y[names(fc$Yf_own)] <- Y[names(fc$Yf_own)] - fc$Yf_own
+  list(gcf = fc$gcf, N = fc$N, nu = NU_state[[y]], tpn = NU_state[[y]] * TP_state[[y]], arf = fc$arf,
+       rest = list(R = R_state_y - fc$N * sum(xv), A = A_state[[y]] - fc$A_own),
+       firm_rest = list(X = X, Y = Y))
 }
 
 rm(supply_results, demo_all, pred_py)
 
 # Count the plan-cell FOC pieces and the plan-year conditions they aggregate to
 n_foc_total <- sum(sapply(foc_cells, function(fc) length(fc$plan_ids)))
-cat("  Plan-cell FOC pieces:", n_foc_total, " in", N_PY, "plan-year conditions\n")
 n_foc_below <- sum(sapply(foc_cells, function(fc) sum(fc$shares < SHARE_FLOOR_FOC)))
-cat("  Below share floor", SHARE_FLOOR_FOC, "(dropped from the plan-year sums):",
-    n_foc_below, "of", n_foc_total, "\n")
 
 # M3 instruments: plan characteristics at the cell level (HMO varies across
 # regions within some plan-years), aggregated with the residual to the plan-year
 
 # The insurer commission condition MB_fy = (1 - beta) MC_fy per insurer-year,
-# a moment net of the cross-market wedge (M4). beta is the
+# a moment net of the carrier wedge (M4). beta is the
 # administrative saving per commission dollar (a broker enrollee's onboarding
 # and servicing the agent takes over), fixed at the per-carrier rates from the
 # national MLR filings (step 9).
@@ -297,7 +308,6 @@ SPLIT_KEYS <- comm_lk %>% group_by(insurer_prefix, year) %>%
   summarize(split = n_distinct(rate) > 1, .groups = "drop") %>%
   filter(split) %>%
   { paste(.$insurer_prefix, .$year, sep = "_") }
-cat("  Carrier-years with network-level commission rates:", length(SPLIT_KEYS), "\n")
 
 # Per-cell unit structure for the commission conditions (theta-independent pieces)
 comm_struct <- lapply(foc_cells, function(fc) {
@@ -317,6 +327,7 @@ comm_struct <- lapply(foc_cells, function(fc) {
     w_f <- numeric(length(pn)); w_f[ii] <- fc$comm_vec[ii]
     d <- as.data.frame(fc$demo_shares); m <- match(pn[ii], d$plan_id)
     list(firm = f, ii = ii, jj = jj, dq = as.numeric(fc$comm_D %*% w_f),
+         dq_r = as.numeric(fc$comm_D_r %*% w_f),
          MC = sum(fc$comm_qB[ii] * fc$comm_vec[ii]), qB = sum(fc$comm_qB[ii]),
          dem = sum(d$demand[m], na.rm = TRUE))      # predicted enrollment of the unit's plans
   })
@@ -343,13 +354,12 @@ PY_OK <- rep(FALSE, N_PY)
 for (fc in foc_cells) PY_OK[fc$py_idx[fc$shares >= SHARE_FLOOR_FOC]] <- TRUE
 N_M3 <- sum(PY_OK)
 
-# M4: the commission conditions as moments, one per insurer-year, with a
-# cross-market wedge at the carrier level. The QHP contract and the carriers'
-# filing narratives put the same commission on and off the exchange in the
-# individual market, so the exchange schedule prices obligations outside the
-# modeled market; schedules barely move within carrier over the panel, so the
-# wedge is one time-invariant level per carrier. The individual book's
-# off/on-exchange ratio is kept for diagnostics (data-build step 10).
+# M4: the commission conditions as moments, one per insurer-year, net of one
+# time-invariant level per carrier. The off-exchange leverage slope that this
+# level replaced was dropped on 2026-09-08: its sign contradicted the parity
+# story and the within-carrier residual tracks on-exchange book growth, which
+# cannot enter the condition. The off/on-exchange ratio is kept as a
+# diagnostic (data-build step 10).
 comm_filings <- read_csv("data/output/commission_filings.csv", show_col_types = FALSE)
 LEV_FY <- setNames((1 - comm_filings$on_share) / comm_filings$on_share,
                    paste(comm_filings$insurer_prefix, comm_filings$year, sep = "_"))
@@ -358,16 +368,13 @@ N_M4 <- length(COMM_KEYS_M4)
 FIRM_M4 <- sub("[.].*$", "", sub("_[0-9]+$", "", COMM_KEYS_M4))   # the carrier of each unit (the wedge and beta are carrier objects)
 WEDGE_FIRMS <- sort(unique(FIRM_M4))
 FIRM_IDX_M4 <- match(FIRM_M4, WEDGE_FIRMS)
-cat("  Commission conditions (M4):", N_M4, "insurer-years,",
-    length(WEDGE_FIRMS), "carrier wedge levels\n")
 
 # The GMM moments are the claims equation (M2), the plan-year pricing
-# conditions (M3), and the commission conditions with the cross-market wedge (M4).
+# conditions (M3), and the commission conditions with the carrier wedge (M4).
 N_MOMENTS <- ncol(Z_cl) + N_M3 + N_M4
 IDX_M2 <- seq_len(ncol(Z_cl))
 IDX_M3 <- ncol(Z_cl) + seq_len(N_M3)
 IDX_M4 <- ncol(Z_cl) + N_M3 + seq_len(N_M4)
-cat("  Total moment conditions:", N_MOMENTS, "(M2:", ncol(Z_cl), " M3:", N_M3, " M4:", N_M4, ")\n")
 
 # =========================================================================
 # PARAMETER LAYOUT
@@ -376,7 +383,7 @@ cat("  Total moment conditions:", N_MOMENTS, "(M2:", ncol(Z_cl), " M3:", N_M3, "
 gamma_names <- c("(Intercept)", "log_risk_score", CLAIMS_EXOG_TERMS)
 N_ALPHA <- 0L                    # the risk-score coefficients are fixed (ALPHA_FIXED)
 N_GAMMA <- length(gamma_names)   # intercept, log_risk_score, exogenous claims terms
-delta_names <- paste0("wedge_", WEDGE_FIRMS)   # the M4 cross-market wedge: one level per gated carrier
+delta_names <- paste0("wedge_", WEDGE_FIRMS)   # the M4 carrier wedge: one level per gated carrier
 N_DELTA <- length(delta_names)
 # beta, the administrative saving per commission dollar, is held at its current
 # stage-4 value while the cost coefficients are estimated (BETA_FY; the MLR
@@ -388,10 +395,6 @@ gamma0_raw <- setNames(cl_coefs_start$estimate, cl_coefs_start$term)[gamma_names
 gamma0_raw[is.na(gamma0_raw)] <- 0
 gamma0 <- unname(gamma0_raw)
 theta0 <- c(gamma0, rep(0, N_DELTA))
-cat("  Starting values (OLS):\n")
-cat("    gamma:", round(gamma0, 4), "\n")
-cat("    delta (wedge):", rep(0, N_DELTA), "\n")
-cat("    beta (pooled MLR, default for unmatched carriers):", round(BETA0, 4), "\n")
 
 # =========================================================================
 # MOMENT FUNCTION
@@ -407,9 +410,7 @@ cat("    beta (pooled MLR, default for unmatched carriers):", round(BETA0, 4), "
 #     minus the model's, in dollars per member-month (the plan-year FOC residual
 #     divided by its own-price term)
 # M4: one moment per insurer-year, the commission condition net of the
-#     cross-market wedge: MB/MC - 1 + beta_f - (delta0 + delta1 * leverage),
-#     leverage = (1 - w)/w with w the individual market's share of the
-#     carrier's commissionable book.
+#     carrier level: MB/MC - 1 + beta_f - delta_f.
 #
 # FOC residual for plan j in cell c:
 #   foc_j = s_j + sum_k Omega_{jk} * (p_k - MC_k(alpha,gamma)) + sum_k Omega_broker_{jk} * comm_k
@@ -450,14 +451,21 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   # risk-weighted sum by year (the one statewide piece that moves with theta)
   cell_rs <- vector("list", length(foc_cells)); cell_cl <- vector("list", length(foc_cells))
   R_state <- setNames(rep(0, length(FOC_YEARS)), FOC_YEARS)
+  Xf_cells <- vector("list", length(foc_cells))
   for (ci in seq_along(foc_cells)) {
     fc <- foc_cells[[ci]]
     pred_log_rs <- alpha[1] + as.vector(fc$X_rs %*% alpha[-1])
     pred_log_cl <- gamma[1] + gamma[2] * pred_log_rs + as.vector(fc$X_cl %*% gamma[3:N_GAMMA])
     cell_rs[[ci]] <- exp(pred_log_rs); cell_cl[[ci]] <- exp(pred_log_cl)
     y <- as.character(fc$year)
-    R_state[[y]] <- R_state[[y]] + fc$N * sum(unname(fc$shares[fc$plan_ids]) * cell_rs[[ci]] * fc$x_mult, na.rm = TRUE)
+    xv <- unname(fc$shares[fc$plan_ids]) * cell_rs[[ci]] * fc$x_mult; xv[is.na(xv)] <- 0
+    R_state[[y]] <- R_state[[y]] + fc$N * sum(xv)
+    Xf_cells[[ci]] <- fc$N * tapply(xv, fc$firm, sum)
   }
+  Xf_state <- lapply(setNames(FOC_YEARS, FOC_YEARS), function(y) {
+    v <- unlist(Xf_cells[vapply(foc_cells, function(fc) fc$year == y, logical(1))])
+    tapply(v, names(v), sum)
+  })
 
   # Pass B: transfers, marginal costs, FOC residuals, and the commission FOC pieces
   for (ci in seq_along(foc_cells)) {
@@ -467,7 +475,7 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
 
     # RA transfers under the statewide formula (ra.R); the cell's own share of the
     # statewide sums moves with theta, the rest of the state is held at its value
-    ra_env <- ra_env_cell(fc, pred_rs, R_state[[as.character(fc$year)]])
+    ra_env <- ra_env_cell(fc, pred_rs, R_state[[as.character(fc$year)]], Xf_state[[as.character(fc$year)]])
     ra <- unname(compute_ra_transfers(setNames(pred_rs, fc$plan_ids), fc$shares, ra_env, fc$plan_avs)[fc$plan_ids])
 
     # MC(alpha, gamma): claims net of reinsurance and the transfer, plus the
@@ -480,10 +488,15 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     # current cost parameters (it depends on pred_rs, which moves with theta).
     ra_foc_cell <- if (!is.null(fc$elast_mat) && !is.null(fc$own_mat)) {
       compute_ra_foc(setNames(pred_rs, fc$plan_ids), fc$shares, fc$plan_avs,
-                     ra_env, fc$elast_mat, fc$own_mat)
+                     ra_env, fc$elast_mat, fc$own_mat, fc$mix, fc$mkt_rev)$total
     } else if (!is.null(fc$ra_foc)) fc$ra_foc else rep(0, J)
-    foc_resid <- fc$shares + ra_foc_cell -
-                 as.vector(fc$Omega %*% (fc$posted_premium - mc)) +
+    # Claims moving with the enrollee mix; mu = gamma[2] is the pass-through
+    cc_cell <- compute_claims_comp(setNames(pred_claims, fc$plan_ids), fc$reins_vec, fc$mix,
+                                   fc$own_mat, gamma[2])
+    # Revenue terms carry the age-rating pass-through (rshares, Omega_r);
+    # claims, transfers and the commission outlay are per member.
+    foc_resid <- fc$rshares + ra_foc_cell - cc_cell -
+                 as.vector(fc$Omega_r %*% fc$posted_premium - fc$Omega %*% mc) +
                  as.vector(fc$Omega_broker %*% (cs_of(fc) * fc$comm_vec))
 
     # Kept for the commission pieces (pass C), which use the plan-year pricing
@@ -524,11 +537,15 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     if (is.null(cs)) next
     fc <- foc_cells[[ci]]
     ra_eta <- compute_ra_foc(setNames(cell_rs[[ci]], fc$plan_ids), fc$shares, fc$plan_avs,
-                             cell_env[[ci]], fc$comm_D, fc$own_mat)
-    margin <- fc$posted_premium - cell_mc[[ci]] - cs_of(fc) * fc$comm_vec
+                             cell_env[[ci]], fc$comm_D, fc$own_mat, fc$mix_y, fc$mkt_rev_y)$total
+    cc_eta <- compute_claims_comp(setNames(cell_cl[[ci]], fc$plan_ids), fc$reins_vec, fc$mix_y,
+                                  fc$own_mat, gamma[2])
+    cost_side <- cell_mc[[ci]] + cs_of(fc) * fc$comm_vec
     for (cf_ in cs) {
       key <- paste(cf_$firm, fc$year, sep = "_")
-      MBf <- sum(margin[cf_$jj] * cf_$dq[cf_$jj]) + sum(fc$comm_vec[cf_$ii] * ra_eta[cf_$ii])
+      MBf <- sum(fc$posted_premium[cf_$jj] * cf_$dq_r[cf_$jj] -
+                 cost_side[cf_$jj] * cf_$dq[cf_$jj]) +
+             sum(fc$comm_vec[cf_$ii] * (ra_eta[cf_$ii] - cc_eta[cf_$ii]))
       MB_fy[key] <- (if (is.na(MB_fy[key])) 0 else MB_fy[key]) + fc$N * MBf
       MC_fy[key] <- (if (is.na(MC_fy[key])) 0 else MC_fy[key]) + fc$N * cf_$MC
       qB_fy[key] <- (if (is.na(qB_fy[key])) 0 else qB_fy[key]) + fc$N * cf_$qB
@@ -541,7 +558,7 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     }
   }
 
-  # --- M4: commission conditions net of the cross-market wedge, one per
+  # --- M4: commission conditions net of the carrier wedge, one per
   #     insurer-year with a finite leverage ---
   MB4 <- unname(MB_fy[COMM_KEYS_M4]); MC4 <- unname(MC_fy[COMM_KEYS_M4])
   b4m <- BETA_FY[sub("[.](HMO|PPO)", "", COMM_KEYS_M4)]; b4m[is.na(b4m)] <- BETA_FY_DEFAULT
@@ -575,15 +592,13 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   }
   list(g       = g,
        ra_state = data.frame(year = FOC_YEARS, R = as.numeric(R_state[as.character(FOC_YEARS)]),
-                             A = as.numeric(A_state), M = as.numeric(M_state), PM = as.numeric(PM_state),
-                             pbar = as.numeric(PBAR_state)),
+                             A = as.numeric(A_state), tp = as.numeric(TP_state)),
        ra_own   = data.frame(region = sapply(foc_cells, function(fc) fc$region),
                              year = sapply(foc_cells, function(fc) fc$year),
                              R = sapply(seq_along(foc_cells), function(ci) {
                                fc <- foc_cells[[ci]]
                                fc$N * sum(unname(fc$shares[fc$plan_ids]) * cell_rs[[ci]] * fc$x_mult, na.rm = TRUE) }),
-                             A = sapply(foc_cells, function(fc) fc$A_own),
-                             M = sapply(foc_cells, function(fc) fc$M_own)),
+                             A = sapply(foc_cells, function(fc) fc$A_own)),
        # Moment blocks for the covariance: one row per observation of each block
        # (PUF rows, plan-cell pieces of the plan-years, cell pieces of the
        # insurer-year commission conditions); blocks are treated as independent
@@ -625,12 +640,7 @@ gmm_objective <- function(theta, W) {
 # STEP 1: IDENTITY-WEIGHTED GMM
 # =========================================================================
 
-cat("\n--- GMM Step 1 (identity weighting) ---\n")
-
-# Debug: check initial moments
 g_init <- compute_g_bar(theta0)
-cat("  g_bar(theta0):", round(g_init, 4), "\n")
-cat("  any NA/NaN/Inf:", any(!is.finite(g_init)), "\n")
 if (any(!is.finite(g_init))) {
   cat("  non-finite indices:", which(!is.finite(g_init)), "\n")
   cat("  M2:", round(g_init[IDX_M2], 4), "\n")
@@ -649,28 +659,12 @@ result1 <- optim(
   control = list(maxit = 2000, reltol = 1e-12, trace = 1, REPORT = 100)
 )
 
-cat("  Converged:", result1$convergence == 0, "\n")
-cat("  Objective:", format(result1$value, digits = 6), "\n")
-
-gamma1 <- result1$par[1:N_GAMMA]
-delta1 <- result1$par[N_GAMMA + seq_len(N_DELTA)]
-
-cat("  gamma (Step 1):", round(gamma1, 4), "\n")
-cat("  delta (Step 1):", round(delta1, 4), "\n")
-
-g1 <- compute_g_bar(result1$par)
-cat("  g_bar at Step 1:\n")
-cat("    M2 (claims):", round(g1[IDX_M2], 4), "\n")
-cat("    M3 (FOC, $ per member-month): mean", round(mean(g1[IDX_M3]), 2),
-    " RMS", round(sqrt(mean(g1[IDX_M3]^2)), 2), "\n")
-cat("    M4 (commission, net of wedge): mean", round(mean(g1[IDX_M4]), 3),
-    " RMS", round(sqrt(mean(g1[IDX_M4]^2)), 3), "\n")
+if (result1$convergence != 0) warning("s4: GMM step 1 did not converge")
 
 # =========================================================================
 # STEP 2: OPTIMAL WEIGHTING
 # =========================================================================
 
-cat("\n--- GMM Step 2 (optimal weighting: inverse moment covariance) ---\n")
 
 # Efficient two-step feasible GMM. The step-2 weight is the
 # inverse of the moment variance-covariance matrix S, estimated at the step-1
@@ -696,10 +690,8 @@ S <- moment_cov_blocks(contr1$blocks, N_MOMENTS)
 d_S <- sqrt(diag(S))
 S_corr <- S / tcrossprod(d_S)
 S_rcond <- rcond(S_corr)
-cat("  Moment-correlation rcond:", format(S_rcond, digits = 3),
-    " (small => ill-conditioned; consider bootstrap)\n")
 if (is.na(S_rcond) || S_rcond < 1e-12) {
-  cat("  S ill-conditioned; ridge-regularizing the correlation diagonal by 1e-6\n")
+  warning("s4: moment covariance ill-conditioned; ridge-regularizing by 1e-6")
   S_corr_inv <- solve(S_corr + diag(1e-6, N_MOMENTS))
 } else {
   S_corr_inv <- solve(S_corr)
@@ -714,77 +706,17 @@ result2 <- optim(
   control = list(maxit = 2000, reltol = 1e-12, trace = 1, REPORT = 100)
 )
 
-cat("  Converged:", result2$convergence == 0, "\n")
-cat("  Objective:", format(result2$value, digits = 6), "\n")
+if (result2$convergence != 0) warning("s4: GMM step 2 did not converge")
 
 alpha_gmm <- ALPHA_FIXED
 gamma_gmm <- result2$par[1:N_GAMMA]
 delta_gmm <- result2$par[N_GAMMA + seq_len(N_DELTA)]
 
-cat("\n  alpha (fixed OLS):", round(alpha_gmm, 4), "\n")
-cat("  gamma (GMM):", round(gamma_gmm, 4), "\n")
-cat("  delta (GMM wedge):", round(delta_gmm, 4), "\n")
-
-g2 <- compute_g_bar(result2$par)
-cat("  g_bar at Step 2:\n")
-cat("    M2 (claims):", round(g2[IDX_M2], 4), "\n")
-cat("    M4 (commission, net of wedge): mean", round(mean(g2[IDX_M4]), 3),
-    " RMS", round(sqrt(mean(g2[IDX_M4]^2)), 3), "
-")
-cat("    M3 (FOC, $ per member-month): mean", round(mean(g2[IDX_M3]), 2),
-    " RMS", round(sqrt(mean(g2[IDX_M3]^2)), 2), "\n")
 
 # =========================================================================
 # DIAGNOSTICS
 # =========================================================================
 
-cat("\n--- Diagnostics ---\n")
-
-# Compare OLS vs GMM moment norms
-g_ols <- compute_g_bar(theta0)
-cat("  Moment norm ||g_bar||:\n")
-cat("    OLS:", round(sqrt(sum(g_ols^2)), 4), "\n")
-cat("    GMM:", round(sqrt(sum(g2^2)), 4), "\n")
-
-# FOC residual distribution (how well does MC(alpha,gamma) satisfy the FOC?)
-cat("\n  FOC moment breakdown (should be near 0):\n")
-cat("    OLS g_foc: mean", round(mean(g_ols[IDX_M3]), 2), " RMS", round(sqrt(mean(g_ols[IDX_M3]^2)), 2), "\n")
-cat("    GMM g_foc: mean", round(mean(g2[IDX_M3]), 2), " RMS", round(sqrt(mean(g2[IDX_M3]^2)), 2), "\n")
-
-# Parameter comparison
-cat("\n  Parameter comparison (OLS → GMM):\n")
-comp <- data.frame(
-  param = c(gamma_names, delta_names),
-  equation = c(rep("claims", N_GAMMA), rep("commission", N_DELTA)),
-  OLS = round(theta0, 4),
-  GMM = round(result2$par, 4),
-  change = round(result2$par - theta0, 4)
-)
-print(comp, row.names = FALSE)
-
-# Negative-MC check at the GMM solution, by metal. With AV out of the claims
-# equation, the risk-score pass-through should rise toward one and predicted
-# claims for high-metal cells should climb, so the negatives should shrink.
-cat("\n  Negative MC at GMM solution (claims net of transfers, before admin; by metal):\n")
-contr2 <- compute_g_bar(result2$par, return_contributions = TRUE)
-R_state_gmm <- setNames(contr2$ra_state$R, contr2$ra_state$year)
-mc_rows <- lapply(foc_cells, function(fc) {
-  plr <- alpha_gmm[1] + as.vector(fc$X_rs %*% alpha_gmm[-1])
-  pcl <- gamma_gmm[1] + gamma_gmm[2]*plr + as.vector(fc$X_cl %*% gamma_gmm[3:N_GAMMA])
-  prs <- exp(plr); pclm <- exp(pcl)
-  ra_env <- ra_env_cell(fc, prs, R_state_gmm[[as.character(fc$year)]])
-  ra <- unname(compute_ra_transfers(setNames(prs, fc$plan_ids), fc$shares, ra_env, fc$plan_avs)[fc$plan_ids])
-  mc <- pclm * (1 - fc$reins_vec) - ra
-  metal <- ifelse(fc$Platinum==1,"Platinum",ifelse(fc$Gold==1,"Gold",ifelse(fc$Silver==1,"Silver","Bronze")))
-  tibble(metal = metal, mc = mc)
-})
-mc_check <- bind_rows(mc_rows) %>%
-  group_by(metal) %>%
-  summarise(n = n(), negative = sum(mc < 0), pct_neg = round(100*mean(mc < 0), 1), .groups = "drop")
-print(mc_check)
-cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
-    " | risk-score metal effects:", round(alpha_gmm[2:4], 3),
-    " composition shares:", round(alpha_gmm[-(1:4)], 3), "\n")
 
 # =========================================================================
 # COMMISSION DIAGNOSTIC: condition residuals at the GMM solution
@@ -794,27 +726,12 @@ cat("  Claims pass-through (log risk score):", round(gamma_gmm[2], 4),
 # condition MB = (1 - beta) MC (phi = mu_hat + beta). beta is written for the
 # counterfactual.
 
-cat("\n--- Commission conditions (M4) at the GMM solution ---\n")
-cat("  wedge: carrier levels", round(min(delta_gmm), 3), "to",
-    round(max(delta_gmm), 3), "\n")
 contr2 <- compute_g_bar(result2$par, return_contributions = TRUE)
 comm_fy <- contr2$comm_fy %>%
   tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE)
-cat("  unit-year conditions:", nrow(comm_fy),
-    " | distinct units:", n_distinct(comm_fy$firm), "\n")
 beta_fy_df <- tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
   tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE) %>%
   filter(paste(firm, year, sep = "_") %in% sub("[.](HMO|PPO)", "", COMM_KEYS))
-cat("  beta by insurer (mean over years):\n")
-print(beta_fy_df %>% group_by(firm) %>% summarise(beta = round(mean(beta), 3), .groups = "drop"), n = Inf)
-cat("  mu_hat = MB/MC - 1: mean", round(mean(comm_fy$mu_hat), 3),
-    " sd", round(sd(comm_fy$mu_hat), 3), " | residual phi: mean", round(mean(comm_fy$phi), 3),
-    " sd", round(sd(comm_fy$phi), 3), "\n")
-cat("  phi net of the wedge: mean", round(mean(comm_fy$phi - comm_fy$wedge, na.rm = TRUE), 3),
-    " sd", round(sd(comm_fy$phi - comm_fy$wedge, na.rm = TRUE), 3), "\n")
-print(comm_fy %>% group_by(firm) %>%
-        summarise(n = n(), MB_MC = round(mean(mu_hat) + 1, 2), comm_bar = round(mean(comm_bar), 2),
-                  phi = round(mean(phi), 3), .groups = "drop"), n = Inf)
 
 write_csv(tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
             tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE),
@@ -831,14 +748,7 @@ foc_py_gmm <- contr2$foc_py %>%
   tidyr::separate(key, into = c("plan_id", "year"), sep = "[|]", convert = TRUE) %>%
   left_join(plan_metal_map, by = "plan_id") %>%
   mutate(insurer = sub("_.*", "", plan_id))
-cat("\n--- M3: plan-year pricing FOC residuals at the GMM solution ($ per member-month) ---\n")
-cat("  By metal:\n")
-print(foc_py_gmm %>% group_by(metal) %>%
-        summarise(plan_years = n(), residual = round(mean(G_dollars), 1), .groups = "drop"))
-cat("  By insurer:\n")
-print(foc_py_gmm %>% group_by(insurer) %>%
-        summarise(plan_years = n(), residual = round(mean(G_dollars), 1), .groups = "drop") %>%
-        arrange(residual), n = Inf)
+write_csv(foc_py_gmm, file.path(TEMP_DIR, "foc_plan_year_gmm.csv"))
 
 # =========================================================================
 # SAVE COEFFICIENTS

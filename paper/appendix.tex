@@ -59,12 +59,12 @@ We use the two-category grouping throughout the paper, because the commission me
 \subsection{Excluding Plan-Based Enrollers}
 \label{app:pbe}
 
-Plan-based enrollers are the one assistance channel that can place a consumer with only a single insurer, so their influence on insurer choice works through a menu restriction, not a commission response. We assess their effect on the demand estimates directly. After merging the raw service-channel code onto the estimation sample by household and year, we find that plan-based enrollers account for 1.3 percent of the household-years in the 20 percent structural sample. Table~\ref{tab:app-pbe} re-estimates the main-text demand specification with these households excluded, alongside the full-sample estimates. Dropping them leaves every coefficient essentially unchanged. The commission-by-agent coefficient, which carries the steering mechanism, is 0.021 in both columns, and no coefficient moves by more than about 0.02. The single-insurer channel does not drive the estimated steering.
+Plan-based enrollers are the one assistance channel that can place a consumer with only a single insurer, so their influence on insurer choice works through a menu restriction, not a commission response. We assess their effect on the demand estimates directly. After merging the raw service-channel code onto the estimation sample by household and year, we find that plan-based enrollers account for [TBD] percent of the household-years in the 20 percent structural sample. Table~\ref{tab:app-pbe} re-estimates the main-text demand specification with these households excluded, alongside the full-sample estimates. Dropping them leaves every coefficient essentially unchanged. The commission-by-agent coefficient, which carries the steering mechanism, is [TBD] in both columns, and no coefficient moves by more than about [TBD]. The single-insurer channel does not drive the estimated steering.
 
 \begin{table}[!h]
 \centering
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Demand Estimates Excluding Plan-Based Enrollers}\footnote{Main-text demand specification re-estimated on the 20\% structural sample with plan-based-enroller households excluded, alongside the full-sample estimates. Plan-based enrollers are identified by merging the raw Covered California service-channel code onto the estimation households by household and year, and account for 1.3\% of household-years in the sample. Premiums are net of subsidy and measured in hundreds of dollars.}}
+\caption[]{\textbf{Demand Estimates Excluding Plan-Based Enrollers}\footnote{Main-text demand specification re-estimated on the 20\% structural sample with plan-based-enroller households excluded, alongside the full-sample estimates. Plan-based enrollers are identified by merging the raw Covered California service-channel code onto the estimation households by household and year, and account for [TBD]\% of household-years in the sample. Premiums are net of subsidy and measured in hundreds of dollars.}}
 \label{tab:app-pbe}
 \centerline{\input{results/tables/pbe_robustness.tex}}
 \end{minipage}
@@ -77,18 +77,18 @@ The certified insurance agents present the full menu but may still steer a house
 
 The simulation draws a market of six insurers whose commissions vary, and generates choices from a process with no commission term in utility. Unassisted households choose their preferred plan from the full menu. Agent-assisted households instead face a restricted menu, in which each insurer appears with a probability that rises in its commission, and choose their preferred plan from what is presented. This produces the steering the commissions are meant to induce, with agent-assisted households moving away from the low-commission insurers and toward the high-commission ones, through availability alone and not through preference.
 
-We then fit our commission-in-utility model to these choices, with the full menu available to every household and the commission entering utility for agent-assisted households. Table~\ref{tab:app-menu-sim} reports the resulting shares. The fitted model recovers a positive commission coefficient and reproduces the gatekeeper agent shares to within about one percentage point, with a correlation of 0.9995. A menu restriction and a commission in utility are observationally equivalent for the plan choices the model predicts, and our specification loads the restriction onto the commission coefficient without distorting those predictions.
+We then fit our commission-in-utility model to these choices, with the full menu available to every household and the commission entering utility for agent-assisted households. Table~\ref{tab:app-menu-sim} reports the resulting shares. The fitted model recovers a positive commission coefficient and reproduces the gatekeeper agent shares to within [TBD] percentage points, with a correlation of [TBD]. A menu restriction and a commission in utility are observationally equivalent for the plan choices the model predicts, and our specification loads the restriction onto the commission coefficient without distorting those predictions.
 
 \begin{table}[!h]
 \centering
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Menu Restriction and the Commission Coefficient}\footnote{Simulated plan-choice shares. Choices are generated by a gatekeeper process in which agent-assisted households face a menu that includes each insurer with probability rising in its commission, with no commission term in utility. The commission-in-utility model is then fit on the full menu. Columns report the unassisted shares, the gatekeeper agent shares, and the agent shares predicted by the fitted commission model. The fitted commission coefficient is positive, and the fitted agent shares match the gatekeeper shares to within about one percentage point, with a correlation of 0.9995.}}
+\caption[]{\textbf{Menu Restriction and the Commission Coefficient}\footnote{Simulated plan-choice shares. Choices are generated by a gatekeeper process in which agent-assisted households face a menu that includes each insurer with probability rising in its commission, with no commission term in utility. The commission-in-utility model is then fit on the full menu. Columns report the unassisted shares, the gatekeeper agent shares, and the agent shares predicted by the fitted commission model. The fitted commission coefficient is positive, and the fitted agent shares match the gatekeeper shares to within [TBD] percentage points, with a correlation of [TBD].}}
 \label{tab:app-menu-sim}
 \centerline{\input{results/tables/menu_simulation.tex}}
 \end{minipage}
 \end{table}
 
-The baseline simulation lets the menu depend only on commissions. In practice, which plans an agent presents may be correlated with the agent or with the households the agent serves, so the menu restriction could be selected on characteristics that also shape plan choice. We extend the simulation to allow this. Menu availability now depends on an unobserved household type that also shifts utility, capturing either the agent a household is matched to or the way households sort across agents, and we vary the strength of that selection. Table~\ref{tab:app-gatekeeper-selection} reports the fit as the selection strengthens, both when the selection is aligned with commissions, the realistic case in which agents who restrict menus also favor high-commission insurers, and when it is orthogonal to commissions, an adversarial case. Across the range the commission-in-utility model continues to reproduce the gatekeeper agent shares to within one to two percentage points, with correlations above 0.99. The equivalence is not an artifact of random menus. It survives selection of the menu on agent and household characteristics, because the plan fixed effects absorb the average tilt while the commission coefficient absorbs the part that covaries with commissions.
+The baseline simulation lets the menu depend only on commissions. In practice, which plans an agent presents may be correlated with the agent or with the households the agent serves, so the menu restriction could be selected on characteristics that also shape plan choice. We extend the simulation to allow this. Menu availability now depends on an unobserved household type that also shifts utility, capturing either the agent a household is matched to or the way households sort across agents, and we vary the strength of that selection. Table~\ref{tab:app-gatekeeper-selection} reports the fit as the selection strengthens, both when the selection is aligned with commissions, the realistic case in which agents who restrict menus also favor high-commission insurers, and when it is orthogonal to commissions, an adversarial case. Across the range the commission-in-utility model continues to reproduce the gatekeeper agent shares to within [TBD] percentage points, with correlations above [TBD]. The equivalence is not an artifact of random menus. It survives selection of the menu on agent and household characteristics, because the plan fixed effects absorb the average tilt while the commission coefficient absorbs the part that covaries with commissions.
 
 \begin{table}[!h]
 \centering
@@ -110,7 +110,7 @@ The design-based estimates in the main text come from a prediction-based estimat
 
 Table~\ref{tab:app-dominated} reports linear probability models of the dominated-choice indicator on the sample of households with at least one dominated plan in the choice set. Column (1) is unconditional. Column (2) adds the household demographics that enter the propensity score, namely age composition, gender, race and ethnicity, and household size. Income does not appear, because the sample is defined by cost-sharing-reduction eligibility and therefore contains only households below 200\% of the federal poverty level, leaving the income brackets used elsewhere in the paper with no variation to exploit. Column (3) adds a new-enrollee indicator and year fixed effects. Columns (4) and (5) are the two terminal specifications. Column (4) adds the agent-density control function without region fixed effects, and column (5) adds region fixed effects without the control function. Standard errors are clustered by rating region throughout, and all specifications are inverse-propensity weighted.
 
-The assistance coefficient is stable across columns (1) through (3) and (5), moving only from $-0.0152$ to $-0.0168$ as controls accumulate and settling at $-0.0161$ once region fixed effects absorb differences in market composition. Column (4) is the exception. With the control function included, the assistance coefficient falls to $-0.2564$ and the control function residual enters at $+0.2402$, so that the two nearly offset and their sum, $-0.0162$, reproduces the estimate in column (3). The two offset because the first stage is too weak to separate selection from the treatment effect, so the column is a reparameterization rather than independent evidence.
+The assistance coefficient is stable across columns (1) through (3) and (5), moving only from $-0.0152$ to $-0.0168$ as controls accumulate and settling at $-0.0161$ once region fixed effects absorb differences in market composition. Column (4) is the exception. With the control function included, the assistance coefficient falls to $-0.2565$ and the control function residual enters at $+0.2403$, so that the two nearly offset and their sum, $-0.0162$, reproduces the estimate in column (3). The two offset because the first stage is too weak to separate selection from the treatment effect, so the column is a reparameterization rather than independent evidence.
 
 The two terminal columns never appear together, and not because the combination is underpowered. Agent density varies only across rating region and year, so region fixed effects leave the instrument with no variation to exploit. Within a region the number of licensed agents is close to a deterministic function of the year, which means a region-specific control function is identically zero rather than weak. When standard errors are clustered at the level at which the instrument actually varies, the partial $F$ statistic on agent density is 3.6 and the incremental $R^2$ is 0.001, against a partial $F$ of roughly 7,600 when the clustering is ignored. The apparent strength of the instrument in the unclustered specification reflects the number of households rather than the number of markets. The instrument's first-stage relationship with assistance take-up is positive and in the expected direction, but it rests on too few markets for meaningful inference. Nonetheless, even with a weak first stage, the pooled results are consistent with the main-text estimates. The implied total effect in column (4) matches the stable columns, and every specification in the table points to the same modest reduction in dominated choices.
 
@@ -167,7 +167,7 @@ Column (3) shows the same pattern as the control-function column of the dominate
 
 This appendix summarizes the formulas used in our model.   Household $i$ in market $m$ and year $t$ chooses among the exchange plans $j \in J_{mt}$ and the outside option, with deterministic utilities $V_{ijt}$ and $V_{i0t} = \alpha_{it}\, \rho_{it}$, nesting parameter $\lambda$, and household price coefficient $\alpha_{it}$.
 
-\paragraph{Choice probabilities.} The choice probabilities are given in equation~(\ref{eqn:choice_probs}) as
+\paragraph{Choice probabilities.} The choice probabilities in the main text are
 
 \begin{equation*}
 	q_{ijt}({\bf p},{\bf y}) =  \frac{e^{V_{ijt}({\bf p},{\bf y})/\lambda}\left(\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}\right)^{\lambda-1}}{e^{V_{i0t}} + \left(\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}\right)^{\lambda}},
@@ -182,41 +182,28 @@ q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y}) = \frac{e^{\lambda I_{it}({\bf p},{\bf
 \end{equation}
 and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},{\bf y})\, q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})$, which is the nested-logit expression in the main text. Total plan demand is the sum of the choice probabilities, i.e.,  $q_{jt}({\bf p},{\bf y}) = \sum_{i \in I} \, q_{ijt}({\bf p},{\bf y})$.
 
-\paragraph{Price and commission derivatives.} The partial derivative of demand with respect to the insurer's base premium is
+\paragraph{Price and commission derivatives.} Under the two-part form in the main text, the within-nest probability $q'_{ijt}$ is evaluated at the household's realized channel, while the nest probability uses the expected inclusive value $\bar{I}_{it} = \sum_c \pi_{ict} I^c_{it}$, with $I^c_{it}$ the inclusive value under channel state $c$ and $q'^{\,c}_{ijt}$ the within-nest probability under that state. The partial derivative of demand with respect to the insurer's base premium is
 
 \begin{equation*}
 		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{l \in J_{mt}} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{ilt}({\bf p})}\frac{ \partial p_{ilt}({\bf p})}{\partial p_{jmt}}
 	\end{equation*}
-	
-	
-	\noindent for all plans $j,k$, where
-	
 
-	
-		\begin{eqnarray*}\label{demand_sensitivity_element}
-		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  p_{ijt}} = \begin{cases} 
-			\beta_i^p q_{ijt}({\bf p},{\bf y}) \left[\frac{1}{\lambda} + \frac{\lambda-1}{\lambda}q'_{ijt}({\bf p},{\bf y}) - q_{ijt}({\bf p},{\bf y})  \right]  & k = j \\		
-			\beta_i^p q_{ijt}({\bf p},{\bf y}) \left[\frac{\lambda-1}{\lambda}q'_{ikt}({\bf p},{\bf y}) - q_{ikt}({\bf p},{\bf y})  \right] & k \neq j  
-			
-		\end{cases}
-	\end{eqnarray*}
+	\noindent for all plans $j,k$, where $\partial p_{ilt}/\partial p_{jmt}$ carries the household's age rating factor and the subsidy rule in the main text, and
 
-\noindent The partial derivative of demand with respect to the commission is
+\begin{equation*}
+		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  p_{ijt}} = q_{ikt}({\bf p},{\bf y}) \left[ \frac{\alpha_{it}}{\lambda}\left( \mathbb{I}[k = j] - q'_{ijt}({\bf p},{\bf y}) \right) + \left(1 - q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})\right) \sum_c \pi_{ict}\, \alpha^c_{it}\, q'^{\,c}_{ijt}({\bf p},{\bf y}) \right],
+\end{equation*}
 
-    \begin{eqnarray*}\label{comm_sensitivity_element}
-		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  y_{jt}} = \begin{cases} 
-			\beta^y a_{it}^B   \, q_{ijt}({\bf p},{\bf y}) \left[\frac{1}{\lambda} + \frac{\lambda-1}{\lambda}q'_{ijt}({\bf p},{\bf y}) - q_{ijt}({\bf p},{\bf y})  \right]  & k = j \\		
-			\beta_y a_{it}^B  \,  q_{ijt}({\bf p},{\bf y}) \left[\frac{\lambda-1}{\lambda}q'_{ikt}({\bf p},{\bf y}) - q_{ikt}({\bf p},{\bf y})  \right] & k \neq j  
-			
-		\end{cases}
-	\end{eqnarray*}
-    
+\noindent with $\alpha_{it}$ the premium coefficient at the household's realized channel and $\alpha^c_{it}$ the coefficient under channel state $c$. The first term moves the household among plans and the second moves it into or out of the market through the expected inclusive value. The partial derivative of demand with respect to the commission is
 
+\begin{equation*}
+	\begin{split}
+		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial  y_{jt}} = {} & q_{ikt}({\bf p},{\bf y})\, \mu_{ijt}\, \phi_{ijt} \left[ \frac{a^B_{it}}{\lambda}\left( \mathbb{I}[k = j] - q'_{ijt}({\bf p},{\bf y}) \right) \right. \\
+		& \left. {} + \left(1 - q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})\right) \pi_{iAt}\, q'^{\,A}_{ijt}({\bf p},{\bf y}) \right], \qquad \mu_{ijt} = \beta^{y}_{1} + 2\beta^{y}_{2}\, \phi_{ijt} y_{jt},
+	\end{split}
+\end{equation*}
 
-
-
-
-
+\noindent where $\phi_{ijt}$ is the household's commission per dollar of the plan's commission, equal to one under a flat schedule and to the household's rating ratio under a percentage schedule, and $A$ denotes the agent state. The factor $\mu_{ijt}$ is the household's marginal utility of a commission dollar, which under the quadratic commission terms depends on the household's own commission $\phi_{ijt} y_{jt}$. The plan-choice term applies only to agent-assisted households. The enrollment term applies to every household, since each household's enrollment depends on the agent state with weight $\pi_{iAt}$.
 
 \paragraph{Profit terms.}  Total premium revenue collected by firm $f$ at time $t$ is given by
 
@@ -258,7 +245,7 @@ and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},
         \end{equation*}
     
     
-    \noindent The average statewide premium is $\overline{p}$ and the expected percentage of collected premiums that is spent on claims is $\nu$.\footnote{From 2014-2017, $\nu$ was set to 100\% in the ACA transfer formula.  Starting in 2018, $\nu$ was set to 86\%.}  The cost factor $\widehat{h}_{jmt}({\bf p},{\bf y}) \equiv \mathrm{IDF}_j\mathrm{GCF}_{mt}r_{jmt}({\bf p},{\bf y})$ is the product of the plan's induced demand factor,  geographic cost factor, and risk score. The cost factor $\widetilde{h}_{jmt}({\bf p},{\bf y}) \equiv \mathrm{AV}_j\mathrm{IDF}_j\mathrm{GCF}_{mt}a_{jmt}({\bf p},{\bf y})$ is the product of the plan's AV, induced demand factor, geographic cost factor, and average ACA age rating factor $a_{jmt}({\bf p},{\bf y}) \equiv  \frac{\sum_{i \in I} \left(\mathbb{I}_{i,m,t} \right) a_{it} q_{ijt}({\bf p},{\bf y})}{q_{jmt}({\bf p},{\bf y})}$  across the plan's enrollees, where $a_{it}$ is the household's CMS age rating factor. The induced demand factor accounts for expected moral hazard associated with lower cost sharing when enrolled in a more generous plan. CMS sets $\mathrm{IDF}_j$ equal to 1 for bronze plans, 1.03 for silver plans, 1.08 for gold plans, and 1.15 for platinum plans.  The geographic cost factors account for regional differences in the cost of doing business (e.g., input prices, provider market power, etc.)  CMS publishes geographic cost factors in its risk adjustment reports.  The plan risk score is defined in equation~\ref{eqn:risk_score_estimation}.  The ACA's transitional reinsurance program, active between 2014-2016, helps to offset the cost of an insurer's high-spending enrollees.  Because we lack the individual-level claims data to precisely calculate reinsurance payments, we instead calculate the actuarial value of the reinsurance contract $\iota_{ft}$ using CMS rate filings.  Reinsurance received is then
+    \noindent The average statewide premium is $\overline{p}$ and the expected percentage of collected premiums that is spent on claims is $\nu$.\footnote{From 2014-2017, $\nu$ was set to 100\% in the ACA transfer formula.  Starting in 2018, $\nu$ was set to 86\%.}  The cost factor $\widehat{h}_{jmt}({\bf p},{\bf y}) \equiv \mathrm{IDF}_j\mathrm{GCF}_{mt}r_{jmt}({\bf p},{\bf y})$ is the product of the plan's induced demand factor,  geographic cost factor, and risk score. The cost factor $\widetilde{h}_{jmt}({\bf p},{\bf y}) \equiv \mathrm{AV}_j\mathrm{IDF}_j\mathrm{GCF}_{mt}a_{jmt}({\bf p},{\bf y})$ is the product of the plan's AV, induced demand factor, geographic cost factor, and average ACA age rating factor $a_{jmt}({\bf p},{\bf y}) \equiv  \frac{\sum_{i \in I} \left(\mathbb{I}_{i,m,t} \right) a_{it} q_{ijt}({\bf p},{\bf y})}{q_{jmt}({\bf p},{\bf y})}$  across the plan's enrollees, where $a_{it}$ is the household's CMS age rating factor. The induced demand factor accounts for expected moral hazard associated with lower cost sharing when enrolled in a more generous plan. CMS sets $\mathrm{IDF}_j$ equal to 1 for bronze plans, 1.03 for silver plans, 1.08 for gold plans, and 1.15 for platinum plans.  The geographic cost factors account for regional differences in the cost of doing business (e.g., input prices, provider market power, etc.)  CMS publishes geographic cost factors in its risk adjustment reports.  The plan risk score is the fitted value of the risk-score equation in the main text.  The ACA's transitional reinsurance program, active between 2014-2016, helps to offset the cost of an insurer's high-spending enrollees.  Because we lack the individual-level claims data to precisely calculate reinsurance payments, we instead calculate the actuarial value of the reinsurance contract $\iota_{ft}$ using CMS rate filings.  Reinsurance received is then
 
     	\begin{equation*}\label{reins_formula}
 			RI_{ft}({\bf p},{\bf y}) = \iota_{ft} C_{ft}({\bf p},{\bf y})
@@ -301,7 +288,16 @@ and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},
     \frac{ \partial Y_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^B \, y_{jt}  \, \frac{ \partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}
 \end{equation*}
 
-\noindent 	Define $ rs_{kmt}({\bf p},{\bf y}) \equiv \frac{\widehat{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$ and $us_{kmt}({\bf p},{\bf y}) \equiv \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$.  Let $R_t({\bf p},{\bf y}) \equiv  \sum_{f \in F} R_{ft}({\bf p},{\bf y})$ be total premiums collected. The partial derivative of the risk adjustment transfer with respect to the base premium is
+\noindent 	Define $ rs_{kmt}({\bf p},{\bf y}) \equiv \frac{\widehat{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$ and $us_{kmt}({\bf p},{\bf y}) \equiv \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$.  Let $R_t({\bf p},{\bf y}) \equiv  \sum_{f \in F} R_{ft}({\bf p},{\bf y})$ be total premiums collected. % compute_ra_foc in helpers/ra.R evaluates this derivative in full at the
+% carrier level: the share response, the response of each plan's risk score
+% and average rating factor to its enrollee mix, and the feedback through
+% premiums collected. The premium total R_t is held at premiums collected
+% at the observed premiums, as in Evan's code, so it enters the level as a
+% constant and the derivative through its own response. The claims
+% derivative above carries the matching mix term (compute_claims_comp). The
+% analytic conditions are checked against the numerical derivative of the
+% model's own profit (scratch/foc_vs_numeric.R, 2026-09-19).
+The partial derivative of the risk adjustment transfer with respect to the base premium is
 
 \begin{footnotesize}
 		
@@ -354,7 +350,7 @@ and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},
 	\end{eqnarray*}
 
 
-\paragraph{Commission first-order condition.} Differentiating the same variable profit with respect to a commission-setting unit's scale $k$ gives the commission first-order condition in the main text, one condition per unit, where a unit is the insurer or, where the filed schedule sets distinct network rates, the insurer-network. Its left-hand side is the marginal benefit of a higher commission, the additional variable profit from the agent-assisted enrollment the commission attracts, accumulated over all of the insurer's plans through the steering coefficient $\beta^{y}$, together with the induced change in risk-adjustment transfers. Its right-hand side is the marginal outlay on the unit's own schedule, $\sum_{j} w_{jt}\, q^{B}_{jt}$ over the unit's plans, where $w_{jt}$ is the plan's commission basis. The condition sets the ratio of marginal benefit to marginal outlay equal to $(1 - \beta_f) + \delta_f$, where $\beta_f$ is the administrative saving per commission dollar and $\delta_f$ is the cross-market wedge, one level per insurer shared across its units and estimated with the cost parameters. The counterfactuals solve the same condition for each unit's scale.
+\paragraph{Commission first-order condition.} Differentiating the same variable profit with respect to a commission-setting unit's scale $k$ gives the commission first-order condition in the main text, one condition per unit, where a unit is the insurer or, where the filed schedule sets distinct network rates, the insurer-network. Its left-hand side is the marginal benefit of a higher commission, the additional variable profit from the agent-assisted enrollment the commission attracts, accumulated over all of the insurer's plans through the steering coefficients $\beta^{y}_{1}$ and $\beta^{y}_{2}$, together with the induced change in risk-adjustment transfers. Its right-hand side is the marginal outlay on the unit's own schedule, $\sum_{j} w_{jt}\, q^{B}_{jt}$ over the unit's plans, where $w_{jt}$ is the plan's commission basis. The condition sets the ratio of marginal benefit to marginal outlay equal to $(1 - \beta_f) + \delta_f$, where $\beta_f$ is the administrative saving per commission dollar and $\delta_f$ is a carrier-level constant, one level per insurer shared across its units and estimated with the cost parameters. The counterfactuals solve the same condition for each unit's scale.
 
 The partial derivative of firm revenue with respect to the commission is
 
@@ -431,11 +427,11 @@ The partial derivative of firm revenue with respect to the commission is
 \section{Demand Specification Sensitivity}
 \label{app:demand-spec}
 
-The main text reports a single demand specification, the nested logit whose estimates appear there. Here we report how those estimates change as we add terms to the utility function and how they respond to the premium control function. Table~\ref{tab:app-demand-spec} reports four specifications, each estimated on the same 20\% sample and the same 114 rating-region-by-year cells as the main-text model. Column (1) is a nested logit with plan attributes and a single premium coefficient. Column (2) adds the demographic heterogeneity in the price coefficient and in metal preference. Column (3) adds the assistance and commission steering terms and is the specification used in the main text, reproducing those demand estimates exactly. Column (4) adds the agent-density control function.
+The main text reports a single demand specification, the nested logit whose estimates appear there. Here we report how those estimates change as we add terms to the utility function and how they respond to the premium control function. Table~\ref{tab:app-demand-spec} reports four specifications, each estimated on the same 20\% sample and the same 114 rating-region-by-year cells as the main-text model. Column (1) is a nested logit with plan attributes and a single premium coefficient. Column (2) adds the demographic heterogeneity in the price coefficient and in the actuarial value coefficient. Column (3) adds the assistance and commission steering terms and is the specification used in the main text, reproducing those demand estimates exactly. Column (4) adds the agent-density control function.
 
-We summarize price sensitivity by the enrollment-weighted mean own-price elasticity rather than by the premium coefficient. The premium coefficient and the nesting parameter are jointly identified and trade off against one another as terms are added, so neither is stable on its own. The nesting parameter rises from 0.38 to 0.67 across the columns and the premium coefficient more than doubles in magnitude, but the own-price elasticity they jointly imply stays between $-0.75$ and $-0.82$. The elasticity is measured with respect to the net premium households pay. It is inelastic because most enrollees are heavily subsidized and face little premium at the margin.
+We summarize price sensitivity by the enrollment-weighted mean own-price elasticity rather than by the premium coefficient. The premium coefficient and the nesting parameter are jointly identified and trade off against one another as terms are added, so neither is stable on its own. The nesting parameter rises from [TBD] to [TBD] across the columns and the premium coefficient more than doubles in magnitude, but the own-price elasticity they jointly imply stays between [TBD] and [TBD]. The elasticity is measured with respect to the net premium households pay. It is inelastic because most enrollees are heavily subsidized and face little premium at the margin.
 
-We likewise report the assistance results as marginal effects on plan choice rather than as log-odds coefficients. Assigning navigator assistance to every household raises the share choosing a silver plan by 7.5 percentage points, and agent assistance raises it by 7.1 percentage points, against an unassisted silver share near one half. The two effects are close even though the agent metal coefficient is larger, because agents are also less price-sensitive, which offsets part of the stronger steering toward silver. The commission-by-agent coefficient is 0.02.
+We likewise report the assistance results as marginal effects on plan choice rather than as log-odds coefficients. Assigning navigator assistance to every household raises the share choosing a silver plan by [TBD] percentage points, and agent assistance raises it by [TBD] percentage points, against an unassisted silver share of [TBD]. The two effects are close even though the agent actuarial value coefficient is larger, because agents are also less price-sensitive, which offsets part of the stronger steering toward silver. The commission-by-agent coefficient is [TBD].
 
 Columns (3) and (4) differ only in the agent-density control function. Adding it leaves every quantity nearly unchanged, including the own-price elasticity, the nesting parameter, and both assistance effects. The instrument is too weak at the level of variation that matters to separate the control-function residual from the premium coefficient, as the plan-choice results in Section~\ref{app:reduced_form} document, so column (4) reproduces column (3) rather than adding independent evidence. \citet{saltzman2019} similarly finds that this correction leaves the nesting parameter essentially unchanged, with only a small downward bias in premium sensitivity when it is omitted.
 
@@ -451,7 +447,7 @@ Columns (3) and (4) differ only in the agent-density control function. Adding it
 \section{Inertia}
 \label{app:inertia}
 
-Inertia is a well-documented feature of health insurance plan choice, in employer coverage \citep{handel2013}, in Medicare Part D \citep{polyakova2016}, and in the ACA exchanges we study \citep{saltzman2025}. We do not model it, and this section explains why our estimates of decision assistance and commission steering are reliable even so.
+Inertia is a well-documented feature of health insurance plan choice, in employer coverage \citep{handel2013}, in Medicare Part D \citep{polyakova2016}, and in the ACA exchanges we study \citep{saltzman2025}. We do not model it. This section sets out what our estimates of decision assistance and commission steering recover in its presence.
 
 New enrollees have no prior plan and carry no inertia by construction. Table~\ref{tab:app-dominated-sample} re-estimates the design-based effect of assistance on dominated-plan choice for new enrollees alone, and the effects are at least as large as in the full sample for every channel. The steering we estimate is therefore not an artifact of inertia, since it is present, and if anything stronger, where inertia cannot operate.
 
@@ -493,14 +489,14 @@ o(s) = \min\!\left\{\min(s,\,d) + c\,\max(s-d,\,0),\; M\right\}.
 \end{equation}
 The household pays all spending up to the deductible, the coinsurance share of spending above it, and never more than the maximum out-of-pocket.
 
-We treat annual individual spending as lognormal with mean $\bar{s}$ and coefficient of variation $\nu$. Writing $\sigma^2 = \log(1+\nu^2)$, the underlying normal has variance $\sigma^2$ and mean $\log \bar{s} - \sigma^2/2$, so the spending distribution has mean $\bar{s}$ by construction. We integrate the schedule in Equation~\eqref{eqn:app-oop} against this distribution by deterministic quadrature over 400 evenly spaced midpoint quantiles, which fixes the mean and variance of out-of-pocket spending, $\mathbb{E}[o]$ and $\mathrm{Var}[o]$, without simulation noise. The plan's objective value is then
+We treat annual individual spending as lognormal with mean $\bar{s}$ and coefficient of variation $\kappa$. Writing $\sigma^2 = \log(1+\kappa^2)$, the underlying normal has variance $\sigma^2$ and mean $\log \bar{s} - \sigma^2/2$, so the spending distribution has mean $\bar{s}$ by construction. We integrate the schedule in Equation~\eqref{eqn:app-oop} against this distribution by deterministic quadrature over 400 evenly spaced midpoint quantiles, which fixes the mean and variance of out-of-pocket spending, $\mathbb{E}[o]$ and $\mathrm{Var}[o]$, without simulation noise. The plan's objective value is then
 \begin{equation}
 \label{eqn:app-vobj}
 V^{obj} = -\left(P + \mathbb{E}[o] + \tfrac{\rho}{2}\,\mathrm{Var}[o]\right),
 \end{equation}
 with $P$ the annual premium and $\rho$ the coefficient of absolute risk aversion. The variance term gives cost-sharing depth weight beyond its effect on expected out-of-pocket spending, so a household will pay more than the actuarial difference to move from a bronze plan to a platinum one.
 
-The mean $\bar{s}$ is household-specific, set from Medical Expenditure Panel Survey total-expenditure cell means by age composition and income bracket, so that expected spending follows the household rather than the plan and the measure carries no moral-hazard response. The coefficient of variation $\nu$ and the risk-aversion coefficient $\rho$ are the two calibrated inputs, set to 2.5 and $2.3\times10^{-4}$ per dollar as described in the main text, the latter the marketplace benchmark in \citet{handel2013}. The uninsured option is valued separately, since it carries no plan cost-sharing, using the realized out-of-pocket and social-cost construction described in the main text.
+The mean $\bar{s}$ is household-specific, set from Medical Expenditure Panel Survey total-expenditure cell means by age composition and income bracket, so that expected spending follows the household rather than the plan and the measure carries no moral-hazard response. The coefficient of variation $\kappa$ and the risk-aversion coefficient $\rho$ are the two calibrated inputs, set to 2.5 and $2.3\times10^{-4}$ per dollar as described in the main text, the latter the marketplace benchmark in \citet{handel2013}. The uninsured option is valued separately, since it carries no plan cost-sharing, using the realized out-of-pocket and social-cost construction described in the main text.
 
 \clearpage
 

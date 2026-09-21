@@ -30,12 +30,38 @@
 RS_DEMO_RAWCOL <- c(share_0to34 = "perc_0to34", share_male = "perc_male",
                     share_family = "family", share_minority = "perc_minority")
 RS_DEMO_TERMS <- names(RS_DEMO_RAWCOL)
+# Household characteristics whose plan-level means enter the cost side: the
+# risk-score shares and the per-member rating factor behind the transfer
+# formula's ARF. The kernel weights its derivative matrices by the same columns,
+# so a plan's mean of column z and the derivative of that mean line up.
+MIX_COLS <- c(RS_DEMO_RAWCOL, arf = "rf_member")
+add_mix_columns <- function(dt) {
+  if (!"perc_18to34" %in% names(dt) && "perc_18to25" %in% names(dt))
+    dt[, perc_18to34 := perc_18to25 + perc_26to34]
+  if (!"family" %in% names(dt)) dt[, family := as.integer(hh_size > 1L)]
+  if (!"perc_0to34" %in% names(dt)) dt[, perc_0to34 := perc_0to17 + perc_18to34]
+  if (!"perc_minority" %in% names(dt))
+    dt[, perc_minority := perc_asian + perc_black + perc_hispanic + perc_other]
+  if (!"rf_member" %in% names(dt)) dt[, rf_member := rating_factor / hh_size]
+  dt
+}
+# Metal effects are insurer-specific; a single platinum dummy cannot span
+# observed platinum scores of 1.2 (Kaiser) to 7.3 (Health Net PPO). The
+# demographic slopes stay common so the equation still responds to composition.
+RS_IM_PREFIX <- c("ANT", "BS", "CC", "HN", "KA", "LA", "MOL", "OSC", "SH", "VAL", "WEST")
+RS_IM_METAL  <- c("Bronze", "Silver", "Gold", "Platinum")
+RS_IM_BASE   <- "im_KA_Silver"   # the largest cell, omitted for identification
+RS_IM_TERMS  <- setdiff(paste0("im_", rep(RS_IM_PREFIX, each = length(RS_IM_METAL)), "_",
+                               RS_IM_METAL), RS_IM_BASE)
 # The supply side (s3 through cf3) runs on the years with realized claims in
 # the rate filings, 2014-2018; demand is estimated on 2014-2019.
 SUPPLY_YEARS <- 2014:2018
 # Claims equation (Eq. 9): HMO, year dummies (2014 the base), big-four insurer
 # indicators, and the rating-area shares of the plan-year's enrollment (region
-# 1 the base), which stand in for market fixed effects.
+# 1 the base), which stand in for market fixed effects. A carrier indicator for
+# every insurer is not identified alongside the rating-area shares: a
+# single-region carrier's indicator is a linear combination of them (R^2 above
+# 0.99 for Chinese Community, Western, Valley and SHARP).
 CLAIMS_REGION_TERMS <- paste0("share_ra", 2:19)
 CLAIMS_YEAR_TERMS <- paste0("year_", SUPPLY_YEARS[-1])
 CLAIMS_EXOG_TERMS <- c("HMO", CLAIMS_YEAR_TERMS, "Anthem", "Blue_Shield", "Kaiser", "Health_Net",
@@ -47,21 +73,21 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
   rs_valid <- rs_srrt %>%
     filter(!is.na(log_risk_score), is.finite(log_risk_score), member_months > 0)
 
-  # Risk score regression: metal tier fixed effects (bronze the base) plus the
-  # plan's predicted demographic shares (RS_DEMO_TERMS). No insurer terms.
-  # predict_risk_scores applies whatever terms rs_coefs holds.
+  # One effect per insurer-metal cell (Kaiser silver the base) plus the plan's
+  # demographic shares. An unobserved cell carries a zero, not an NA.
+  rs_key <- paste0("im_", rs_valid$insurer_prefix, "_", rs_valid$metal)
+  for (nm in RS_IM_TERMS) rs_valid[[nm]] <- as.integer(rs_key == nm)
   has_demo <- all(RS_DEMO_TERMS %in% names(rs_valid))
   if (has_demo) {
     rs_valid <- rs_valid %>% filter(if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)))
-    rs_reg <- lm(reformulate(c("Silver", "Gold", "Platinum", RS_DEMO_TERMS), "log_risk_score"),
+    rs_reg <- lm(reformulate(c(RS_IM_TERMS, RS_DEMO_TERMS), "log_risk_score"),
                  data = rs_valid, weights = rs_valid$member_months)
   } else {
-    rs_reg <- lm(log_risk_score ~ Silver + Gold + Platinum, data = rs_valid, weights = rs_valid$member_months)
+    rs_reg <- lm(reformulate(RS_IM_TERMS, "log_risk_score"),
+                 data = rs_valid, weights = rs_valid$member_months)
   }
+  rs_reg$coefficients[is.na(rs_reg$coefficients)] <- 0
 
-  cat("  Risk score regression: N =", nrow(rs_valid),
-      ", demographics =", has_demo, "\n")
-  cat("  R² =", round(summary(rs_reg)$r.squared, 4), "\n")
 
   # Claims regression: log claims on the PREDICTED log risk score (the fitted
   # values from rs_reg, the object the FOC and counterfactual apply the
@@ -72,6 +98,9 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
     filter(!is.na(log_cost), is.finite(log_cost), EXP_MM > 0,
            if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)))
   for (rc in CLAIMS_REGION_TERMS) if (!rc %in% names(claims_valid)) claims_valid[[rc]] <- 0
+  cl_key <- paste0("im_", sub("_.*", "", claims_valid$plan_id), "_",
+                   if ("METAL" %in% names(claims_valid)) claims_valid$METAL else claims_valid$metal)
+  for (nm in RS_IM_TERMS) claims_valid[[nm]] <- as.integer(cl_key == nm)
   claims_valid <- claims_valid %>%
     mutate(across(all_of(CLAIMS_REGION_TERMS), ~ ifelse(is.na(.x), 0, .x)),
            log_risk_score = predict(rs_reg, newdata = claims_valid))
@@ -79,8 +108,6 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
   claims_reg <- lm(reformulate(c("log_risk_score", CLAIMS_EXOG_TERMS), "log_cost"),
                    data = claims_valid, weights = claims_valid$EXP_MM)
 
-  cat("  Claims regression: N =", nrow(claims_valid), "\n")
-  cat("  R² =", round(summary(claims_reg)$r.squared, 4), "\n")
 
   list(
     rs_reg      = rs_reg,
@@ -117,22 +144,9 @@ compute_demographic_shares <- function(cell_data, V, lambda, V_base = NULL,
   ins_dt[, w := w]
   ins_dt[, wp := w * prob]
 
-  # Aggregate demographic shares by plan
-  # Requires perc_18to34 = perc_18to25 + perc_26to34 if only components available
-  if (!"perc_18to34" %in% names(ins_dt) && "perc_18to25" %in% names(ins_dt)) {
-    ins_dt[, perc_18to34 := perc_18to25 + perc_26to34]
-  }
-
-  # Predicted shares from the choice model, one per RS_DEMO_TERMS entry (the
-  # per-household column named in RS_DEMO_RAWCOL, choice-probability weighted).
-  if (!"family" %in% names(ins_dt)) ins_dt[, family := as.integer(hh_size > 1L)]
-  if (!"perc_0to34" %in% names(ins_dt)) ins_dt[, perc_0to34 := perc_0to17 + perc_18to34]
-  if (!"perc_minority" %in% names(ins_dt))
-    ins_dt[, perc_minority := perc_asian + perc_black + perc_hispanic + perc_other]
-  # Per-member age rating factor of the plan's enrollees (the ARF of the
-  # transfer formula): household rating factor over household size, weighted by
-  # predicted members.
-  if (!"rf_member" %in% names(ins_dt)) ins_dt[, rf_member := rating_factor / hh_size]
+  # Plan-level means of the risk-score characteristics and of the per-member
+  # rating factor (the ARF of the transfer formula), weighted by predicted members
+  ins_dt <- add_mix_columns(ins_dt)
   demo_shares <- ins_dt[, c(lapply(RS_DEMO_RAWCOL, function(col) sum(wp * .SD[[col]], na.rm = TRUE) / sum(wp)),
                             list(arf = sum(wp * rf_member, na.rm = TRUE) / sum(wp), demand = sum(wp))),
                         by = plan_id, .SDcols = unname(RS_DEMO_RAWCOL)]
@@ -214,8 +228,9 @@ predict_risk_scores <- function(rs_coefs, plan_chars, demo_shares = NULL) {
 # the current shares and scores, and the rest of the state held at its baseline
 # (ra_env$rest). The formula is zero-sum across the state.
 #
-# ra_env: list(gcf, arf [named by plan], N [cell members], rest = list(R, A, M),
-#              pbar) from ra_env_for_cell().
+# ra_env: list(gcf, arf [named by plan], N [cell members], nu, tpn [nu times the
+#              year's premium total], rest = list(R, A), firm_rest = list(X, Y)
+#              [the carrier's sums outside the cell]) from ra_env_for_cell().
 
 ra_cell_xy <- function(rs, plan_avs, ra_env) {
   pn <- names(rs)
@@ -233,41 +248,61 @@ compute_ra_transfers <- function(predicted_risk_scores, plan_shares, ra_env, pla
   xy <- ra_cell_xy(rs, plan_avs, ra_env)
   R <- ra_env$rest$R + N * sum(sh * xy$x, na.rm = TRUE)
   A <- ra_env$rest$A + N * sum(sh * xy$y, na.rm = TRUE)
-  M <- ra_env$rest$M + N * sum(sh, na.rm = TRUE)
-  setNames(ra_env$pbar * M * (xy$x / R - xy$y / A), pn)
+  setNames(ra_env$tpn * (xy$x / R - xy$y / A), pn)
 }
 
-# Statewide sums from a list of cell records (year, N, shares, rs, av, arf, gcf,
-# premium), and each cell's own contribution. Pbar is the member-weighted average
-# posted premium, less the administrative-cost share of the year.
-ra_state_totals <- function(cells) {
+# The year's premium total from cell records at the observed premiums: premiums
+# collected, posted premium times the rating-weighted share, summed over cells.
+ra_premium_total <- function(cells) {
+  tp <- vapply(cells, function(cl) cl$N * sum(unname(cl$premium[names(cl$rshares)]) * unname(cl$rshares),
+                                              na.rm = TRUE), numeric(1))
+  yr <- vapply(cells, function(cl) as.character(cl$year), character(1))
+  tapply(tp, yr, sum)
+}
+
+# Statewide sums from a list of cell records (year, N, shares, rs, av, arf, gcf),
+# each cell's own contribution, and the same by carrier. tp is the year's
+# premium total, named by year: premiums collected at the observed premiums
+# (s3 writes it), held at that value wherever the transfers are evaluated.
+ra_state_totals <- function(cells, tp) {
   own <- lapply(cells, function(cl) {
     env <- list(gcf = cl$gcf, arf = cl$arf, N = cl$N)
     xy <- ra_cell_xy(cl$rs, cl$av, env)
     sh <- unname(cl$shares[names(cl$rs)])
-    data.frame(region = cl$region, year = cl$year,
-               R = cl$N * sum(sh * xy$x, na.rm = TRUE), A = cl$N * sum(sh * xy$y, na.rm = TRUE),
-               M = cl$N * sum(sh, na.rm = TRUE),
-               PM = cl$N * sum(sh * unname(cl$premium[names(cl$rs)]), na.rm = TRUE))
+    sx <- cl$N * sh * xy$x; sx[is.na(sx)] <- 0
+    sy <- cl$N * sh * xy$y; sy[is.na(sy)] <- 0
+    firm <- sub("_.*", "", names(cl$rs))
+    f <- unique(firm)
+    list(cell = data.frame(region = cl$region, year = cl$year, R = sum(sx), A = sum(sy)),
+         firm = data.frame(region = cl$region, year = cl$year, firm = f,
+                           X = as.numeric(tapply(sx, firm, sum)[f]),
+                           Y = as.numeric(tapply(sy, firm, sum)[f])))
   })
-  own <- do.call(rbind, own)
-  tot <- aggregate(cbind(R, A, M, PM) ~ year, data = own, FUN = sum)
-  # Pbar: the statewide average premium CMS used (net of the admin share from
-  # 2018); the model's own share-weighted posted premium is the fallback
-  tot$pbar <- vapply(tot$year, ra_pbar_cms, numeric(1))
-  miss <- is.na(tot$pbar)
-  tot$pbar[miss] <- (tot$PM / tot$M * (1 - RA_ADMIN_SHARE[as.character(tot$year)]))[miss]
-  list(totals = tot, own = own)
+  own_cell <- do.call(rbind, lapply(own, `[[`, "cell"))
+  own_firm <- do.call(rbind, lapply(own, `[[`, "firm"))
+  tot <- aggregate(cbind(R, A) ~ year, data = own_cell, FUN = sum)
+  tot$nu <- unname(1 - RA_ADMIN_SHARE[as.character(tot$year)])
+  tot$tp <- unname(tp[as.character(tot$year)])
+  if (anyNA(tot$tp)) stop("ra_state_totals: no premium total for year ", paste(tot$year[is.na(tot$tp)], collapse = ", "))
+  list(totals = tot, own = own_cell,
+       totals_firm = aggregate(cbind(X, Y) ~ year + firm, data = own_firm, FUN = sum),
+       own_firm = own_firm)
 }
 
 # ra_env for one cell: its GCF, ARF (from the demographic shares), members, the
-# rest-of-state sums (totals less the cell's baseline contribution), and Pbar.
-ra_env_for_cell <- function(region, year, N, demo_shares, totals, own = NULL) {
-  tot <- totals[totals$year == year, ]
-  o <- if (is.null(own)) NULL else own[own$region == region & own$year == year, ]
-  rest <- if (is.null(o) || nrow(o) == 0) list(R = tot$R, A = tot$A, M = tot$M) else
-    list(R = tot$R - o$R, A = tot$A - o$A, M = tot$M - o$M)
-  list(gcf = ra_gcf(region, year), N = N, pbar = tot$pbar, rest = rest,
+# premium total, and the statewide and carrier sums outside the cell (totals
+# less the cell's own contribution in st).
+ra_env_for_cell <- function(region, year, N, demo_shares, st) {
+  tot <- st$totals[st$totals$year == year, ]
+  o <- st$own[st$own$region == region & st$own$year == year, ]
+  rest <- if (nrow(o) == 0) list(R = tot$R, A = tot$A) else list(R = tot$R - o$R, A = tot$A - o$A)
+  tf <- st$totals_firm[st$totals_firm$year == year, ]
+  of <- st$own_firm[st$own_firm$region == region & st$own_firm$year == year, ]
+  X <- setNames(tf$X, tf$firm); Y <- setNames(tf$Y, tf$firm)
+  X[of$firm] <- X[of$firm] - of$X
+  Y[of$firm] <- Y[of$firm] - of$Y
+  list(gcf = ra_gcf(region, year), N = N, nu = tot$nu, tpn = tot$nu * tot$tp,
+       rest = rest, firm_rest = list(X = X, Y = Y),
        arf = setNames(demo_shares$arf, demo_shares$plan_id))
 }
 
@@ -324,13 +359,14 @@ predict_mc_structural <- function(predicted_claims, ra_transfers, reins_factors)
 # compute_mc ---------------------------------------------------------------
 
 #' Single entry point for the full MC chain: demographics → risk scores →
-#' claims → RA transfers → structural MC. Called identically by 2_pricing.R,
-#' 3_cost_gmm.R, and 4a_cf-worker.R.
+#' claims → RA transfers → structural MC. Called identically by s3_pricing.R,
+#' s4_cost-gmm.R, and the counterfactual cell kernel in cf_cell.R.
 #'
 #' @param rs_coefs      Named vector of risk score regression coefficients
 #' @param claims_coefs  Named vector of claims regression coefficients
-#' @param plan_chars    Tibble with plan_id, Silver, Gold, Platinum, HMO,
-#'                      year dummies, Anthem, Blue_Shield, Health_Net, Kaiser
+#' @param plan_chars    Tibble with plan_id, the insurer-by-metal indicators
+#'                      (RS_IM_TERMS), HMO, year dummies, and the big-four
+#'                      brand dummies
 #' @param demo_shares   Tibble with plan_id and predicted demographic shares
 #'                      (share_18to34, share_35to54, share_male,
 #'                      share_fpl250to400, share_fpl400plus); NULL for AV-only
@@ -364,50 +400,80 @@ compute_mc <- function(rs_coefs, claims_coefs, plan_chars, demo_shares,
 
 # RA derivative for FOC ----------------------------------------------------
 
-#' Compute the RA contribution to the pricing FOC.
-#'
-#' When a firm changes price p_l, market shares shift, which changes the
-#' budget-neutral RA transfers for all plans. The firm internalizes this
-#' for the plans it owns. This function computes the J-vector ra_foc where:
-#'
-#'   ra_foc_l = sum_k O[l,k] * s_k * (dRA_k / dp_l)
-#'
-#' Channel 1 only: holds risk scores fixed, captures the mechanical effect
-#' of share changes on RA denominators.
-#'
-#' @param risk_scores  Named vector of predicted risk scores (levels, not log)
-#' @param shares       Named vector of market shares
-#' @param plan_avs     Named vector of actuarial values
-#' @param ra_env       Transfer-formula environment for the cell (ra_env_for_cell)
-#' @param elast_mat    J x J elasticity matrix (ds_j/dp_l)
-#' @param own_mat      J x J ownership matrix (1 if same firm)
-#' @return Named J-vector of RA FOC contributions
+# How a plan's enrollee mix moves with each column's instrument (a premium or a
+# commission scale). G[m, l] = s_m dlog r_m / dl through the risk-score shares;
+# A[m, l] = s_m dlog ARF_m / dl. E is the member-weighted derivative matrix and
+# zE the characteristic-weighted ones from the same kernel (supply.R).
+mix_response <- function(E, zE, demo_shares, rs_coefs) {
+  pn <- rownames(E)
+  ds <- demo_shares[match(pn, demo_shares$plan_id), ]
+  G <- matrix(0, nrow(E), ncol(E), dimnames = dimnames(E))
+  for (d in RS_DEMO_TERMS) {
+    g <- if (d %in% names(rs_coefs)) rs_coefs[[d]] else NA_real_
+    if (is.na(g)) next
+    sd <- ds[[d]]; sd[is.na(sd)] <- 0
+    G <- G + g * (zE[[d]][pn, pn] - sd * E)
+  }
+  arf <- ds$arf; arf[is.na(arf) | arf <= 0] <- 1
+  list(G = G, A = (zE[["arf"]][pn, pn] - arf * E) / arf)
+}
 
-compute_ra_foc <- function(risk_scores, shares, plan_avs, ra_env,
-                           elast_mat, own_mat) {
+# Claims moving with the enrollee mix, the term that separates marginal from
+# average cost: cc_l = sum_k O[l,k] (1 - reins_k) claims_k mu s_k dlog r_k / dl,
+# with mu the pass-through of the risk score into claims.
+compute_claims_comp <- function(claims, reins, mix, own_mat, mu) {
+  pn <- rownames(mix$G)
+  r <- reins[pn]; r[is.na(r)] <- 0
+  w <- unname((1 - r) * claims[pn]) * mu
+  w[is.na(w)] <- 0
+  setNames(colSums(own_mat * (w * mix$G)), pn)
+}
 
+#' The transfer's contribution to a first-order condition, per unit of the
+#' cell's member weight.
+#'
+#' The carrier's transfer is T_f = tpn (X_f / R - Y_f / A), with X_f and Y_f its
+#' statewide risk and utilization sums and tpn the premium total net of the
+#' administrative share. Moving column l's instrument moves the cell's shares,
+#' the risk scores and average rating factors of its plans (the mix response),
+#' and with them X_f, Y_f, R and A, so the carrier's transfers in every cell
+#' respond. The premium total enters the level as a constant and the derivative
+#' through mkt_rev, the instrument's effect on premiums collected in the cell.
+#' The part already carried by the marginal cost in Omega mc (the level T_k
+#' times the share response) is netted out, so the pricing residual keeps the
+#' form rshares + ra_foc - (Omega_r p - Omega mc).
+#'
+#' @param mix      list(G, A) from mix_response for the same derivative matrix
+#' @param mkt_rev  J-vector: d(premiums collected in the cell)/dl per unit weight
+#' @return list(total, feedback), named J-vectors; feedback is the mkt_rev part
+compute_ra_foc <- function(risk_scores, shares, plan_avs, ra_env, elast_mat, own_mat,
+                           mix, mkt_rev) {
   pn <- names(shares)
-  J <- length(pn)
-  rs <- unname(risk_scores[pn])
-  sh <- unname(shares[pn])
-  N <- ra_env$N
+  rs <- unname(risk_scores[pn]); sh <- unname(shares[pn]); N <- ra_env$N
   xy <- ra_cell_xy(setNames(rs, pn), plan_avs, ra_env)
-  x <- xy$x; y <- xy$y
-  R <- ra_env$rest$R + N * sum(sh * x, na.rm = TRUE)
-  A <- ra_env$rest$A + N * sum(sh * y, na.rm = TRUE)
-  M <- ra_env$rest$M + N * sum(sh, na.rm = TRUE)
-  P <- ra_env$pbar
+  x <- xy$x; x[is.na(x)] <- 0
+  y <- xy$y; y[is.na(y)] <- 0
+  sh[is.na(sh)] <- 0
+  R <- ra_env$rest$R + N * sum(sh * x)
+  A <- ra_env$rest$A + N * sum(sh * y)
 
-  # T_k = P M (x_k/R - y_k/A) with R, A, M moving through the cell's own shares:
-  # dT_k/ds_m = P [ N (x_k/R - y_k/A) - M N (x_k x_m / R^2 - y_k y_m / A^2) ]
-  dRA_ds <- P * (N * outer(x / R - y / A, rep(1, J)) -
-                 M * N * (outer(x, x) / R^2 - outer(y, y) / A^2))
+  firm <- sub("_.*", "", pn)
+  Xr <- ra_env$firm_rest$X[firm]; Xr[is.na(Xr)] <- 0
+  Yr <- ra_env$firm_rest$Y[firm]; Yr[is.na(Yr)] <- 0
+  Xf <- unname(Xr) + N * as.numeric(tapply(sh * x, firm, sum)[firm])
+  Yf <- unname(Yr) + N * as.numeric(tapply(sh * y, firm, sum)[firm])
 
-  # dRA_k/dp_l = sum_m dRA_k/ds_m * ds_m/dp_l
-  dRA_dp <- dRA_ds %*% elast_mat
+  E <- elast_mat[pn, pn]; O <- own_mat            # own_mat is in plan order, as in Omega
+  dX <- x * (E + mix$G[pn, pn])          # [m, l]: plan m's part of dR / dl, per unit weight
+  dY <- y * (E + mix$A[pn, pn])
+  dR <- colSums(dX); dA <- colSums(dY)
+  dXf <- colSums(O * dX); dYf <- colSums(O * dY)
 
-  # ra_foc_l = sum_k O[l,k] * s_k * dRA_dp[k,l]
-  ra_foc <- colSums(own_mat * (sh * dRA_dp))
+  gap <- Xf / R - Yf / A
+  dT <- ra_env$tpn * (dXf / R - Xf * dR / R^2 - dYf / A + Yf * dA / A^2)
+  feedback <- ra_env$nu * mkt_rev[pn] * gap
+  Tk <- ra_env$tpn * (x / R - y / A)
+  level_part <- colSums(O * (Tk * E))
 
-  setNames(ra_foc, pn)
+  list(total = setNames(dT + feedback - level_part, pn), feedback = setNames(feedback, pn))
 }

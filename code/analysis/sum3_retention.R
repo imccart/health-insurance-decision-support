@@ -14,13 +14,11 @@
 #   results/tables/channel_transitions.tex
 #   results/tables/channel_retention.tex
 
-cat("\n=== sum3: channel persistence and retention ===\n")
 
 enr <- fread("data/output/enrollment_hh.csv",
              select = c("household_id", "year", "agent", "broker", "navigator"))
 un  <- fread("data/output/cc_uninsured.csv",
              select = c("household_id", "year", "market_eligible"))
-cat("  enrolled HH-years:", nrow(enr), " off-year rows:", nrow(un), "\n")
 stopifnot(uniqueN(enr, by = c("household_id", "year")) == nrow(enr),
           uniqueN(un,  by = c("household_id", "year")) == nrow(un))
 
@@ -44,7 +42,6 @@ write_csv(trans_wide, "results/channel_transitions.csv")
 hh <- unique(enr[, .(household_id, n_years)])
 hh_ch <- enr[, .(n_channels = uniqueN(channel)), by = household_id]
 single_share <- merge(hh, hh_ch, by = "household_id")[n_years >= 2, mean(n_channels == 1)]
-cat(sprintf("  HH with 2+ enrolled years and one channel throughout: %.3f\n", single_share))
 
 # 2. Next-year retention by channel ------------------------------------------
 un[, year_prev := year - 1L]
@@ -73,8 +70,6 @@ raw[, share := N / sum(N), by = channel]
 raw_wide <- dcast(raw, channel ~ status_next, value.var = "share")[match(chan_levels, channel)]
 write_csv(ret, "results/channel_retention.csv")
 write_csv(raw_wide, "results/channel_status_next.csv")
-cat("  Retention on the model's margin (enrolled t+1 | enrolled or off-eligible):\n")
-print(ret)
 
 # 3. Tables -------------------------------------------------------------------
 fmt_pct <- function(x) sprintf("%.1f", 100 * x)

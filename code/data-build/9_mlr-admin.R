@@ -19,7 +19,7 @@
 ##                data/output/mlr_admin_beta.csv   (beta0, se, n)
 ##                data/output/commission_book_share.csv (insurer_prefix, year,
 ##                  member months by segment; w_all = individual share of the
-##                  commissionable book, the basis of the cross-market leverage
+##                  commissionable book, the leverage diagnostic
 ##                  in the commission conditions)
 ##                data/output/commission_beta_carrier.csv (insurer_prefix, z,
 ##                  beta, se): per-carrier substitution rates from the national
@@ -97,7 +97,7 @@ print(mlr_admin %>% group_by(insurer_prefix) %>%
 
 # Commissionable-book shares: the individual market's share of each carrier's
 # CA member months, with and without the large-group book. w_all (individual /
-# individual + small group + large group) is the basis of the cross-market
+# individual + small group + large group) is the basis of the
 # leverage (1 - w)/w in the commission conditions (s4); w_ind_sg is the
 # small-group-only variant.
 book_share <- mlr %>%

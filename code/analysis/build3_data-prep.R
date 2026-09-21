@@ -25,7 +25,6 @@
 ##                hh_full.csv is assumed already filtered to market-eligible
 ##                rows by build1_decision-analysis.R. No re-filter here.
 
-cat("=== Data prep ===\n")
 
 # Read inputs -------------------------------------------------------------
 
@@ -42,7 +41,6 @@ commission_lookup <- fread("data/output/commission_lookup.csv") %>% as_tibble()
 plan_data <- read_csv("data/input/Covered California/plan_data.csv",
                       show_col_types = FALSE, name_repair = "minimal")
 
-cat("  hh_full:", nrow(hh_full), "rows\n")
 
 # HH-side prep ------------------------------------------------------------
 # Join IPW, broker density, drop catastrophic, compute v_hat and p_nav.
@@ -54,7 +52,6 @@ hh_full <- hh_full %>%
 
 n_before <- nrow(hh_full)
 hh_full <- hh_full %>% filter(!str_detect(plan_id, "_CAT$") | is.na(plan_id))
-cat("  Dropped catastrophic HH:", n_before - nrow(hh_full), "\n")
 
 # FPL brackets (created in choice.R for the structural side; added here so the
 # v_hat first stage and everything carried in hh_full_prepped share the canonical
@@ -73,7 +70,6 @@ fs_model <- lm(assisted ~ n_agents + perc_0to17 + perc_18to34 + perc_35to54 +
                data = hh_full[ins_idx, ])
 hh_full$v_hat <- NA_real_
 hh_full$v_hat[ins_idx] <- residuals(fs_model)
-cat("  v_hat first-stage F:", round(summary(fs_model)$fstatistic[1], 1), "\n")
 rm(fs_model, ins_idx)
 
 # Navigator propensity (structural-side; harmless extra column for RF)
@@ -83,7 +79,6 @@ nav_model <- glm(
   data = hh_full %>% filter(assisted == 1), family = binomial
 )
 hh_full$p_nav <- predict(nav_model, newdata = hh_full, type = "response")
-cat("  p_nav range:", round(range(hh_full$p_nav, na.rm = TRUE), 3), "\n")
 rm(nav_model)
 
 # Channel first stage (structural). Three-way multinomial over
@@ -104,10 +99,8 @@ p_chan <- predict(chan_model, newdata = hh_full, type = "probs")
 hh_full$p_none_hat  <- p_chan[, "Unassisted"]
 hh_full$p_nav_hat   <- p_chan[, "Navigator"]
 hh_full$p_agent_hat <- p_chan[, "Agent"]
-cat(sprintf("  channel first stage: converged %s; mean p (none/nav/agent) = %.3f/%.3f/%.3f\n",
-            chan_model$convergence == 0,
-            mean(hh_full$p_none_hat), mean(hh_full$p_nav_hat),
-            mean(hh_full$p_agent_hat)))
+if (chan_model$convergence != 0)
+  warning("build3: channel first stage did not converge")
 rm(chan_model, p_chan)
 
 # Plan-side prep ----------------------------------------------------------
@@ -139,7 +132,6 @@ plan_choice <- plan_choice %>%
 first_stage <- lm(premium ~ hausman_iv + metal + network_type + factor(year),
                   data = plan_choice)
 plan_choice$cf_resid <- residuals(first_stage)
-cat("  Premium first-stage F:", round(summary(first_stage)$fstatistic[1], 1), "\n")
 rm(first_stage)
 
 # Commission basis. Percentage schedules are paid on collected premiums, so
@@ -204,7 +196,6 @@ stopifnot(nrow(plan_choice) == n_before)
 rm(plan_region_shares)
 
 fwrite(plan_choice, file.path(TEMP_DIR, "plan_choice.csv"))
-cat("  plan_choice:", nrow(plan_choice), "rows -> plan_choice.csv\n")
 
 # Plan demographics (insurer × year shares; structural-side input) --------
 
@@ -230,7 +221,6 @@ plan_demographics <- hh_full %>%
             share_other    = weighted.mean(perc_other,    wt, na.rm = TRUE),
             .groups = "drop")
 fwrite(plan_demographics, file.path(TEMP_DIR, "plan_demographics.csv"))
-cat("  plan_demographics:", nrow(plan_demographics), "rows\n")
 rm(plan_demographics)
 
 # Same shares by plan x region x year (the level of the SRRT plan risk scores)
@@ -257,11 +247,10 @@ plan_demographics_region <- hh_full %>%
             enrollment     = sum(wt),
             .groups = "drop")
 fwrite(plan_demographics_region, file.path(TEMP_DIR, "plan_demographics_region.csv"))
-cat("  plan_demographics_region:", nrow(plan_demographics_region), "rows\n")
 rm(plan_demographics_region)
 
 # HH choice file ----------------------------------------------------------
-# Single file consumed by both 2_choice-att.R (RF) and 1_demand.R (structural).
+# Single file consumed by both rf2_choice-att.R (RF) and s2_demand.R (structural).
 # Carries both ipweight (RF needs) and channel_detail/any_agent/p_nav
 # (structural needs). Either side ignores columns it doesn't use.
 
@@ -277,14 +266,10 @@ hh_choice <- hh_full %>%
 
 fwrite(hh_choice, file.path(TEMP_DIR, "hh_choice.csv"))
 n_cells <- length(unique(paste0(hh_choice$region, "_", hh_choice$year)))
-cat("  hh_choice:", nrow(hh_choice), "rows,", ncol(hh_choice),
-    "cols,", n_cells, "cells -> hh_choice.csv\n")
 
 # Augmented HH panel (adds v_hat/p_nav) — rf1_dominated reads this from disk.
 fwrite(hh_full, file.path(TEMP_DIR, "hh_full_prepped.csv"))
-cat("  hh_full_prepped:", nrow(hh_full), "rows -> hh_full_prepped.csv\n")
 
 rm(hh_choice, hh_full, ipweights, broker_density, plan_data)
 gc(verbose = FALSE)
 
-cat("=== Data prep complete ===\n\n")

@@ -63,7 +63,8 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       rw <- function(cn) { v <- if (cn %in% names(cell_data)) as.numeric(cell_data[[cn]]) else numeric(nrow(cell_data)); v[is.na(v)] <- 0; v }
       add_N_cs <- add_N_cs - gd("assisted_av") * rw("av") - gd("assisted_premium") * rw("premium")
       add_A_cs <- add_A_cs - gd("broker_av") * rw("av") - gd("broker_premium") * rw("premium") -
-                  gd("commission_broker") * rw(if ("comm_hh" %in% names(cell_data)) "comm_hh" else "comm_pmpm")
+                  gd("commission_broker") * rw(if ("comm_hh" %in% names(cell_data)) "comm_hh" else "comm_pmpm") -
+                  gd("commission_broker_sq") * rw(if ("comm_hh" %in% names(cell_data)) "comm_hh" else "comm_pmpm")^2 / 100
     }
     dt <- as.data.table(cell_data); dt[, V := util$V]; dt[, V_base := util$V_base]
     dt[, aN := add_N_cs]; dt[, aA := add_A_cs]
@@ -146,7 +147,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
         bf <- file.path(TEMP_DIR, "commission_beta.csv")
         if (file.exists(bf)) { bl <- read.csv(bf); setNames(bl$beta, paste(bl$firm, bl$year, sep = "_")) } else 0 }
       # carriers absent from the beta table get the pooled MLR slope, the same
-      # fallback s4 and s6 use
+      # fallback s4 uses
       beta_default <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
       enr[, beta_adm := beta_lookup[paste(sub("_.*", "", plan_id), y, sep = "_")]]
       enr[is.na(beta_adm), beta_adm := beta_default]
