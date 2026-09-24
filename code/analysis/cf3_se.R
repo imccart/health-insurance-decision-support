@@ -129,6 +129,19 @@ set.seed(BOOT_SEED)
 n_clamp <- 0L
 t0 <- Sys.time()
 draws <- vector("list", N_BOOT_CF)
+# Draws already in DRAWS_PATH from the current inputs are kept and their random
+# draws replayed below, so the sequence matches an uninterrupted run; a draws
+# file older than the cf1 premiums or the demand estimates is discarded.
+done <- 0L
+if (file.exists(DRAWS_PATH)) {
+  inputs <- c("results/counterfactual_results.csv", "results/choice_coefficients_structural.csv",
+              "results/choice_coefficients_structural_vcov.csv")
+  if (file.mtime(DRAWS_PATH) > max(file.mtime(inputs))) {
+    prev <- read.csv(DRAWS_PATH, check.names = FALSE)
+    done <- nrow(prev)
+    for (b in seq_len(done)) draws[[b]] <- unlist(prev[b, -1])
+  } else unlink(DRAWS_PATH)
+}
 # finally stops the cluster even if a draw errors.
 tryCatch(
 for (b in seq_len(N_BOOT_CF)) {
@@ -145,6 +158,7 @@ for (b in seq_len(N_BOOT_CF)) {
   coefs_b <- data.frame(term = names(d_b), estimate = as.numeric(d_b),
                         stringsAsFactors = FALSE)
   lambda_b <- setNames(coefs_b$estimate, coefs_b$term)[["lambda"]]
+  if (b <= done) next
 
   draw_b <- b
   parallel::clusterExport(cl, c("coefs_b", "draw_b", "lambda_b"), envir = environment())

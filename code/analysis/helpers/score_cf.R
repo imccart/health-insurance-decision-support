@@ -17,8 +17,7 @@
 score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   fp <- file.path(CELL_DIR, sprintf("cell_%s_%s_data.csv", r, y))
   if (!file.exists(fp)) return(NULL)
-  cell_data_base <- as.data.frame(fread(fp))
-  if (!"family" %in% names(cell_data_base)) cell_data_base$family <- as.integer(cell_data_base$hh_size > 1L)
+  cell_data_base <- as.data.frame(add_mix_columns(fread(fp)))
   sr_cell <- supply_results[supply_results$region == r & supply_results$year == y, ]
   if (nrow(sr_cell) == 0 || nrow(cf_cell) == 0) return(NULL)
 
@@ -127,17 +126,19 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     # (UC_PER_UNINSURED per uninsured member, scaled below by the uninsured pool's
     # predicted risk score relative to the baseline scenario) - mandate penalty
     # revenue from the uninsured.
-    psg <- tryCatch({
+    psg <- {
       mc_vec <- setNames(rows$mc, rows$plan_id)[plan_ids_cell]
       cl_vec <- if ("claims" %in% names(rows)) setNames(rows$claims, rows$plan_id)[plan_ids_cell] else setNames(rep(NA_real_, length(plan_ids_cell)), plan_ids_cell)
       pr <- choice_probs(dt, coefs, lambda)
       dd <- as.data.table(copy(dt)); dd[, p_ch := pr]
       M  <- dd[, .(w = first(hh_weight)), by = household_number][, sum(w)]
       ins <- dd[plan_id != "Uninsured"]
+      # revenue at the age-rated premium each household pays
       ins[, `:=`(mem   = p_ch * hh_weight,
-                 mem_b = p_ch * hh_weight * fifelse(is.na(broker), 0, broker))]
-      enr <- ins[, .(mem = sum(mem), mem_b = sum(mem_b)), by = plan_id]
-      enr[, `:=`(p = p_vec[plan_id], mc = mc_vec[plan_id], eta = comm[plan_id])]
+                 mem_b = p_ch * hh_weight * fifelse(is.na(broker), 0, broker),
+                 rev   = p_ch * (p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor)]
+      enr <- ins[, .(mem = sum(mem), mem_b = sum(mem_b), rev = sum(rev)), by = plan_id]
+      enr[, `:=`(mc = mc_vec[plan_id], eta = comm[plan_id])]
       enr[is.na(eta), eta := 0]
       # mc carries claims net of transfers plus the insurer's administrative cost
       # per member; a commission dollar offsets beta of administrative cost on
@@ -151,7 +152,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       beta_default <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
       enr[, beta_adm := beta_lookup[paste(sub("_.*", "", plan_id), y, sep = "_")]]
       enr[is.na(beta_adm), beta_adm := beta_default]
-      ps_month <- enr[, sum((p - mc) * mem - (1 - beta_adm) * eta * mem_b, na.rm = TRUE)]
+      ps_month <- enr[, sum(rev - mc * mem - (1 - beta_adm) * eta * mem_b, na.rm = TRUE)]
       ins[, sub_paid := pmin((p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor, subsidy_cf)]
       ins[is.na(sub_paid), sub_paid := 0]
       gov_month <- ins[, sum(p_ch * sub_paid, na.rm = TRUE)]
@@ -178,7 +179,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       rs_unins <- exp(g("(Intercept)") + sum(vapply(RS_DEMO_TERMS, function(t) g(t) * pool[[t]], numeric(1))))
       list(ps = ps_month / M * 12, gov = gov_month / M * 12, csr = csr_month / M * 12,
            pen = pen_month / M * 12, uc = uc_month / M * 12, rs_unins = rs_unins)
-    }, error = function(e) list(ps = NA_real_, gov = NA_real_, csr = NA_real_, pen = NA_real_, uc = NA_real_, rs_unins = NA_real_))
+    }
 
     # Revealed-preference CS with the commission term in the inclusive value
     # (cs_weighted) and without it (cs_nocomm, the reported measure: the
