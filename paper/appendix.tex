@@ -284,15 +284,8 @@ and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},
     \frac{ \partial Y_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^B \, y_{jt}  \, \frac{ \partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}
 \end{equation*}
 
-\noindent 	Define $ rs_{kmt}({\bf p},{\bf y}) \equiv \frac{\widehat{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$ and $us_{kmt}({\bf p},{\bf y}) \equiv \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$.  Let $R_t({\bf p},{\bf y}) \equiv  \sum_{f \in F} R_{ft}({\bf p},{\bf y})$ be total premiums collected. % compute_ra_foc in helpers/ra.R evaluates this derivative in full at the
-% carrier level: the share response, the response of each plan's risk score
-% and average rating factor to its enrollee mix, and the feedback through
-% premiums collected. The premium total R_t is held at premiums collected
-% at the observed premiums, as in Evan's code, so it enters the level as a
-% constant and the derivative through its own response. The claims
-% derivative above carries the matching mix term (compute_claims_comp). The
-% analytic conditions are checked against the numerical derivative of the
-% model's own profit (scratch/foc_vs_numeric.R, 2026-09-19).
+\noindent 	Define $ rs_{kmt}({\bf p},{\bf y}) \equiv \frac{\widehat{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$ and $us_{kmt}({\bf p},{\bf y}) \equiv \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$.  Let $R_t({\bf p},{\bf y}) \equiv  \sum_{f \in F} R_{ft}({\bf p},{\bf y})$ be total premiums collected. 
+
 The partial derivative of the risk adjustment transfer with respect to the base premium is
 
 \begin{footnotesize}

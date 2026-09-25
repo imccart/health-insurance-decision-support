@@ -290,15 +290,7 @@ To compute total premium revenue, total commissions paid, and variable administr
 \label{eqn:risk_score_estimation}
 	\ln r_{jmt}({\bf p},{\bf y}) = \sum_{f} \sum_{m} \gamma^{fm} \mathbbm{1}[f(j) = f] \mathbbm{1}[m(j) = m] + \sum_{d \in D} \gamma^d s_{djmt}({\bf p},{\bf y}) + \epsilon_{jmt}^r,
 \end{equation}
-% Evan (2026-08-25) objected to insurer terms in this equation: they limit an
-% insurer's ability to change its enrollee risk, and CMS uses demographics and
-% diagnoses with no insurer terms. The terms he saw were a workaround for scores
-% backed out of transfers, which over-scored Molina; those are gone, replaced by
-% the observed SRRT scores he supplied. Those scores are what motivate the terms
-% now: platinum runs 1.2 at Kaiser to 7.3 on Health Net's PPO, and the pooled
-% specification misses platinum by 12 to 37 percent in sample. The demographic
-% slopes stay common, so composition still moves the score in the counterfactual
-% and only the levels are freed (decisions.md, 2026-08-26 and 2026-09-18).
+
 where the first term is a full set of insurer-by-metal effects, consistent with CMS estimating the risk model separately by metal level, and $s_{djmt}({\bf p},{\bf y})$ is the share of plan $j$'s enrollment in demographic group $d$, namely members aged 0 to 34, male, in a family household, and non-white. We estimate the regression by weighted least squares on the observed plan-year risk scores reported in the California rate filings, weighting by member months, and hold the coefficients fixed. When the fitted model enters the equilibrium, the demographic shares are computed by aggregating the estimated household choice probabilities from Equation~\eqref{eqn:choice_probs} rather than from observed enrollment, following the approach widely used in the hospital choice literature to construct market concentration measures \citep{kessler2000}, so that predicted enrollee risk moves with demand. We estimate average claims using the estimating equation  
 \begin{equation}
 \label{eqn:avg_claims_estimation}
@@ -306,10 +298,6 @@ where the first term is a full set of insurer-by-metal effects, consistent with 
 \end{equation}
 where $\hat{r}_{jmt}({\bf p},{\bf y})$ is the fitted ACA risk score from Equation~\eqref{eqn:risk_score_estimation}, $x_j$ collects a network type indicator, fixed effects for the four largest insurers, and the rating-area shares of the plan-year's enrollment, and $l_t$ is a set of year indicators. Using the predicted rather than the observed risk score addresses the endogeneity of plan enrollment composition.  Equation~\eqref{eqn:risk_score_estimation} writes average claims as a function of enrollee risk (which in turn is a function of demand), allowing us to capture adverse selection.
 
-% Evan (2026-08-25) noted our transfer equation was simplified relative to the
-% full formula he uses. The appendix now carries the full Pope et al. (2014)
-% transfer with the induced-demand, geographic and rating factors and the
-% year-specific nu, and ra.R implements that formula and its derivatives.
 The supplemental appendix provides technical details on risk adjustment and reinsurance.  The ACA's risk adjustment program transfers money from insurers with disproportionally low-risk enrollees to insurers with disproportionally high-risk enrollees.  All transfers sum to zero.  The goal of the program is to disincentivize insurers from reducing cost by simply cherry-picking low-risk consumers. The ACA's risk adjustment formula in the supplemental appendix is particularly complicated because it needs to account for observables that insurers can price on, such as age, rating area, and metal tier.  The formula isolates sources of claims risk that insurers are not allowed to price on.  The ACA's transitional reinsurance program, in place between 2014 and 2016, provided insurers with financial assistance for enrollees with particularly high claims.\footnote{Many states, but not California, have since re-instituted reinsurance programs.} We use our data to calculate the actuarial value of the reinsurance contract (i.e., the expected percentage of an insurer's claims that the reinsurance contract is expected to pay).     
 
 
@@ -332,18 +320,6 @@ for each plan $j$ offered by firm $f$. Formulas for each term in equation~(\ref{
 
 \noindent Formulas for each term in equation~(\ref{eqn:commission_foc}) are given in the supplemental appendix.
 
-% Evan (2026-08-25) objected to the commission wedge as "not economically
-% meaningful, a fudge parameter, a target for referees." At that time it was a
-% markup calibrated separately for every region-year-insurer cell, alongside a
-% per-cell cost residual. Both are gone. It is now one level per carrier,
-% eleven parameters on 61 conditions, estimated inside the GMM rather than
-% calibrated, and it is the same object as the big-four insurer dummies already
-% in the claims equation (decisions.md, 2026-09-05 and 2026-09-08). The
-% off-exchange parity story that first motivated it was tested and dropped: a
-% leverage slope came out negative where parity predicts positive, and the
-% within-carrier residual tracks on-exchange book growth, which cannot enter
-% the condition because it is an outcome of the steering being modeled. So the
-% constant stays and the mechanism is left unclaimed.
 We estimate the condition net of a carrier constant $\delta_f$, common to all of a carrier's commission-setting units and years, which plays the same role on the commission margin that the insurer indicators in the claims equation play on cost.
 
 \subsection{Estimation}
@@ -400,10 +376,6 @@ Each counterfactual requires solving for a Nash equilibrium in which all insurer
 
 We solve the pricing conditions by iterating each plan's best response in its base premium, starting from observed premiums or, where an earlier solve of the same year under the same estimates is available and starts closer, from that fixed point. A silver plan whose profit is kinked at the premium where the benchmark plan changes is held at the kink. Where the iteration stalls we finish with Broyden's method from the stalled point.
 
-% Evan holds the first-order-condition residual fixed at the observed point in
-% every counterfactual (run.counterfactuals.jl, zero_resid_flag). We solve the
-% conditions outright instead, so the baseline is the model's own equilibrium
-% and the residual is reported rather than imposed (decisions.md, 2026-08-29).
 Marginal cost in each counterfactual is the model-predicted cost at the candidate premium vector, and the baseline is the equilibrium the model itself implies rather than the observed premium vector. Every scenario is differenced against that baseline. The distance between the baseline and observed premiums and commissions is then a fit statistic we report rather than a constant we impose, at the cost that the comparisons across scenarios do inherit the fit of the cost model.
 
 Premium subsidies are also endogenous to the equilibrium. When the benchmark plan's premium changes, the subsidy available to all households adjusts according to the ACA formula in Equation~\eqref{eqn:cons_premium}. We update subsidies at each pricing iteration, so the equilibrium premiums, subsidies, shares, and risk adjustment transfers are jointly consistent.
@@ -418,12 +390,6 @@ The first is the standard Small-Rosen consumer surplus from the nested logit mod
 \label{eqn:cs}
 CS_i = \frac{1}{\bar{\alpha}} \ln\left(e^{V_{i0}} + \left(\sum_{j \in J} e^{V_{ij}/\lambda}\right)^{\lambda}\right),
 \end{equation}
-% Evan (2026-08-25) asked for household-specific premium parameters in consumer
-% surplus rather than a weighted mean. Adopted 2026-08-26 (decisions.md): the
-% denominator is each household's own base slope, which is fixed across
-% scenarios because the channel interactions are excluded, so his point is met
-% without the denominator moving between scenarios. Every household's base
-% slope lies between -0.30 and -0.035 per $100, so no trimming is needed.
 where $V_{i0}$ is the deterministic utility of the outside option and $\alpha_i$ is the household's own marginal utility of income, used to convert utility into dollars. We take it to be the household's base premium coefficient, with the channel price interactions removed, which is the slope that governs its enrollment margin in Equation~\eqref{eqn:two_part}. Excluding the channel interactions keeps the denominator fixed across counterfactual scenarios, since the premium coefficient would otherwise vary with assistance and re-price the baseline inclusive value in every scenario. We report consumer surplus per member per year, on the same basis as the objective measure, and treat it as the benchmark for how households themselves would evaluate a change.
 
 The second and third measures instead value the plan the household actually ends up choosing under a normative decision rule, taking the household's choice probabilities from the full estimated model but replacing the valuation of the chosen plan. For household $i$ we compute $\sum_j q_{ijt} V^N_{ijt}$, where $q_{ijt}$ are the estimated choice probabilities and $V^N_{ijt}$ is a normative valuation of plan $j$.
@@ -453,9 +419,6 @@ We next consider changes to the commission schedule that leave assistance in pla
 
 We then consider the scenarios in which insurers re-optimize commissions. Moving half of agent-assisted households to navigators, with commissions left in place for the remaining agents, decreases the uninsured share by 0.1 percentage points and increases $V^{obj}$ by \$12 per member per year at the central valuation. Moving half of navigator-assisted households to agents increases the uninsured share by 0.1 percentage points and decreases $V^{obj}$ by \$12 per member per year, and by between \$7 and \$15 at the low and high valuations. $V^{nav}$ decreases by \$10 in this scenario. This second scenario is informative about recent federal policy, under which funding for navigators in states using the federal exchange fell from \$63 million in 2017 to \$10 million in 2019.
 
-% Evan (2026-08-25) asked for subsidies, cost-sharing reductions, the mandate
-% penalty and uncompensated care. All four enter the government cost
-% (score_cf.R).
 Table~\ref{tab:cf-fiscal} reports the changes in producer surplus and government cost in each scenario. Government cost is the advance premium tax credit paid on enrolled households, plus cost-sharing reduction payments and the cost of uncompensated care for the uninsured, less individual mandate penalty revenue. Removing assistance lowers government cost by \$100 per member per year, since the \$193 fall in premium tax credits outweighs the \$146 rise in uncompensated care. It also lowers producer surplus by \$49 per member per year, and replacing agents with navigators lowers producer surplus by \$27.
 
 Taken together, the counterfactuals indicate that the primary effect of decision assistance is to keep households insured. Withdrawing assistance increases the uninsured share by 6.1 percentage points and decreases $V^{obj}$ at every valuation of being uninsured that we consider, although the size of the decrease depends heavily on that valuation. By comparison, the welfare effects of changing the commission schedule are small, and replacing agents with navigators increases welfare while leaving overall insurance coverage largely unchanged.
