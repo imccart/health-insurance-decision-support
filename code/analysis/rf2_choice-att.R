@@ -276,8 +276,7 @@ if (n_boot > 0L) {
 # prediction-based ATT. Same analysis sample as every phase above, both groups,
 # IPW-weighted, with assistance entering through its interaction with metal.
 # Progressive sequence mirroring the dominated table: plan attributes only, then
-# the full control set, then the full set plus the broker-density control
-# function (cf_ = v_hat x plan attribute).
+# the full control set.
 #
 # There is no region-FE column and there cannot be one. A household-level region
 # dummy is differenced out of a conditional logit, and the term that would
@@ -305,35 +304,19 @@ ap2 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
               data = pooled, chid.var = "chid", alt.var = "plan_id",
               weights = ipweight)
 
-ap3 <- mlogit(choice ~ premium + silver + bronze + hmo + hsa +
-                Anthem + Blue_Shield + Kaiser + Health_Net +
-                hh_size_prem + perc_0to17_prem + perc_18to34_prem +
-                perc_35to54_prem + perc_male_prem + perc_black_prem +
-                perc_hispanic_prem + perc_asian_prem + perc_other_prem +
-                FPL_250to400_prem + FPL_400plus_prem +
-                assisted_silver + assisted_bronze +
-                broker_silver + broker_bronze +
-                cf_anthem + cf_blue_shield + cf_kaiser + cf_health_net +
-                cf_silver + cf_bronze | 0 | 0,
-              data = pooled, chid.var = "chid", alt.var = "plan_id",
-              weights = ipweight)
-
 ap_tab <- bind_rows(
   tibble(spec = "attrs",   term = names(coef(ap1)), estimate = coef(ap1),
          std_error = summary(ap1)$CoefTable[, "Std. Error"],
          log_lik = as.numeric(logLik(ap1))),
   tibble(spec = "full",    term = names(coef(ap2)), estimate = coef(ap2),
          std_error = summary(ap2)$CoefTable[, "Std. Error"],
-         log_lik = as.numeric(logLik(ap2))),
-  tibble(spec = "full_cf", term = names(coef(ap3)), estimate = coef(ap3),
-         std_error = summary(ap3)$CoefTable[, "Std. Error"],
-         log_lik = as.numeric(logLik(ap3)))
+         log_lik = as.numeric(logLik(ap2)))
 ) %>%
   mutate(n_hh = uniqueN(pooled$chid))
 
 fwrite(ap_tab, "results/choice_appendix_pooled.csv")
 
-rm(ap1, ap2, ap3); gc(verbose = FALSE)
+rm(ap1, ap2); gc(verbose = FALSE)
 
 
 rm(pooled, fit, coefs, beta, V, Vn, fmla); gc(verbose = FALSE)

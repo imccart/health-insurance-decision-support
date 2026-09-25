@@ -144,17 +144,17 @@ Raw inputs referred to below (all under `data/input/`):
 - Files: `build2_ipw.R`, `build3_data-prep.R`, `choice.R`, `sum1_desc-stats.R`, `rf1_dominated.R`, `rf2_choice-att.R`.
 
 ### `n_agents`, `agents_per_10k`
-- Paper: the broker-density instrument and its first-stage strength; the channel first stage.
+- Paper: the channel first stage of the structural model; the first-stage strength quoted in the Section 4.2 footnote on the control function.
 - Raw: the FOIA workbook `RatingRegionAgentEnrollment_from_CY2014_to_CY2019__20260316.xlsx`, one sheet per year with agent license, region and enrollees; `co-est2019-alldata.csv` for population; `rating_areas.csv` for the county-to-region map.
 - Chain: `6_broker-density.R` counts distinct agent licenses per region-year (`n_agents`), sums county population to regions with Los Angeles County split between regions 15 and 16 by each region's enrolled-member share, and sets `agents_per_10k = n_agents / population * 10000`. `build3_data-prep.R` joins both to the household file by region and year; `n_agents` enters the `v_hat` first stage and `agents_per_10k` the channel multinomial. `rf4_first-stage.R` reports the instrument's partial F and incremental R-squared to `results/first_stage_strength.csv`.
 - Level: region-year.
-- Files: `6_broker-density.R`, `build3_data-prep.R`, `rf1_dominated.R`, `rf4_first-stage.R`.
+- Files: `6_broker-density.R`, `build3_data-prep.R`, `rf4_first-stage.R`.
 
 ### `v_hat`
-- Paper: the control-function columns of the appendix regression tables.
-- Chain: `build3_data-prep.R` fits a linear probability model of `assisted` on `n_agents`, the age, sex and race shares, the FPL brackets, `household_size` and year effects on insured rows; `v_hat` is the residual, NA on uninsured rows. `choice.R build_rf` builds `cf_anthem`, `cf_blue_shield`, `cf_kaiser`, `cf_health_net`, `cf_silver` and `cf_bronze` as `v_hat` times the plan attribute for the appendix specifications.
+- Paper: not placed in the paper or the appendix at present; the control function it defines is reported only through the first-stage strength in the Section 4.2 footnote.
+- Chain: `build3_data-prep.R` fits a linear probability model of `assisted` on `n_agents`, the age, sex and race shares, the FPL brackets, `household_size` and year effects on insured rows; `v_hat` is the residual, NA on uninsured rows. `choice.R build_rf` builds `cf_anthem`, `cf_blue_shield`, `cf_kaiser`, `cf_health_net`, `cf_silver` and `cf_bronze` as `v_hat` times the plan attribute when a specification names them.
 - Level: household-year.
-- Files: `build3_data-prep.R`, `choice.R`, `covariates.R`, `supply.R`, `rf1_dominated.R`, `rf2_choice-att.R`.
+- Files: `build3_data-prep.R`, `choice.R`, `covariates.R`, `supply.R`.
 
 ### `p_none_hat`, `p_nav_hat`, `p_agent_hat`, `p_nav`
 - Paper: the channel-state weights in the enrollment margin of the structural model.
@@ -282,13 +282,13 @@ cells; `cell_vars` in `rf2_choice-att.R` lists the ones kept.
 - Files: `choice.R`, `covariates.R`, `rf2_choice-att.R`, `rf3_summary.R`.
 
 ### Control-function interactions: `cf_anthem`, `cf_blue_shield`, `cf_kaiser`, `cf_health_net`, `cf_silver`, `cf_bronze`
-- Paper: column (3) of the appendix pooled plan-choice table.
+- Paper: not placed in the paper or the appendix at present.
 - Chain: `build_rf` multiplies `v_hat` by the plan attribute for the terms named in the spec; NA for households without `v_hat`.
-- Files: `choice.R`, `covariates.R`, `rf2_choice-att.R`, `rf3_summary.R`.
+- Files: `choice.R`, `covariates.R`.
 
-### ATT summaries: `obs_purchase`, `pred_purchase`, `att`
-- Paper: the metal-tier and insurer ATT figures; the new-versus-all comparison in the appendix.
-- Chain: `rf2_choice-att.R` fits the conditional logit on unassisted households (weighted by `ipweight`), predicts each assisted household's probabilities from the fitted coefficients, and sums observed choices and predicted probabilities by plan, region and year (`results/choice_point_estimates.csv`, and `_new.csv` for new enrollees). `rf3_summary.R` parses metal and insurer from `plan_id`, computes the observed and predicted shares over all enrollees and their difference, and attaches bootstrap standard errors from `results/choice_bootstrap_pred.csv` (50 within-cell resamples in `rf2`).
+### ATT summaries: `obs_purchase`, `pred_purchase`, `att`, `e_y1`, `e_y0`, `se`, `ci_lo`, `ci_hi` (`choice_att_metal.csv`, `choice_att_insurer.csv`)
+- Paper: the metal-tier and insurer ATT figures, and the observed and predicted silver shares and interval widths quoted beside them; the new-versus-all comparison in the appendix.
+- Chain: `rf2_choice-att.R` fits the conditional logit on unassisted households (weighted by `ipweight`), predicts each assisted household's probabilities from the fitted coefficients, and sums observed choices and predicted probabilities by plan, region and year (`results/choice_point_estimates.csv`, and `_new.csv` for new enrollees). `rf3_summary.R` parses metal and insurer from `plan_id`, computes the observed and predicted shares over all enrollees and their difference, and attaches bootstrap standard errors from `results/choice_bootstrap_pred.csv` (50 within-cell resamples in `rf2`), with 95 percent intervals at 1.96 standard errors; the metal and insurer summaries are written to `choice_att_metal.csv` and `choice_att_insurer.csv` (`e_y1` observed share, `e_y0` predicted share without assistance).
 - Level: metal or insurer, share of assisted enrollment.
 - Files: `rf2_choice-att.R`, `rf3_summary.R`.
 
@@ -361,9 +361,9 @@ covers what the structural cells add.
 - Chain: `sum2_results.R` reads the structural cells, keeps the chosen inside plan of each agent-assisted household, and computes, weighted by `hh_size`, the mean net premium (`100 * premium`), the mean household commission `comm_hh`, and the mean price coefficient per $100 (`premium + broker_premium` plus each demographic interaction times the household's demographic). The marginal utility of a commission dollar at the mean commission is `commission_broker + 2 * commission_broker_sq * mean_commission / 100`; the turning point is `-100 * commission_broker / (2 * commission_broker_sq)`; the dollar equivalence divides the marginal utility by the price coefficient per dollar; the elasticity ratio multiplies each by its mean level. `add_num` writes each to `results/tables/paper-numbers.tex`.
 - Files: `sum2_results.R`.
 
-### Sample counts: `\nHHfull`, `\nHHclean`, `\nHHins`, `\pctNewEnrollee`, `\pctAssisted`, `\pctBroker`, `\pctNavigator`
-- Paper: the household counts and channel shares quoted in the data section.
-- Chain: `sum2_results.R` reads `hh_full_prepped.csv` and counts household-years overall, new enrollees and insured, and the shares of insured household-years with `channel` not Unassisted, with `any_agent == 1` and with `navigator == 1`.
+### Sample counts: `\nHHfull`, `\nHHclean`, `\nHHins`, `\pctNewEnrollee`, `\pctAssisted`, `\pctBroker`, `\pctNavigator`, `\nDemandHH`
+- Paper: the household counts and channel shares quoted in the data section; the size of the demand sample.
+- Chain: `sum2_results.R` reads `hh_full_prepped.csv` and counts household-years overall, new enrollees and insured, and the shares of insured household-years with `channel` not Unassisted, with `any_agent == 1` and with `navigator == 1`. `\nDemandHH` counts the distinct households across the 20 percent choice cells, summed over cells (household-years).
 - Files: `sum2_results.R`.
 
 ---
@@ -430,10 +430,10 @@ factors of the transfer formula).
 - Chain: `build3_data-prep.R` computes each plan-year's share of enrolled members in each region from the household file (region 1 the base, silver variants pooled) and attaches them to every region row of the plan in `plan_choice.csv`. `s3_pricing.R` and `s4_cost-gmm.R` join them to the filing plan-years and carry them in each cell's plan characteristics.
 - Files: `build3_data-prep.R`, `ra.R`, `s3_pricing.R`, `s4_cost-gmm.R`, `cf_cell.R`.
 
-### Risk-score equation: `ra_rs_coefs_gmm.csv` (`(Intercept)`, `im_<prefix>_<metal>`, `share_0to34`, `share_male`, `share_family`, `share_minority`)
+### Risk-score equation: `ra_rs_coefs_gmm.csv`, `risk_score_coefficients.csv` (`(Intercept)`, `im_<prefix>_<metal>`, `share_0to34`, `share_male`, `share_family`, `share_minority`)
 - Paper: the risk-score block of the cost table; the predicted risk score behind every claims, transfer and marginal-cost figure.
-- Chain: `s4_cost-gmm.R` regresses the SRRT `log_risk_score` on a full set of insurer-by-metal indicators (Kaiser silver the base, `RS_IM_TERMS` in `ra.R`) and the four predicted composition shares aggregated to the SRRT rows, by weighted least squares with member-month weights, once, and holds the coefficients fixed (`ALPHA_FIXED`); `s3_pricing.R` fits the same regression on the observed shares as the starting values (`estimate_ra_regressions`, `ra.R`). `predict_risk_scores` applies the coefficients to each plan's indicators and predicted shares in every cell; `s5_se.R` reports the sandwich standard errors of the fixed OLS block.
-- Files: `ra.R`, `s3_pricing.R`, `s4_cost-gmm.R`, `s5_se.R`, `se.R`, `cf_cell.R`, `score_cf.R`, `sum2_results.R`.
+- Chain: `s4_cost-gmm.R` regresses the SRRT `log_risk_score` on a full set of insurer-by-metal indicators (Kaiser silver the base, `RS_IM_TERMS` in `ra.R`) and the four predicted composition shares aggregated to the SRRT rows, by weighted least squares with member-month weights, once, and holds the coefficients fixed (`ALPHA_FIXED`); `s3_pricing.R` fits the same regression on the observed shares as the starting values (`estimate_ra_regressions`, `ra.R`). `predict_risk_scores` applies the coefficients to each plan's indicators and predicted shares in every cell. `s4_cost-gmm.R` also writes the regression's coefficients and OLS standard errors to `results/risk_score_coefficients.csv`, from which `sum2_results.R` fills the risk-score block of the cost table (the constant and the four shares, with the insurer-by-metal effects as one row).
+- Files: `ra.R`, `s3_pricing.R`, `s4_cost-gmm.R`, `cf_cell.R`, `score_cf.R`, `sum2_results.R`.
 
 ### Claims equation: `ra_claims_coefs_gmm.csv` (`(Intercept)`, `log_risk_score`, `HMO`, `year_2015` to `year_2018`, `Anthem`, `Blue_Shield`, `Kaiser`, `Health_Net`, `share_ra2` to `share_ra19`)
 - Paper: the claims block of the cost table; the pass-through of the risk score into claims; predicted claims everywhere.
@@ -447,7 +447,7 @@ factors of the transfer formula).
 
 ### Cost standard errors: `cost_coefficients_gmm_se.csv`, `cost_coefficients_gmm_vcov.csv`
 - Paper: the standard errors in the cost table.
-- Chain: `s5_se.R` (`cost_gmm_sandwich_se`, `se.R`) computes the GMM sandwich at the step-2 solution with the same moment function and weight, and reports the risk-score OLS standard errors alongside; `sum2_results.R` writes `cost_estimates.tex` from the `equation`, `param`, `estimate` and `se` columns.
+- Chain: `s5_se.R` (`cost_gmm_sandwich_se`, `se.R`) computes the GMM sandwich at the step-2 solution with the same moment function and weight, for the claims coefficients and the carrier constants; `sum2_results.R` writes the claims and commission blocks of `cost_estimates.tex` from the `equation`, `param`, `estimate` and `se` columns (the risk-score block comes from `risk_score_coefficients.csv`).
 - Files: `s5_se.R`, `se.R`, `sum2_results.R`.
 
 ---
@@ -491,9 +491,9 @@ again in `s4_cost-gmm.R` at the GMM solution (`mc_gmm.csv`,
 - Chain: `markup = realized_premium - mc_gmm` and `lerner_index = markup / realized_premium` in `sum2_results.R` (the same in `s3_pricing.R` at the starting cost, not reported). The table reports medians by metal over plan-cells with a finite `mc_foc`; the macros are the means over the same rows and the count of region-years.
 - Files: `s3_pricing.R`, `sum2_results.R`.
 
-### `mc_foc`
-- Paper: the "MC (FOC)" column of the supply table and the validation figure (`supply_mc_foc_vs_structural.png`).
-- Chain: `s3_pricing.R` inverts the cell's pricing condition at the observed premiums, `Omega^-1 (Omega_r p - rhs)`, for the cost the observed prices imply, less the administrative cost; a diagnostic only. `sum2_results.R` plots it against `mc_gmm_net` and adds the administrative cost back for the table column.
+### `mc_foc`, `\mcFitCorr`, `\nPlanCells`, `\nPlanCellsFOC`, `\nNegMC`
+- Paper: the "MC (FOC)" column of the supply table, the validation figure (`supply_mc_foc_vs_structural.png`), and the sentence on the fit.
+- Chain: `s3_pricing.R` inverts the cell's pricing condition at the observed premiums, `Omega^-1 (Omega_r p - rhs)`, for the cost the observed prices imply, less the administrative cost; a diagnostic only. `sum2_results.R` plots it against `mc_gmm_net` and adds the administrative cost back for the table column. The macros are computed over the plan-cells of the supply table: the correlation of `mc_foc` with `mc_gmm_net`, the number of plan-cells, the number with a share of at least 0.005 (`SHARE_FLOOR_FOC`), and the number with negative `mc_gmm_net`.
 - Files: `s3_pricing.R`, `sum2_results.R`.
 
 ### Pricing condition: `foc_resid`, `G`, `G_per_member`, `G_dollars` (`foc_plan_year_gmm.csv`)
@@ -526,12 +526,12 @@ constants (`commission_wedge.csv`), `base_premium` and `region_factor` from
 
 ### Scenario definitions: `scenario`, `tau`, `comm_scale_cf`
 - Paper: the rows of the counterfactual tables.
-- Chain: `build_scenario_data` (`cf_cell.R`) rewrites each household's commission and channel for a scenario. Commission bases: `observed`; `zero`; `scale` (observed times a factor, 0.5 in `SCALE_GRID`); `uniform` (the cell mean of observed positive commissions times `UNIFORM_LOW_SC`, 0.5, with band-edge runs at 0.75 and 1.25 of that); `flatbar` (a flat fee per carrier at its observed mean commission per agent member, `flat_mandate`); `aligned` (proportional to each plan's mean non-commission utility, holding the cell's commission budget); `firmscale` (observed times the per-unit multiplier `k` of a commission solve). Proportional bases scale each household's `comm_hh`; level bases set a flat per-member amount. `tau` converts that share of agent-assisted households to navigators (highest `p_nav` first) and, unless `broker_remain`, the rest to unassisted (`zero_tau0.00`, `zero_tau0.50`, `zero_tau1.00`; `endog_tau0.50` keeps the rest as agents); `defund` converts that share of navigator households to agents (lowest `p_nav` first, `defund_0.50`). The channel-state weights `p_none_hat`, `p_nav_hat` and `p_agent_hat` move with the same conversions. `comm_scale_cf` records the scenario's multiplier on observed schedules (NA when the schedule is not a multiple).
+- Chain: `build_scenario_data` (`cf_cell.R`) rewrites each household's commission and channel for a scenario. Commission bases: `observed`; `zero`; `scale` (observed times a factor, 0.5 in `SCALE_GRID`); `uniform` (the cell mean of observed positive commissions times `UNIFORM_LOW_SC`, 0.5); `flatbar` (a flat fee per carrier at its observed mean commission per agent member, `flat_mandate`); `aligned` (proportional to each plan's mean non-commission utility, holding the cell's commission budget); `firmscale` (observed times the per-unit multiplier `k` of a commission solve). Proportional bases scale each household's `comm_hh`; level bases set a flat per-member amount. `tau` converts that share of agent-assisted households to navigators (highest `p_nav` first) and, unless `broker_remain`, the rest to unassisted (`zero_tau0.00`, `zero_tau0.50`, `zero_tau1.00`; `endog_tau0.50` keeps the rest as agents); `defund` converts that share of navigator households to agents (lowest `p_nav` first, `defund_0.50`). The channel-state weights `p_none_hat`, `p_nav_hat` and `p_agent_hat` move with the same conversions. `comm_scale_cf` records the scenario's multiplier on observed schedules (NA when the schedule is not a multiple).
 - Files: `cf_cell.R`, `cf1_estimate.R`, `score_cf.R`, `sum2_results.R`.
 
 ### Solved premiums: `premium_obs`, `premium_cf`, `premium_change`, `base_premium_cf`, `resid_dollars`, `kink` (`counterfactual_results.csv`, `cf_pricing_residuals.csv`)
 - Paper: the premium column of the counterfactual table; `\cfZeroPremChg`; the premium-change figure; the baseline fit check.
-- Chain: `solve_cf_year` (`cf_year.R`) iterates each solved plan's best response in its base premium on the pricing condition in dollars (`G / omega_w` at the evaluated premiums, `cf_year_aggregate`), with a damping fraction chosen per plan and steps capped at $25; a silver plan whose condition changes sign across the premium where the benchmark switches is bisected to that kink and left out of the convergence measure; Broyden's method from the stalled point (`nleqslv`, Jacobian `cf_year_jacobian_P` by forward differences) runs only if the iteration stalls; a scenario is accepted at a maximum residual of $5 per member-month. Plans are solved only when their scenario share clears `SHARE_FLOOR_FOC`; the rest hold their observed base premium. `premium_cf = base_premium_cf * region_factor` per cell, `premium_change = premium_cf - premium_obs`. The `resid_<year>_<scenario>.csv` files record the residual and the kink flag per plan; `cf1` binds them to `results/cf_pricing_residuals.csv`. The baseline is the model's own equilibrium at observed commissions, then at the solved commissions below; each year's baseline premiums are saved to `fixed_point_<year>.csv` as the next run's warm start.
+- Chain: `solve_cf_year` (`cf_year.R`) iterates each solved plan's best response in its base premium on the pricing condition in dollars (`G / omega_w` at the evaluated premiums, `cf_year_aggregate`), with a damping fraction chosen per plan and steps capped at $25; a silver plan whose condition changes sign across the premium where the benchmark switches is bisected to that kink and left out of the convergence measure; Broyden's method from the stalled point (`nleqslv`, Jacobian `cf_year_jacobian_P` by forward differences) runs only if the iteration stalls; a scenario is accepted at a maximum residual of $5 per member-month. Plans are solved only when their scenario share clears `SHARE_FLOOR_FOC`; the rest hold their observed base premium. `premium_cf = base_premium_cf * region_factor` per cell, `premium_change = premium_cf - premium_obs` in the cf1 file; `sum2_results.R` redefines `premium_change` on reading as `premium_cf` less the same plan-cell's baseline `premium_cf`, so every reported premium change is measured from the baseline equilibrium. The `resid_<year>_<scenario>.csv` files record the residual and the kink flag per plan; `cf1` binds them to `results/cf_pricing_residuals.csv`. The baseline is the model's own equilibrium at observed commissions, then at the solved commissions below; each year's baseline premiums are saved to `fixed_point_<year>.csv` as the next run's warm start.
 - Level: plan-cell, dollars per month (posted, 40-year-old basis).
 - Files: `cf_year.R`, `cf1_estimate.R`, `cf_cell.R`, `sum2_results.R`.
 
@@ -592,8 +592,8 @@ benefit designs), `data/input/meps_spending_by_demographics.csv` and
 - Chain: `summarize_cf_headline` (`welfare.R`) turns a welfare table into named statistics, each a mean over cells of a scenario's column minus the baseline (the tau gradient of `cs_nocomm`, the value of assistance as the difference between tau 1 and tau 0, and the five band components `dshare`, `dobjins`, `doop`, `dmort`, `dcat` per scenario). `cf3_se.R` draws demand coefficient vectors from the sandwich covariance (`N_BOOT_CF` draws, lambda kept inside (0.001, 0.999)), re-scores every cell at the cf1 premiums and commissions with each draw, and appends the statistics to `cf_bootstrap_draws.csv`; draws already in the file from the current inputs are kept on a restart. `sum2_results.R` computes the standard error of each scenario's coverage and central objective effect across the draws.
 - Files: `welfare.R`, `cf3_se.R`, `sum2_results.R`.
 
-### Counterfactual tables and macros: `counterfactual_results.tex`, `counterfactual_welfare_band.tex`, `counterfactual_fiscal.tex`, `cf_welfare_gradient.png`, `cf_premium_change.png`, `\cfZeroPremChg`
-- Chain: `sum2_results.R` averages each welfare column over cells by scenario, differences from the baseline, and pairs it with the share-weighted mean premium change from `counterfactual_results.csv`; the band table rebuilds the objective at the three uninsured-cost cases; the fiscal table reports the producer-surplus and government components; the two figures (`cs_nocomm` against tau; the premium change by scenario) are written but not placed in the paper; `\cfZeroPremChg` is the share-weighted premium change under `zero_tau1.00`.
+### Counterfactual tables and macros: `counterfactual_results.tex`, `counterfactual_welfare_band.tex`, `counterfactual_fiscal.tex`, `cf_welfare_gradient.png`, `cf_premium_change.png`, `\cfZeroPremChg`, `\cfZeroObjOOP`
+- Chain: `sum2_results.R` averages each welfare column over cells by scenario, differences from the baseline, and pairs it with the share-weighted mean premium change from the baseline equilibrium; the band table rebuilds the objective at the three uninsured-cost cases; the fiscal table reports the change in producer surplus and in each government component (subsidies, cost-sharing reductions, uncompensated care, penalties) and their total; the two figures (`cs_nocomm` against tau; the premium change by scenario) are written but not placed in the paper; `\cfZeroPremChg` is the share-weighted premium change under `zero_tau1.00`; `\cfZeroObjOOP` is the objective effect of `zero_tau0.00` with the uninsured valued at their out-of-pocket cost alone (`obj_insured` less `unins_oop`, differenced from the baseline).
 - Files: `sum2_results.R`.
 
 ---
@@ -605,9 +605,16 @@ benefit designs), `data/input/meps_spending_by_demographics.csv` and
 - Chain: `supp1_demand-specs.R` fits four nested specifications on the section 7 cells with the same estimator (plan attributes and premium; plus the demographic interactions and enrollment shifters; plus the channel and commission terms, which reproduces the body estimates; plus `cf_resid`, the Hausman control function from `build3_data-prep.R`), and reports the enrollment-weighted mean own-price elasticity, `lambda`, the navigator and agent effects on the silver share in percentage points (the within-nest silver share with and without the channel terms), and the two commission coefficients.
 - Files: `supp1_demand-specs.R`, `estimate_demand.R`, `build3_data-prep.R`.
 
-### PBE robustness: `pbe_robustness.csv`, `pbe_robustness.tex`
-- Chain: `supp4_pbe-robustness.R` marks household-years with a PBE service channel in the raw enrollment file, drops them from copies of the cells (`choice_cells_noPBE/`), re-estimates the body specification on both samples, and tabulates the premium, AV, channel, commission and nesting parameters.
+### PBE robustness: `pbe_share.csv`, `pbe_robustness.csv`, `pbe_robustness.tex`
+- Chain: `supp4_pbe-robustness.R` marks household-years with a PBE service channel in the raw enrollment file, writes their count and share of the cells' household-years (`pbe_share.csv`), drops them from copies of the cells (`choice_cells_noPBE/`), re-estimates the body specification on both samples, and tabulates the premium, AV, channel, commission and nesting parameters.
 - Files: `supp4_pbe-robustness.R`, `supp1_demand-specs.R`.
+
+### Prior-year plan check: `previous_choice`, `inertia_lag.csv`, `inertia_lag.tex`, `inertia_switching_cost.csv`
+- Paper: the inertia section of the supplemental appendix.
+- Raw: `pra_07192019.csv` field `plan_id` by household and enrollment year, as carried in `hh_choice.csv` (section 1).
+- Chain: `supp6_inertia-lag.R` takes each household's plan in the prior year from `hh_choice.csv` (CSR silver variants collapsed and the micro-carriers folded into `OS_` by metal, as in the cells), writes copies of the section 7 cells (`choice_cells_lag/`) with `previous_choice` = 1 on the inside row whose plan matches it (0 in 2014 and for households without a prior-year plan), and re-estimates the body specification with the indicator in the enrollment inclusive value. The table sets the premium, AV, channel, commission, indicator and nesting parameters next to the body estimates from `s2_demand.R`, and `inertia_switching_cost.csv` divides the indicator's coefficient by the member-weighted mean premium slope (base slope with its demographic interactions) to give a switching cost in dollars per member per year.
+- Level: household-plan row; indicator.
+- Files: `supp6_inertia-lag.R`, `estimate_demand.R`, `covariates.R`.
 
 ### Cost-sharing schedule: `cost_sharing_schedule.tex`
 - Chain: `supp2_cost-sharing-table.R` formats the 2019 rows of `ca_standard_cost_sharing.csv`.
@@ -617,9 +624,9 @@ benefit designs), `data/input/meps_spending_by_demographics.csv` and
 - Chain: `supp3_channel-table.R` tabulates the raw `service_channel` codes and their shares of records in `pra_07192019.csv` with the category each maps to (section 3).
 - Files: `supp3_channel-table.R`.
 
-### Simulations: `menu_simulation.tex`, `gatekeeper_selection.tex`, `commission_inertia_sim.tex`
-- Chain: `supp5_menu-simulation.R` and `supp6_commission-inertia-sim.R` generate their own data from stated primitives and use no project variables; the first fits the commission-in-utility model on choices from a restricted-menu process, the second compares static and dynamic commission effects.
-- Files: `supp5_menu-simulation.R`, `supp6_commission-inertia-sim.R`.
+### Menu simulation: `menu_simulation.tex`, `gatekeeper_selection.tex`
+- Chain: `supp5_menu-simulation.R` generates its own data from stated primitives and uses no project variables; it fits the commission-in-utility model on choices from a restricted-menu process.
+- Files: `supp5_menu-simulation.R`.
 
 ### Channel persistence: `channel_transitions.csv`, `channel_retention.csv`, `channel_status_next.csv`
 - Paper: not placed in the paper or the appendix at present.

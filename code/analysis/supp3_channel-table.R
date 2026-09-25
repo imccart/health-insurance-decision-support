@@ -31,4 +31,3 @@ for (i in seq_len(nrow(tab))) {
 }
 lines <- c(lines, "\\hline\\hline", "\\end{tabular}")
 writeLines(lines, "results/tables/assistance_channels.tex")
-cat(paste(lines, collapse = "\n"), "\n")

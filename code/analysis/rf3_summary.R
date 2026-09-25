@@ -141,6 +141,9 @@ ins_final <- ins_summary %>%
   left_join(bs_ins, by = "insurer_abbr") %>%
   mutate(ci_lo = att - 1.96 * se, ci_hi = att + 1.96 * se)
 
+write_csv(metal_final, "results/choice_att_metal.csv")
+write_csv(ins_final,   "results/choice_att_insurer.csv")
+
 
 # Print summaries ----------------------------------------------------------
 
@@ -201,7 +204,7 @@ if (file.exists(new_file)) {
 
 
 # Appendix: pooled plan-choice specs, progressive sequence ---------------------
-# Companion to the dominated-choice table. rf2 Phase 5 writes the three fits;
+# Companion to the dominated-choice table. rf2 Phase 5 writes the two fits;
 # here they become the bare tabular the appendix wraps. Written only if Phase 5
 # ran, so a partial rf2 does not leave a stale table behind.
 
@@ -209,11 +212,10 @@ ap_labels <- c(premium         = "Premium",
                assisted_silver = "Navigator $\\times$ Silver",
                assisted_bronze = "Navigator $\\times$ Bronze",
                broker_silver   = "Agent $\\times$ Silver",
-               broker_bronze   = "Agent $\\times$ Bronze",
-               cf_silver       = "CF $\\times$ Silver",
-               cf_bronze       = "CF $\\times$ Bronze")
+               broker_bronze   = "Agent $\\times$ Bronze")
 
-ap <- read_csv("results/choice_appendix_pooled.csv", show_col_types = FALSE)
+ap <- read_csv("results/choice_appendix_pooled.csv", show_col_types = FALSE) %>%
+  filter(spec %in% c("attrs", "full"))
 
 ap_body <- ap %>%
   filter(term %in% names(ap_labels)) %>%
@@ -221,20 +223,17 @@ ap_body <- ap %>%
          cell = sprintf("%.4f (%.4f)", estimate, std_error)) %>%
   select(Variable, spec, cell) %>%
   pivot_wider(names_from = spec, values_from = cell, values_fill = "") %>%
-  select(Variable, `(1)` = attrs, `(2)` = full, `(3)` = full_cf)
+  select(Variable, `(1)` = attrs, `(2)` = full)
 
 ap_notes <- tibble(
-  Variable = c("Premium $\\times$ demographics", "Control function",
-               "Households", "Log-likelihood"),
-  `(1)` = c("", "", format(ap$n_hh[1], big.mark = ","),
+  Variable = c("Premium $\\times$ demographics", "Households", "Log-likelihood"),
+  `(1)` = c("", format(ap$n_hh[1], big.mark = ","),
             formatC(ap$log_lik[ap$spec == "attrs"][1], format = "d", big.mark = ",")),
-  `(2)` = c("X", "", format(ap$n_hh[1], big.mark = ","),
-            formatC(ap$log_lik[ap$spec == "full"][1], format = "d", big.mark = ",")),
-  `(3)` = c("X", "X", format(ap$n_hh[1], big.mark = ","),
-            formatC(ap$log_lik[ap$spec == "full_cf"][1], format = "d", big.mark = ","))
+  `(2)` = c("X", format(ap$n_hh[1], big.mark = ","),
+            formatC(ap$log_lik[ap$spec == "full"][1], format = "d", big.mark = ","))
 )
 
 ap_tex <- kable(bind_rows(ap_body, ap_notes), format = "latex", booktabs = TRUE,
-                align = c("l", "c", "c", "c"), linesep = "", escape = FALSE)
+                align = c("l", "c", "c"), linesep = "", escape = FALSE)
 writeLines(as.character(ap_tex), "results/tables/choice_appendix_pooled.tex")
 

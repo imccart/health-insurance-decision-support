@@ -68,4 +68,4 @@ source("code/analysis/supp2_cost-sharing-table.R")
 source("code/analysis/supp3_channel-table.R")
 source("code/analysis/supp4_pbe-robustness.R")        # reads the body spec from supp1
 source("code/analysis/supp5_menu-simulation.R")
-source("code/analysis/supp6_commission-inertia-sim.R")
+source("code/analysis/supp6_inertia-lag.R")           # body spec with a prior-year plan indicator

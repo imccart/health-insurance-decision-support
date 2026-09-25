@@ -36,4 +36,3 @@ for (i in seq_len(nrow(cs19))) {
 lines <- c(lines, "\\hline\\hline", "\\end{tabular}")
 
 writeLines(lines, "results/tables/cost_sharing_schedule.tex")
-cat(paste(lines, collapse = "\n"), "\n")

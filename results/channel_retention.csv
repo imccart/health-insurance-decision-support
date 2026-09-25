@@ -1,0 +1,10 @@
+channel,n,retained,sample
+Agent,1546227,0.8978823937235606,All enrollees
+Navigator,690470,0.88090286326705,All enrollees
+Unassisted,1193286,0.8826593121850085,All enrollees
+Agent,656950,0.8817170256488317,New enrollees
+Navigator,380548,0.8638673702134816,New enrollees
+Unassisted,527970,0.8700210239218137,New enrollees
+Agent,889277,0.9098244978786137,Continuing enrollees
+Navigator,309922,0.9018204580507353,Continuing enrollees
+Unassisted,665316,0.8926885870774188,Continuing enrollees

@@ -68,8 +68,6 @@ a  <- opt$par[1]; d <- c(0, opt$par[2:K]); bC <- opt$par[K + 1]
 PB_fit <- softmax(a * price + d + bC * commission)
 
 max_diff <- max(abs(s_b - PB_fit)); corr <- cor(s_b, PB_fit)
-cat(sprintf("Baseline: commission coef = %.3f, max abs diff = %.4f, correlation = %.4f\n",
-            bC, max_diff, corr))
 write.csv(data.frame(commission_coef = bC, max_abs_diff = max_diff, correlation = corr),
           "results/menu_simulation_stats.csv", row.names = FALSE)
 
@@ -140,7 +138,6 @@ for (nm in c("aligned", "orthogonal")) {
   }
 }
 sel <- bind_rows(rows); rownames(sel) <- NULL
-cat("Selection sweep (strength 0 is the baseline):\n"); print(sel, digits = 4)
 write.csv(sel, "results/gatekeeper_selection_stats.csv", row.names = FALSE)
 
 lines <- c("\\begin{tabular}{lrrrr}", "\\hline\\hline",

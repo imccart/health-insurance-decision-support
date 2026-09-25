@@ -25,7 +25,6 @@ pra <- fread("data/input/Covered California/pra_07192019.csv",
 setnames(pra, c("household_number", "year", "service_channel"))
 pbe_keys <- unique(pra[service_channel == "PBE", .(household_number, year = as.integer(year))])
 pbe_keys[, is_pbe := 1L]
-cat("PBE household-years in raw enrollment:", format(nrow(pbe_keys), big.mark = ","), "\n")
 
 # Filter the cells: drop PBE households, write to a parallel directory -----
 dir.create(FILT_DIR, showWarnings = FALSE)
@@ -40,19 +39,18 @@ for (f in list.files(CELL_DIR, full.names = TRUE)) {
   n_total <- n_total + nrow(hh); n_pbe <- n_pbe + sum(hh$is_pbe)
   d[is_pbe == 0L][, is_pbe := NULL] |> fwrite(file.path(FILT_DIR, basename(f)))
 }
-cat(sprintf("PBE households in 20%% cells: %s of %s (%.3f%%)\n",
-            format(n_pbe, big.mark = ","), format(n_total, big.mark = ","),
-            n_pbe / n_total * 100))
+write.csv(data.frame(n_pbe = n_pbe, n_total = n_total, pct_pbe = n_pbe / n_total * 100),
+          "results/pbe_share.csv", row.names = FALSE)
 
-# Estimate the body spec on the full and the PBE-excluded samples ----------
+# Full-sample estimates from s2; the body spec re-estimated without PBE ------
 fit_nested <- function(dir, covars) {
   cells <- normalize_weights(load_all_cells(dir, covars, filter_assisted = -1L)$cells)
-  excl_idx <- match(extensive_exclude_terms(covars), covars)   # two-part nested logit, as in s2_demand
-  for (ci in seq_along(cells)) cells[[ci]]$excl_idx <- excl_idx
+  cells <- prepare_cells(cells, covars, extensive_exclude_terms(covars))   # channel-state enrollment margin, as in s2_demand
   setNames(bfgs_bhhh(c(rep(0, length(covars)), 1.0), cells), c(covars, "lambda"))
 }
-cat("\n=== full sample (body spec) ===\n");     full  <- fit_nested(CELL_DIR, body_covars)
-cat("\n=== PBE-excluded (body spec) ===\n");     noPBE <- fit_nested(FILT_DIR, body_covars)
+body  <- read.csv("results/choice_coefficients_structural.csv", stringsAsFactors = FALSE)
+full  <- setNames(body$estimate, body$term)
+noPBE <- fit_nested(FILT_DIR, body_covars)
 
 # Compare the price, steering, and nesting parameters ----------------------
 key <- c("premium", "av", "assisted_av", "broker_av", "assisted_premium", "broker_premium",
@@ -82,4 +80,3 @@ for (t in names(lab))
 tl <- c(tl, "\\hline\\hline", "\\end{tabular}")
 writeLines(tl, "results/tables/pbe_robustness.tex")
 
-print(comp, row.names = FALSE)

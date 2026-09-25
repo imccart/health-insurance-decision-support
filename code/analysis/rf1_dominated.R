@@ -18,7 +18,7 @@
 # =========================================================================
 
 
-# Prepped HH panel (augmented with v_hat) from build3_data-prep.
+# Prepped HH panel from build3_data-prep.
 hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
 
 # Appendix pooled specifications, all on ALL enrollees, reported as a progressive
@@ -33,13 +33,6 @@ hh_full <- fread(file.path(TEMP_DIR, "hh_full_prepped.csv")) %>% as_tibble()
 # feols was silently dropping them for collinearity. Income variation that does
 # survive is the 1.50 FPL line, which is where the definition of dominance
 # itself changes, so it is not a control -- it is part of the outcome.
-#
-# The sequence ends in two terminal specifications that never appear together.
-# Column 4 adds the broker-density control function without region FE; column 5
-# adds region FE without the control function. Both is incoherent, not merely
-# underpowered: n_agents varies at the region-year level, so region FE leaves the
-# instrument nothing to work with, and region FE only becomes a legitimate
-# first-stage covariate once the second stage carries it too.
 #
 # The new-enrollee comparison is the body's prediction-based ATT re-run on new
 # enrollees (dominated_new_vs_all.csv below).
@@ -68,17 +61,8 @@ mod3 <- feols(
   cluster = "region", data = hh_full, weights = ~ipweight
 )
 
-# (4) full controls + control function, no region FE
+# (4) full controls + region FE
 mod4 <- feols(
-  dominated_choice ~ assisted + v_hat +
-    perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
-    perc_black + perc_hispanic + perc_asian + perc_other +
-    household_size + new_enrollee | year,
-  cluster = "region", data = hh_full, weights = ~ipweight
-)
-
-# (5) full controls + region FE, no control function
-mod5 <- feols(
   dominated_choice ~ assisted +
     perc_0to17 + perc_18to34 + perc_35to54 + perc_male +
     perc_black + perc_hispanic + perc_asian + perc_other +
@@ -99,7 +83,6 @@ gc(verbose = FALSE)
 # Hand-built regression table (modelsummary backends unreliable for this layout)
 coef_labels <- c(
   "assisted"       = "Assisted",
-  "v_hat"          = "CF Residual",
   "household_size" = "HH Size",
   "new_enrollee"   = "New Enrollee"
 )
@@ -137,19 +120,18 @@ extract_col <- function(mod, terms) {
 terms <- names(coef_labels)
 row_labels <- as.vector(rbind(unname(coef_labels), ""))
 
-mods <- list(mod1, mod2, mod3, mod4, mod5)
-col_names <- c("(1)", "(2)", "(3)", "(4)", "(5)")
+mods <- list(mod1, mod2, mod3, mod4)
+col_names <- c("(1)", "(2)", "(3)", "(4)")
 
 tab <- data.frame(Variable = row_labels, stringsAsFactors = FALSE)
 for (j in seq_along(mods)) tab[[col_names[j]]] <- extract_col(mods[[j]], terms)
 
 spec_rows <- data.frame(
-  Variable = c("Demographics", "Year FE", "Region FE", "Control Function"),
-  `(1)` = c("", "", "", ""),
-  `(2)` = c("X", "", "", ""),
-  `(3)` = c("X", "X", "", ""),
-  `(4)` = c("X", "X", "", "X"),
-  `(5)` = c("X", "X", "X", ""),
+  Variable = c("Demographics", "Year FE", "Region FE"),
+  `(1)` = c("", "", ""),
+  `(2)` = c("X", "", ""),
+  `(3)` = c("X", "X", ""),
+  `(4)` = c("X", "X", "X"),
   check.names = FALSE, stringsAsFactors = FALSE
 )
 
@@ -303,5 +285,5 @@ ggsave("results/figures/dom_choice.png", plot_att, width = 6, height = 4, bg = "
 
 # Free hh_po and bootstrap residues; the structural block is done with HH data.
 rm(hh_po, hh_po_all, boot_any, boot_agent, boot_nav,
-   mod1, mod2, mod3, mod4, mod5)
+   mod1, mod2, mod3, mod4)
 gc(verbose = FALSE)

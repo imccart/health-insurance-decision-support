@@ -26,7 +26,6 @@
 
 # Hyperparameters ---------------------------------------------------------
 CELL_DIR <- file.path(TEMP_DIR, "choice_cells")   # built by s2_demand (full spec, 20%)
-stopifnot("choice_cells not found — run s2_demand.R first" = dir.exists(CELL_DIR))
 
 # Specification sequence --------------------------------------------------
 price     <- "premium"
@@ -44,32 +43,26 @@ enroll_int <- c("hh_size_insured", "perc_0to17_insured", "perc_18to34_insured",
                 "perc_35to54_insured", "perc_male_insured", "perc_black_insured",
                 "perc_hispanic_insured", "perc_asian_insured", "perc_other_insured",
                 "FPL_250to400_insured", "FPL_400plus_insured")
-steering  <- c("assisted_av", "broker_av", "assisted_premium", "broker_premium",
-               "commission_broker", "commission_broker_sq")
 cfun      <- "cf_resid"
 
 spec1 <- c(price, plan_attr)
 spec2 <- c(spec1, demo_het, enroll_int)
-spec3 <- c(spec2, steering)          # = body model
+spec3 <- read.csv(file.path(TEMP_DIR, "demand_spec.csv"))$term   # = body model
 spec4 <- c(spec3, cfun)
-# spec3 must equal the body spec; a drifted duplicate makes the sanity check
-# below meaningless
-stopifnot(setequal(spec3, read.csv(file.path(TEMP_DIR, "demand_spec.csv"))$term))
 
 # Fitter ------------------------------------------------------------------
 fit_nested <- function(covars) {
   cells <- normalize_weights(load_all_cells(CELL_DIR, covars, filter_assisted = -1L)$cells)
-  excl_idx <- match(extensive_exclude_terms(covars), covars)   # two-part nested logit, as in s2_demand
-  for (ci in seq_along(cells)) cells[[ci]]$excl_idx <- excl_idx
+  cells <- prepare_cells(cells, covars, extensive_exclude_terms(covars))   # channel-state enrollment margin, as in s2_demand
   theta <- bfgs_bhhh(c(rep(0, length(covars)), 1.0), cells)
   setNames(theta, c(covars, "lambda"))
 }
 
 # Estimate ----------------------------------------------------------------
-cat("\n=== (1) plan attributes + premium ===\n");   col1 <- fit_nested(spec1)
-cat("\n=== (2) + demographic heterogeneity ===\n"); col2 <- fit_nested(spec2)
-cat("\n=== (3) + steering [body model] ===\n");      col3 <- fit_nested(spec3)
-cat("\n=== (4) + control function ===\n");           col4 <- fit_nested(spec4)
+col1 <- fit_nested(spec1)
+col2 <- fit_nested(spec2)
+col3 <- fit_nested(spec3)
+col4 <- fit_nested(spec4)
 
 fits <- list(col1, col2, col3, col4)
 
@@ -80,18 +73,13 @@ fit_wide  <- data.frame(term = all_terms,
 names(fit_wide)[-1] <- paste0("col", seq_along(fits))
 write.csv(fit_wide, "results/demand_spec_fits.csv", row.names = FALSE)
 
-# Sanity check: col (3) reproduces the body estimates.
-main <- read.csv("results/choice_coefficients_structural.csv", stringsAsFactors = FALSE)
-chk  <- merge(data.frame(term = names(col3), spec3 = as.numeric(col3)), main, by = "term")
-cat(sprintf("\n  Col (3) vs body demand estimates: max abs diff = %.6f\n",
-            max(abs(chk$spec3 - chk$estimate))))
-
 # Cell data for the elasticity and marginal-effect computations -----------
 prem_map <- get_prem_interactions(spec4)
 raw_demo <- unique(unlist(prem_map))
 need <- unique(c("region", "year", "household_number", "plan_id", "choice",
                  "hh_weight", "hh_size", "premium", "silver", "bronze", "av",
-                 "comm_pmpm", "comm_hh", spec4, raw_demo))
+                 "comm_pmpm", "comm_hh", "p_none_hat", "p_nav_hat", "p_agent_hat",
+                 spec4, raw_demo))
 dat <- rbindlist(lapply(list.files(CELL_DIR, full.names = TRUE), function(f) {
   d <- fread(f); d[, intersect(need, names(d)), with = FALSE]
 })) %>% as_tibble()
@@ -170,9 +158,6 @@ mfx <- sapply(fits, assist_mfx)        # rows: nav, brk
 avg_price <- pe["price", ]; avg_elast <- pe["elast", ]
 nav_mfx   <- mfx["nav", ];  brk_mfx   <- mfx["brk", ]
 
-cat("\n  mean own-price elast.:", paste(round(avg_elast, 3), collapse = "  "), "\n")
-cat("  navigator silver (pp):", paste(round(nav_mfx, 2), collapse = "  "), "\n")
-cat("  broker silver (pp):   ", paste(round(brk_mfx, 2), collapse = "  "), "\n")
 
 # CSV (all summaries, for traceability) -----------------------------------
 getp <- function(f, t) if (t %in% names(f)) unname(f[t]) else NA_real_
@@ -208,4 +193,3 @@ for (r in rows) {
 }
 lines <- c(lines, "\\hline\\hline", "\\end{tabular}")
 writeLines(lines, "results/tables/demand_spec_sensitivity.tex")
-cat(paste(lines, collapse = "\n"), "\n")

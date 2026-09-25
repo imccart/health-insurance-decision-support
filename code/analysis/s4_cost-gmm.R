@@ -127,6 +127,9 @@ rs_ols <- lm(reformulate(c(RS_IM_TERMS, RS_DEMO_TERMS), "log_risk_score"),
 rs_ols$coefficients[is.na(rs_ols$coefficients)] <- 0
 alpha_names <- c("(Intercept)", RS_IM_TERMS, RS_DEMO_TERMS)
 ALPHA_FIXED <- unname(coef(rs_ols)[alpha_names])
+rs_tab <- summary(rs_ols)$coefficients
+write_csv(tibble(term = rownames(rs_tab), estimate = rs_tab[, 1], se = rs_tab[, 2]),
+          "results/risk_score_coefficients.csv")
 
 # --- M2 data matrices (rate filing PUF claims) ---
 # Weights: member months normalized within insurer group, so every group carries

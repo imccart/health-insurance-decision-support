@@ -58,6 +58,14 @@ cf_results <- tryCatch(
   error = function(e) { cat("  counterfactual_results.csv not found\n"); NULL }
 )
 if (!is.null(cf_results)) {
+  # premium_change is measured from the baseline equilibrium, the reference for
+  # every other counterfactual column
+  cf_results <- cf_results %>%
+    left_join(cf_results %>% filter(scenario == "baseline") %>%
+                select(region, year, plan_id, premium_base = premium_cf),
+              by = c("region", "year", "plan_id")) %>%
+    mutate(premium_change = premium_cf - premium_base) %>%
+    select(-premium_base)
   cf_welfare <- tryCatch(read_csv("results/counterfactual_welfare.csv", show_col_types = FALSE),
                          error = function(e) { cat("  counterfactual_welfare.csv not found\n"); NULL })
   if (!is.null(cf_welfare))
@@ -370,6 +378,8 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     "share_400plus"     = "Share FPL above 400\\%",
     "share_male"        = "Share male",
     "share_family"      = "Share family households",
+    "share_0to34"       = "Share age 0--34",
+    "share_minority"    = "Share minority",
     "share_asian"       = "Share Asian",
     "share_black"       = "Share Black",
     "share_hispanic"    = "Share Hispanic",
@@ -399,7 +409,11 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     "log_size"          = "Log insurer enrollment"
   )
 
-  rs <- cost_coefs %>% filter(equation == "risk_score")
+  # Risk score equation: the weighted OLS s4 holds fixed; the insurer-by-metal
+  # effects are summarized in one row
+  rs <- read_csv("results/risk_score_coefficients.csv", show_col_types = FALSE) %>%
+    filter(!startsWith(term, "im_")) %>%
+    rename(param = term)
   cl <- cost_coefs %>% filter(equation == "claims", !str_detect(param, "^share_ra"))
   has_region <- any(cost_coefs$equation == "claims" & str_detect(cost_coefs$param, "^share_ra"))
 
@@ -413,7 +427,8 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
       sprintf("%s & %s \\\\", lab, formatC(rs$estimate[i], format = "f", digits = 4)),
       sprintf(" & (%s) \\\\", formatC(rs$se[i], format = "f", digits = 4)))
   }
-  tab_lines <- c(tab_lines, "\\hline", "\\emph{Claims equation} & \\\\")
+  tab_lines <- c(tab_lines, "Insurer-by-metal effects & Yes \\\\",
+                 "\\hline", "\\emph{Claims equation} & \\\\")
   for (i in seq_len(nrow(cl))) {
     lab <- ifelse(cl$param[i] %in% names(cost_labels), cost_labels[cl$param[i]],
                   gsub("_", "\\\\_", cl$param[i]))
@@ -556,6 +571,10 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
               oop = mean(unins_oop, na.rm = TRUE), mort = mean(unins_mort, na.rm = TRUE),
               cat = mean(unins_cat, na.rm = TRUE), .groups = "drop")
   obs_w  <- comp_means %>% filter(scenario == "baseline")
+  # Objective effect of removing assistance with the uninsured valued at their
+  # out-of-pocket cost alone
+  cf_zero_obj_oop <- with(comp_means %>% filter(scenario == "zero_tau0.00"),
+                          (ins - oop) - (obs_w$ins - obs_w$oop))
   obs_ob <- sapply(c("low", "central", "high"), function(cs) obj_band(obs_w, cs))
 
   welf_summary <- comp_means %>%
@@ -571,7 +590,8 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       d_obj    = obj_band(., "central")  - obs_ob[["central"]],  # central objective
       d_obj_hi = obj_band(., "high")     - obs_ob[["high"]]
     ) %>%
-    select(scenario, d_cs, d_nav, d_ps, d_gov, d_shu, d_obj_low, d_obj, d_obj_hi)
+    select(scenario, d_cs, d_nav, d_ps, d_gov, d_gov_sub, d_gov_csr, d_gov_uc, d_gov_pen,
+           d_shu, d_obj_low, d_obj, d_obj_hi)
 
   prem_summary <- cf_results %>%
     group_by(scenario, tau) %>%
@@ -581,30 +601,21 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       .groups = "drop"
     )
 
-  # Readable labels + display order. Every scenario the pipeline solves appears
-  # here; add a row when a new scenario family is introduced in cf1_estimate.R.
+  # Labels and display order of the reported scenarios
   scen_levels <- c("baseline",
                    "zero_tau0.00", "zero_tau0.50", "zero_tau1.00",
-                   "uniform_low", "uniform_low_k0.75", "uniform_low_k1.25",
-                   "aligned", "scale_0.50",
+                   "uniform_low", "aligned", "scale_0.50",
                    "flat_mandate", "defund_0.50", "endog_tau0.50")
   scen_labels <- c(baseline = "Baseline",
                    zero_tau0.00 = "Zero commission",
                    zero_tau0.50 = "Zero commission",
                    zero_tau1.00 = "Zero commission",
                    uniform_low = "Low uniform commission",
-                   "uniform_low_k0.75" = "Low uniform commission (band low)",
-                   "uniform_low_k1.25" = "Low uniform commission (band high)",
                    aligned = "Aligned commissions",
                    scale_0.50 = "Scaled commission (50\\%)",
                    flat_mandate = "Flat-fee mandate",
                    defund_0.50 = "Navigator defunding (50\\%)",
                    endog_tau0.50 = "Agents to navigators (endog.\\ commissions)")
-
-  missing_scen <- setdiff(unique(as.character(prem_summary$scenario)), scen_levels)
-  if (length(missing_scen) > 0)
-    cat("  WARNING: scenarios missing from label map (dropped from table):",
-        paste(missing_scen, collapse = ", "), "\n")
 
   cf_summary <- prem_summary %>%
     left_join(welf_summary, by = "scenario") %>%
@@ -642,15 +653,12 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     zero_tau0.00 = "Zero commission",
     zero_tau0.50 = "Zero commission",
     zero_tau1.00 = "Zero commission",
-    uniform_low = "Low uniform commission",
-    "uniform_low_k0.75" = "Low uniform commission", "uniform_low_k1.25" = "Low uniform commission",
     scale_0.50 = "Scaled commission",
     defund_0.50 = "Navigator defunding")
   sub_label <- c(
     zero_tau0.00 = "$\\tau=0.00$",
     zero_tau0.50 = "$\\tau=0.50$",
     zero_tau1.00 = "$\\tau=1.00$",
-    uniform_low = "point", "uniform_low_k0.75" = "band low", "uniform_low_k1.25" = "band high",
     scale_0.50 = "50\\%",
     defund_0.50 = "50\\%")
   band_lines <- c(
@@ -908,6 +916,8 @@ if (length(lambda_hat) == 1) {
 }
 
 add_num("nDemandParams", nrow(coefs_structural), 0)
+add_num("nDemandHH", sum(vapply(cell_files, function(f)
+  uniqueN(fread(f, select = "household_number")$household_number), numeric(1))), 0)
 
 # Supply headline, at the GMM marginal cost (mc_gmm.csv, as in the supply table)
 if (nrow(supply_results) > 0) {
@@ -920,6 +930,10 @@ if (nrow(supply_results) > 0) {
   add_num("meanMarkup", mean(sr$markup, na.rm = TRUE))
   add_num("meanLerner", mean(sr$lerner_index, na.rm = TRUE), 3)
   add_num("nSupplyCells", length(unique(paste(sr$region, sr$year))), 0)
+  add_num("nPlanCells", nrow(sr), 0)
+  add_num("nPlanCellsFOC", sum(sr$share >= 0.005, na.rm = TRUE), 0)
+  add_num("mcFitCorr", cor(sr$mc_foc, sr$mc_gmm_net, use = "complete.obs"), 2)
+  add_num("nNegMC", sum(sr$mc_gmm_net < 0, na.rm = TRUE), 0)
 }
 
 # Counterfactual headline
@@ -929,6 +943,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     add_num("cfZeroPremChg", weighted.mean(zero_full$premium_change,
                                             zero_full$share_obs, na.rm = TRUE))
   }
+  if (exists("cf_zero_obj_oop")) add_num("cfZeroObjOOP", cf_zero_obj_oop, 0)
 }
 
 writeLines(numbers, "results/tables/paper-numbers.tex")

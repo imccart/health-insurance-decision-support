@@ -12,8 +12,8 @@
 ##                observed schedules persisted as the fit check
 ##                (results/cf_baseline_commissions.csv). Scenarios per year:
 ##                where the rate is the policy (the zero-commission removal
-##                gradient over TAU_GRID, the headline low-uniform commission
-##                with band-edge runs, one scaled-schedule point, aligned, the
+##                gradient over TAU_GRID, the headline low-uniform commission,
+##                one scaled-schedule point, aligned, the
 ##                flat-fee mandate) the schedule is imposed and premiums
 ##                re-solve; where the shock changes who is agent-assisted
 ##                (navigator defunding, navigator expansion endog_tau) the
@@ -68,7 +68,6 @@ ENDOG_TAU_GRID <- c(0.5)           # agents -> navigators with the rest keeping
                                    # agents, rates re-solved (navigator expansion)
 SCALE_GRID     <- c(0.5)           # commission level scaled down
 UNIFORM_LOW_SC <- 0.5              # headline: uniform commission at this fraction of the cell mean
-BAND_EDGES     <- c(0.75, 1.25)    # band-edge runs on the headline scenario
 
 # Per-scenario row files are cleared each run; fixed_point_<y>.csv persists as
 # the warm start for the next run's baseline iteration.
@@ -311,22 +310,9 @@ for (y in years) {
 
   # Headline: a uniform commission at UNIFORM_LOW_SC of the cell mean, which
   # removes differential steering and cuts the level while keeping the agent
-  # channel alive; band-edge runs bound the commission response
-  run_banded <- function(label, tau, spec_point, P_init, comm_scale_point = NA_real_) {
-    out <- run_scenario(label, tau, spec_point, P_init, comm_scale = comm_scale_point)
-    for (bk in BAND_EDGES) {
-      spec_b <- spec_point
-      if (identical(spec_b$comm, "flatbar")) spec_b$levels <- spec_point$levels * bk
-      else if (identical(spec_b$comm, "uniform"))
-        spec_b$u_sc <- (if (is.null(spec_point$u_sc)) 1 else spec_point$u_sc) * bk
-      else { spec_b$comm <- "scale"; spec_b$sc <- bk }
-      run_scenario(paste0(label, "_k", sprintf("%.2f", bk)), tau, spec_b,
-                   if (!is.null(out)) out$P else P_init, comm_scale = NA_real_)
-    }
-    out
-  }
-  run_banded("uniform_low", NA_real_,
-             list(comm = "uniform", u_sc = UNIFORM_LOW_SC), P_base)
+  # channel alive
+  run_scenario("uniform_low", NA_real_,
+               list(comm = "uniform", u_sc = UNIFORM_LOW_SC), P_base, comm_scale = NA_real_)
 
   for (sc in SCALE_GRID)
     run_scenario(paste0("scale_", sprintf("%.2f", sc)), NA_real_,
