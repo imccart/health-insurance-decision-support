@@ -1,0 +1,206 @@
+% !TeX program = xelatex
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{positioning}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{natbib}
+
+\usepackage{theme/beamerthemeResearch}
+
+\title[Decision Assistance \& Steering]{Decision Assistance and Steering\\ in Health Insurance}
+\subtitle{Brown bag}
+\author{Ian McCarthy \& Evan Saltzman}
+\institute{Department of Economics, Emory University}
+\date{\today}
+
+\begin{document}
+
+% Title
+\begin{frame}[plain,noframenumbering]
+  \titlepage
+\end{frame}
+
+% ── Motivation ──────────────────────────────────────────────
+\section{Motivation}
+\sectionframe
+
+\begin{frame}{Intermediaries help consumers, but their incentives may not align with consumers'}
+  Home buyers use realtors, investors use financial advisors, insurance buyers use agents.
+
+  \vspace{0.3cm}
+  Intermediaries reduce the cost of a complex decision, but are often paid in a way that depends on which option the consumer picks.
+
+  \vspace{0.3cm}
+  When commissions vary by option, the intermediary's advice is no longer necessarily disinterested.
+\end{frame}
+
+\begin{frame}{Health insurance agents are paid commissions that vary by plan}
+  In Medicare Advantage: 43.7\% of new enrollees and 69.8\% of existing policyholders used an agent in 2022, generating \$10.1 billion in commissions.
+
+  \vspace{0.3cm}
+  In the ACA exchanges: 78\% of active enrollments were agent-facilitated in 2024.
+
+  \vspace{0.3cm}
+  Question: does assistance help consumers choose better, and does commission-based steering undo that benefit?
+\end{frame}
+
+\begin{frame}{What we do}
+  Consumer-level enrollment data from the California ACA exchange, 2014--2019.
+
+  \vspace{0.2cm}
+  \begin{enumerate}
+    \item Design-based estimate of how decision assistance affects plan choice (dominated-plan selection)
+    \item Structural model of household choice + insurer pricing and commissions
+    \item Counterfactuals: remove assistance, reshape commissions, replace agents with navigators
+  \end{enumerate}
+\end{frame}
+
+% ── Data and Setting ────────────────────────────────────────
+\section{Data and Setting}
+\sectionframe
+
+\begin{frame}{The California ACA exchange}
+  Metal tiers (bronze/silver/gold/platinum), standardized cost-sharing within a tier.
+
+  \vspace{0.3cm}
+  Premium and cost-sharing subsidies tied to income; silver plans especially generous for low-income enrollees.
+
+  \vspace{0.3cm}
+  Two channels of decision assistance: public navigators (uncompensated) and private agents (commissioned).
+\end{frame}
+
+\begin{frame}{Data}
+  Nearly 8 million household-year observations, 2014--2019, including years in which eligible households were uninsured.
+
+  \vspace{0.3cm}
+  Each household's full choice set, premiums, subsidies, and assistance channel (if any) are observed.
+\end{frame}
+
+\begin{frame}{The dominated-plan test}
+  For cost-sharing-subsidy-eligible households, silver can be cheaper \emph{and} more generous than gold or platinum.
+
+  \vspace{0.3cm}
+  Choosing gold or platinum over silver in that case is a dominated choice -- a clean, model-free marker of a mistake.
+\end{frame}
+
+% ── Decision Assistance and Plan Choice ─────────────────────
+\section{Does Assistance Improve Choices?}
+\sectionframe
+
+\begin{frame}{Design: predict the unassisted choice, compare to the assisted one}
+  Inverse-propensity-weighted conditional logit estimated on unassisted households.
+
+  \vspace{0.3cm}
+  Use it to predict what assisted households would have chosen absent assistance -- an ATT on the treated.
+\end{frame}
+
+\begin{frame}{Assistance cuts dominated-plan selection by 42\%}
+  Overall: 42\% reduction (1.6 percentage points).
+
+  \vspace{0.2cm}
+  Public navigators: 25\% reduction. Private agents: 48\% reduction.
+
+  \vspace{0.3cm}
+  Private agents move the needle more than public navigators on this metric.
+\end{frame}
+
+% ── Structural Model ────────────────────────────────────────
+\section{A Model of Choice and Pricing}
+\sectionframe
+
+\begin{frame}{Households choose plans, possibly with help; insurers set premiums and commissions}
+  Households: choice among plans, with or without navigator/agent assistance.
+
+  \vspace{0.3cm}
+  Insurers: set premiums and agent commissions, facing risk adjustment and subsidy rules.
+\end{frame}
+
+\begin{frame}{Commissions steer enrollment}
+  A \$1 increase in monthly commission shifts agent-assisted enrollment as much as a \$1.47 reduction in net monthly premium.
+
+  \vspace{0.3cm}
+  In elasticity terms, a 1\% change in commissions moves agent-assisted demand roughly 0.22 as much as a 1\% change in premiums.
+\end{frame}
+
+\begin{frame}{Why this matters}
+  The model lets us separate three things that move together in the data:
+
+  \vspace{0.2cm}
+  \begin{enumerate}
+    \item the value assistance provides (better-matched plans)
+    \item the steering commissions introduce (worse-matched plans)
+    \item the premium pass-through of paying for commissions at all
+  \end{enumerate}
+\end{frame}
+
+% ── Welfare and Counterfactuals ──────────────────────────────
+\section{What Would Change Without Agents?}
+\sectionframe
+
+\begin{frame}{Counterfactual 1: withdraw decision assistance entirely}
+  Uninsured share rises by 6.1 percentage points.
+
+  \vspace{0.3cm}
+  Welfare falls, driven mainly by lost coverage rather than worse plan matches among those who stay enrolled.
+\end{frame}
+
+\begin{frame}{Counterfactual 2: reshape the commission schedule, keep assistance}
+  Welfare changes by less than \$50 per member per year.
+
+  \vspace{0.3cm}
+  Coverage barely moves. Commission \emph{design} is a second-order lever relative to whether assistance exists at all.
+\end{frame}
+
+\begin{frame}{Counterfactual 3: replace private agents with public navigators}
+  Coverage essentially unchanged.
+
+  \vspace{0.3cm}
+  Premiums fall because the commission costs insurers pass through to \emph{all} enrollees disappear.
+
+  \vspace{0.3cm}
+  Welfare rises.
+\end{frame}
+
+% ── Conclusion ───────────────────────────────────────────────
+\section{Conclusion}
+\sectionframe
+
+\begin{frame}{Decision assistance is worth having; who pays for it matters less than whether it exists}
+  Assistance improves plan choice; losing it costs coverage, not just match quality.
+
+  \vspace{0.3cm}
+  Commission-based steering is real but small relative to the value of assistance itself.
+
+  \vspace{0.3cm}
+  Policy relevance: federal navigator funding has been cut, restored, and cut again; MA has tried to cap agent commissions on steering grounds.
+\end{frame}
+
+% Bibliography
+% \bibliographystyle{aer}
+% \bibliography{BibTeX_Library}
+
+% Closing
+\closingframe{Ian McCarthy}{%
+  Department of Economics, Emory University\\[0.15cm]
+  \href{mailto:ian.mccarthy@emory.edu}{ian.mccarthy@emory.edu}\\[0.1cm]
+  \href{https://ianmccarthyecon.com}{ianmccarthyecon.com}%
+}
+
+%% ── Appendix ─────────────────────────────────────────────────
+\appendix
+\section{Appendix}
+
+\begin{frame}{Robustness: alternative decision-assistance definitions}
+  Results hold excluding plan-based enrollers and under alternative commission-utility and menu-restriction assumptions (see the paper's appendix).
+\end{frame}
+
+\begin{frame}{Additional structural model detail}
+  Supply-side first-order conditions, instruments, and identification of the commission wedge (appendix, Model Formulas).
+\end{frame}
+
+\end{document}
