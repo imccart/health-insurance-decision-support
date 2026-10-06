@@ -5,7 +5,7 @@
 \usepackage{booktabs}
 \usepackage{array}
 \usepackage{tikz}
-\usetikzlibrary{positioning}
+\usetikzlibrary{positioning,arrows.meta,calc}
 \usepackage{hyperref}
 \usepackage{amsmath}
 \usepackage{natbib}
@@ -17,6 +17,15 @@
 \author{Ian McCarthy \& Evan Saltzman}
 \institute{Department of Economics, Emory University}
 \date{\today}
+
+% ── Reusable stat callout: \statbox{width}{big number}{caption} ──
+\newcommand{\statbox}[3]{%
+  \begin{minipage}[t]{#1}
+    \centering
+    {\Huge\bfseries\color{emoryBlue}#2}\\[0.15cm]
+    {\small\color{emoryDark}#3}
+  \end{minipage}%
+}
 
 \begin{document}
 
@@ -30,23 +39,39 @@
 \sectionframe
 
 \begin{frame}{Intermediaries help consumers, but their incentives may not align with consumers'}
-  Home buyers use realtors, investors use financial advisors, insurance buyers use agents.
+  \begin{center}
+  \begin{tikzpicture}[
+    box/.style={draw=emoryBlue,thick,rounded corners,fill=emoryLightBlue,
+      minimum width=3.4cm,minimum height=1.8cm,text width=3.1cm,align=center,font=\small},
+  ]
+    \node<1->[box] (a) at (0,0) {Home buyers\\[2pt]\textcolor{emoryMid}{use realtors}};
+    \node<2->[box] (b) at (3.9,0) {Investors\\[2pt]\textcolor{emoryMid}{use financial advisors}};
+    \node<3->[box] (c) at (7.8,0) {Insurance buyers\\[2pt]\textcolor{emoryMid}{use agents}};
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.4cm}
+  \onslide<4->{Intermediaries reduce the cost of a complex decision, but are often paid in a way that depends on which option the consumer picks.}
 
   \vspace{0.3cm}
-  Intermediaries reduce the cost of a complex decision, but are often paid in a way that depends on which option the consumer picks.
-
-  \vspace{0.3cm}
-  When commissions vary by option, the intermediary's advice is no longer necessarily disinterested.
+  \onslide<5->{When commissions vary by option, the intermediary's advice is no longer necessarily disinterested.}
 \end{frame}
 
 \begin{frame}{Health insurance agents are paid commissions that vary by plan}
-  In Medicare Advantage: 43.7\% of new enrollees and 69.8\% of existing policyholders used an agent in 2022, generating \$10.1 billion in commissions.
+  \begin{center}
+  \onslide<1->{\statbox{3.3cm}{43.7\%}{of new MA enrollees used an agent in 2022}}%
+  \onslide<2->{\statbox{3.3cm}{69.8\%}{of existing MA policyholders used an agent}}%
+  \onslide<3->{\statbox{3.3cm}{\textcolor{emoryGold}{\$10.1B}}{paid in MA agent commissions (2022)}}
+  \end{center}
+
+  \vspace{0.5cm}
+  \onslide<4->{%
+  \begin{center}
+    \statbox{6cm}{78\%}{of ACA active enrollments were agent-facilitated in 2024}
+  \end{center}}
 
   \vspace{0.3cm}
-  In the ACA exchanges: 78\% of active enrollments were agent-facilitated in 2024.
-
-  \vspace{0.3cm}
-  Question: does assistance help consumers choose better, and does commission-based steering undo that benefit?
+  \onslide<5->{\centering Question: does assistance help consumers choose better, and does commission-based steering undo that benefit?\par}
 \end{frame}
 
 \begin{frame}{What we do}
@@ -54,9 +79,9 @@
 
   \vspace{0.2cm}
   \begin{enumerate}
-    \item Design-based estimate of how decision assistance affects plan choice (dominated-plan selection)
-    \item Structural model of household choice + insurer pricing and commissions
-    \item Counterfactuals: remove assistance, reshape commissions, replace agents with navigators
+    \item<1-> Design-based estimate of how decision assistance affects plan choice (dominated-plan selection)
+    \item<2-> Structural model of household choice + insurer pricing and commissions
+    \item<3-> Counterfactuals: remove assistance, reshape commissions, replace agents with navigators
   \end{enumerate}
 \end{frame}
 
@@ -81,11 +106,17 @@
   Each household's full choice set, premiums, subsidies, and assistance channel (if any) are observed.
 \end{frame}
 
-\begin{frame}{The dominated-plan test}
+\begin{frame}{The dominated-plan test: silver can beat gold and platinum on price and generosity}
+\figureslide{%
+  \small
   For cost-sharing-subsidy-eligible households, silver can be cheaper \emph{and} more generous than gold or platinum.
 
-  \vspace{0.3cm}
-  Choosing gold or platinum over silver in that case is a dominated choice -- a clean, model-free marker of a mistake.
+  \vspace{0.2cm}
+  Choosing gold or platinum over silver is then a dominated choice -- a clean, model-free marker of a mistake.
+
+  \vspace{0.2cm}
+  {\scriptsize\color{emoryMid} Assisted households land in silver far more often.}
+}{../results/figures/metal_stack_any.png}
 \end{frame}
 
 % ── Decision Assistance and Plan Choice ─────────────────────
@@ -100,13 +131,15 @@
 \end{frame}
 
 \begin{frame}{Assistance cuts dominated-plan selection by 42\%}
-  Overall: 42\% reduction (1.6 percentage points).
-
-  \vspace{0.2cm}
-  Public navigators: 25\% reduction. Private agents: 48\% reduction.
-
-  \vspace{0.3cm}
-  Private agents move the needle more than public navigators on this metric.
+  \begin{columns}[c,onlytextwidth]
+    \column{0.55\textwidth}
+      \centering
+      \includegraphics[width=\linewidth,height=0.72\textheight,keepaspectratio]{../results/figures/dom_choice.png}
+    \column{0.40\textwidth}
+      \onslide<2->{\textbf{\color{emoryBlue}Agent}\\[2pt]48\% reduction (1.8pp)\\[0.4cm]}
+      \onslide<3->{\textbf{\color{emoryDark}Any assistance}\\[2pt]42\% reduction (1.6pp)\\[0.4cm]}
+      \onslide<4->{\textbf{\color{emoryMid}Navigator}\\[2pt]25\% reduction (0.9pp)}
+  \end{columns}
 \end{frame}
 
 % ── Structural Model ────────────────────────────────────────
@@ -114,10 +147,35 @@
 \sectionframe
 
 \begin{frame}{Households choose plans, possibly with help; insurers set premiums and commissions}
-  Households: choice among plans, with or without navigator/agent assistance.
+  \begin{center}
+  \begin{tikzpicture}[
+    node distance=0.9cm and 0.6cm,
+    every node/.style={align=center,font=\small},
+    box/.style={draw=emoryBlue,thick,rounded corners,fill=emoryLightBlue,
+      minimum width=2.9cm,minimum height=1.0cm,text width=2.6cm},
+    agentbox/.style={draw=emoryGold,thick,rounded corners,fill=emoryLight,
+      minimum width=2.9cm,minimum height=1.0cm,text width=2.6cm},
+    insbox/.style={draw=emoryBlue,thick,rounded corners,fill=emoryLightBlue,
+      minimum width=7.2cm,minimum height=1.1cm,text width=6.8cm},
+    arr/.style={-{Stealth[length=2.2mm]},thick,emoryMid},
+    garr/.style={-{Stealth[length=2.2mm]},thick,emoryGold},
+  ]
+    \node[box] (hh) {Household};
+    \node[box,below left=0.8cm and 1.6cm of hh] (unassist) {Unassisted};
+    \node[box,below=1.25cm of hh] (nav) {Navigator};
+    \node[agentbox,below right=0.8cm and 1.6cm of hh] (agent) {Agent};
+    \node[insbox,below=1.15cm of nav] (insurer) {Insurer: sets premium $p$ and commission $y$};
 
-  \vspace{0.3cm}
-  Insurers: set premiums and agent commissions, facing risk adjustment and subsidy rules.
+    \draw[arr] (hh) -- (unassist);
+    \draw[arr] (hh) -- (nav);
+    \draw[garr] (hh) -- (agent);
+    \draw[arr] (unassist) -- (insurer);
+    \draw[arr] (nav) -- (insurer);
+    \draw[garr] (agent) -- (insurer);
+    \draw[arr,dashed] (insurer.east) to[bend left=50] node[right,font=\scriptsize,text width=2.9cm]{premiums and commissions feed back into household utility} (hh.east);
+  \end{tikzpicture}
+  \end{center}
+  {\scriptsize\color{emoryMid} Insurers price against risk adjustment and subsidy rules; the commission channel (gold) is the mechanism we estimate.\par}
 \end{frame}
 
 \begin{frame}{Commissions steer enrollment}
@@ -125,17 +183,33 @@
 
   \vspace{0.3cm}
   In elasticity terms, a 1\% change in commissions moves agent-assisted demand roughly 0.22 as much as a 1\% change in premiums.
+
+  \vspace{0.5cm}
+  \begin{center}
+  \begin{tikzpicture}
+    \fill[emoryGold] (0,0) rectangle (3,0.9);
+    \fill[emoryBlue] (3.7,0) rectangle (8.1,0.9);
+    \node[below,font=\bfseries\small,text width=3.2cm,align=center] at (1.5,-0.05) {+\$1 commission};
+    \node[below,font=\bfseries\small,text width=3.6cm,align=center] at (5.9,-0.05) {$-$\$1.47 net premium};
+    \node[font=\scriptsize,color=emoryMid] at (4.05,1.25) {same shift in agent-assisted enrollment};
+  \end{tikzpicture}
+  \end{center}
 \end{frame}
 
 \begin{frame}{Why this matters}
   The model lets us separate three things that move together in the data:
 
-  \vspace{0.2cm}
-  \begin{enumerate}
-    \item the value assistance provides (better-matched plans)
-    \item the steering commissions introduce (worse-matched plans)
-    \item the premium pass-through of paying for commissions at all
-  \end{enumerate}
+  \vspace{0.4cm}
+  \begin{center}
+  \begin{tikzpicture}[
+    box/.style={draw=emoryBlue,thick,rounded corners,fill=emoryLightBlue,
+      minimum width=3.3cm,minimum height=2.5cm,text width=3.0cm,align=center,font=\small},
+  ]
+    \node<1->[box] (v) at (0,0) {{\Large\color{emoryBlue}+}\\[4pt]value assistance provides\\(better-matched plans)};
+    \node<2->[box] (s) at (3.8,0) {{\Large\color{emoryGold}$-$}\\[4pt]steering commissions introduce\\(worse-matched plans)};
+    \node<3->[box] (p) at (7.6,0) {{\Large\color{emoryMid}$\pm$}\\[4pt]premium pass-through of paying for commissions};
+  \end{tikzpicture}
+  \end{center}
 \end{frame}
 
 % ── Welfare and Counterfactuals ──────────────────────────────
@@ -143,17 +217,37 @@
 \sectionframe
 
 \begin{frame}{Counterfactual 1: withdraw decision assistance entirely}
-  Uninsured share rises by 6.1 percentage points.
+  \begin{center}
+    \statbox{6cm}{+6.1pp}{rise in the uninsured share}
+  \end{center}
 
-  \vspace{0.3cm}
+  \vspace{0.4cm}
   Welfare falls, driven mainly by lost coverage rather than worse plan matches among those who stay enrolled.
 \end{frame}
 
+\begin{frame}{Zeroing out commissions only helps once navigators replace what agents did}
+  \only<1>{\includegraphics[width=\linewidth,height=0.54\textheight,keepaspectratio]{image/cf_gradient_reveal1.png}}%
+  \only<2>{\includegraphics[width=\linewidth,height=0.54\textheight,keepaspectratio]{image/cf_gradient_reveal2.png}}%
+  \only<3>{\includegraphics[width=\linewidth,height=0.54\textheight,keepaspectratio]{image/cf_gradient_reveal3.png}}%
+
+  \vspace{0.1cm}
+  \small
+  \onslide<1>{\centering\textcolor{emoryMid}{$\tau=0$: formerly agent-assisted households become unassisted. Welfare falls.}\par}
+  \onslide<2>{\centering\textcolor{emoryMid}{$\tau=0.5$: half shift to navigators instead. Still negative, but less so.}\par}
+  \onslide<3>{\centering\textcolor{emoryMid}{$\tau=1$: all shift to navigators. Premium savings now dominate, and welfare turns positive.}\par}
+\end{frame}
+
 \begin{frame}{Counterfactual 2: reshape the commission schedule, keep assistance}
+\figureslide{%
+  \small
   Welfare changes by less than \$50 per member per year.
 
-  \vspace{0.3cm}
+  \vspace{0.2cm}
   Coverage barely moves. Commission \emph{design} is a second-order lever relative to whether assistance exists at all.
+
+  \vspace{0.2cm}
+  {\scriptsize\color{emoryMid} Premiums also move only modestly across these alternative commission schedules.}
+}{../results/figures/cf_premium_change.png}
 \end{frame}
 
 \begin{frame}{Counterfactual 3: replace private agents with public navigators}
@@ -163,7 +257,7 @@
   Premiums fall because the commission costs insurers pass through to \emph{all} enrollees disappear.
 
   \vspace{0.3cm}
-  Welfare rises.
+  Welfare rises -- the same pattern the $\tau$ gradient showed two slides ago, now with the agent channel still operating alongside navigators rather than disappearing entirely.
 \end{frame}
 
 % ── Conclusion ───────────────────────────────────────────────
@@ -171,13 +265,13 @@
 \sectionframe
 
 \begin{frame}{Decision assistance is worth having; who pays for it matters less than whether it exists}
-  Assistance improves plan choice; losing it costs coverage, not just match quality.
+  \onslide<1->{\textbf{\color{emoryBlue}Assistance helps.} Assistance improves plan choice; losing it costs coverage, not just match quality.}
 
-  \vspace{0.3cm}
-  Commission-based steering is real but small relative to the value of assistance itself.
+  \vspace{0.35cm}
+  \onslide<2->{\textbf{\color{emoryGold}Steering is real but small.} Commission-based steering is real but small relative to the value of assistance itself.}
 
-  \vspace{0.3cm}
-  Policy relevance: federal navigator funding has been cut, restored, and cut again; MA has tried to cap agent commissions on steering grounds.
+  \vspace{0.35cm}
+  \onslide<3->{\textbf{\color{emoryMid}Policy is live.} Federal navigator funding has been cut, restored, and cut again; MA has tried to cap agent commissions on steering grounds.}
 \end{frame}
 
 % Bibliography
@@ -195,12 +289,34 @@
 \appendix
 \section{Appendix}
 
-\begin{frame}{Robustness: alternative decision-assistance definitions}
-  Results hold excluding plan-based enrollers and under alternative commission-utility and menu-restriction assumptions (see the paper's appendix).
+\begin{frame}{Dropping plan-based enrollers makes the steering estimate slightly stronger, not weaker}
+  Plan-based enrollers are a single-insurer channel (1.3\% of the structural sample) whose influence works through a restricted menu, not a commission.
+
+  \vspace{0.3cm}
+  Re-estimating the demand model without them leaves price, actuarial value, and nesting parameters essentially unchanged; the commission-steering coefficients move from 0.027/$-0.066$ to 0.030/$-0.070$.
+
+  \vspace{0.3cm}
+  A single-insurer channel is not what generates the estimated steering.
 \end{frame}
 
-\begin{frame}{Additional structural model detail}
-  Supply-side first-order conditions, instruments, and identification of the commission wedge (appendix, Model Formulas).
+\begin{frame}{A menu restriction and a commission in utility predict the same choices, but not the same counterfactuals}
+  We represent agent steering as a commission term in utility rather than a restricted menu. A gatekeeper simulation checks this: generate choices from a menu that is restricted by commission (no commission in utility), then fit our model to them.
+
+  \vspace{0.3cm}
+  The fitted model reproduces the gatekeeper's agent shares to within 1.1--1.7 percentage points (correlation above 0.997), even when the menu restriction is also selected on agent or household characteristics.
+
+  \vspace{0.3cm}
+  The two representations are observationally equivalent for demand, but a fixed menu restriction cannot respond to a change in commissions. The counterfactuals therefore need the commission margin, not just the demand fit.
+\end{frame}
+
+\begin{frame}{The commission first-order condition sets marginal steering benefit against marginal payout, unit by unit}
+  Demand is a two-part nested logit: plan choice uses the household's realized assistance channel, enrollment uses the expected inclusive value across the three channel states, so commissions can move coverage as well as plan choice.
+
+  \vspace{0.3cm}
+  The premium FOC is a standard markup condition, augmented with the risk-adjustment transfer and the commission outlay.
+
+  \vspace{0.3cm}
+  The commission FOC holds one condition per commission-setting unit (insurer, or insurer-network where the filed schedule sets separate rates). It sets the ratio of marginal steering benefit, the added profit from commission-induced enrollment plus the risk-adjustment feedback, to marginal outlay equal to $(1-\beta_f) + \delta_f$, where $\beta_f$ is the administrative saving per commission dollar and $\delta_f$ is a carrier-level constant estimated jointly with the cost parameters.
 \end{frame}
 
 \end{document}
