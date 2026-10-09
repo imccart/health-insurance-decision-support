@@ -46,11 +46,11 @@ plan_data <- read_csv("data/input/Covered California/plan_data.csv",
 # Join IPW, broker density, drop catastrophic, compute v_hat and p_nav.
 
 hh_full <- hh_full %>%
-  left_join(ipweights, by = "household_year") %>%
+  left_join(ipweights, by = "household_year", relationship = "many-to-one") %>%
   left_join(broker_density %>% select(region, year, n_agents, agents_per_10k),
-            by = c("region", "year"))
+            by = c("region", "year"),
+    relationship = "many-to-one")
 
-n_before <- nrow(hh_full)
 hh_full <- hh_full %>% filter(!str_detect(plan_id, "_CAT$") | is.na(plan_id))
 
 # FPL brackets (created in choice.R for the structural side; added here so the
@@ -68,8 +68,8 @@ fs_model <- lm(assisted ~ n_agents + perc_0to17 + perc_18to34 + perc_35to54 +
                  perc_male + perc_black + perc_hispanic + perc_asian + perc_other +
                  FPL_250to400 + FPL_400plus + household_size + factor(year),
                data = hh_full[ins_idx, ])
-hh_full$v_hat <- NA_real_
-hh_full$v_hat[ins_idx] <- residuals(fs_model)
+hh_full <- hh_full %>%
+  mutate(v_hat = replace(rep(NA_real_, n()), ins_idx, residuals(fs_model)))
 rm(fs_model, ins_idx)
 
 # Navigator propensity (structural-side; harmless extra column for RF)
@@ -78,7 +78,8 @@ nav_model <- glm(
     perc_0to17 + perc_65plus + household_size + perc_male + factor(year),
   data = hh_full %>% filter(assisted == 1), family = binomial
 )
-hh_full$p_nav <- predict(nav_model, newdata = hh_full, type = "response")
+hh_full <- hh_full %>%
+  mutate(p_nav = predict(nav_model, newdata = hh_full, type = "response"))
 rm(nav_model)
 
 # Channel first stage (structural). Three-way multinomial over
@@ -158,9 +159,9 @@ plan_choice <- plan_choice %>%
          plan_id_c = gsub("SIL(94|73|87)", "SIL", plan_id),
          # HSP is a closed-network product and pays the HMO schedule
          hmo_join = as.integer(!is.na(network_type) & network_type %in% c("HMO", "HSP"))) %>%
-  left_join(commission_lookup, by = c("insurer_prefix", "year", "hmo_join" = "hmo")) %>%
-  left_join(mu_plan, by = c("region", "year", "plan_id_c")) %>%
-  left_join(mu_region, by = c("region", "year")) %>%
+  left_join(commission_lookup, by = c("insurer_prefix", "year", "hmo_join" = "hmo"), relationship = "many-to-one") %>%
+  left_join(mu_plan, by = c("region", "year", "plan_id_c"), relationship = "many-to-one") %>%
+  left_join(mu_region, by = c("region", "year"), relationship = "many-to-one") %>%
   mutate(mu_member = coalesce(mu_member, mu_member_r, RATING_FACTOR_AGE40),
          comm_pmpm = case_when(
            is.na(rate) ~ 0,
@@ -189,7 +190,7 @@ plan_region_shares <- plan_region_shares %>% select(plan_id, year, all_of(paste0
 n_before <- nrow(plan_choice)
 plan_choice <- plan_choice %>%
   mutate(plan_id_base = gsub("SIL(94|73|87)", "SIL", plan_id)) %>%
-  left_join(plan_region_shares, by = c("plan_id_base" = "plan_id", "year")) %>%
+  left_join(plan_region_shares, by = c("plan_id_base" = "plan_id", "year"), relationship = "many-to-one") %>%
   select(-plan_id_base) %>%
   mutate(across(all_of(paste0("share_ra", 2:19)), ~ ifelse(is.na(.x), 0, .x)))
 stopifnot(nrow(plan_choice) == n_before)

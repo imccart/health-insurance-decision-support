@@ -69,7 +69,7 @@ demo_all[, insurer_prefix := sub("_.*", "", plan_id)]
 pred_region <- demo_all[, lapply(.SD, function(v) sum(v * demand, na.rm = TRUE) / sum(demand, na.rm = TRUE)),
                         by = .(insurer_prefix, metal, region, year), .SDcols = RS_DEMO_TERMS]
 rs_srrt <- rs_srrt %>%
-  inner_join(as.data.frame(pred_region), by = c("insurer_prefix", "metal", "region", "year")) %>%
+  inner_join(as.data.frame(pred_region), by = c("insurer_prefix", "metal", "region", "year"), relationship = "many-to-one") %>%
   filter(is.finite(log_risk_score), member_months > 0,
          if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x))) %>%
   mutate(Silver = as.integer(metal == "Silver"), Gold = as.integer(metal == "Gold"),
@@ -82,13 +82,14 @@ plan_region_shares <- read_csv(file.path(TEMP_DIR, "plan_choice.csv"), show_col_
   select(plan_id, year, all_of(CLAIMS_REGION_TERMS)) %>%
   distinct(plan_id, year, .keep_all = TRUE)
 rsdata <- rsdata %>%
-  left_join(as.data.frame(pred_py), by = c("plan_id", "year")) %>%
-  left_join(plan_region_shares, by = c("plan_id", "year")) %>%
+  left_join(as.data.frame(pred_py), by = c("plan_id", "year"), relationship = "many-to-one") %>%
+  left_join(plan_region_shares, by = c("plan_id", "year"), relationship = "many-to-one") %>%
   mutate(across(all_of(CLAIMS_REGION_TERMS), ~ ifelse(is.na(.x), 0, .x))) %>%
   mutate(insurer_prefix = sub("_.*", "", plan_id), metal = METAL) %>%
   # The SRRT plan-year score instruments the predicted score in the claims moment
   left_join(rs_srrt_year %>% transmute(insurer_prefix, metal, year, network, log_rs_srrt = log_risk_score),
-            by = c("insurer_prefix", "metal", "year", "network")) %>%
+            by = c("insurer_prefix", "metal", "year", "network"),
+    relationship = "many-to-one") %>%
   filter(if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)),
          !is.na(HMO), !is.na(log_rs_srrt))
 
@@ -345,12 +346,6 @@ BETA_FY_DEFAULT <- BETA0
 COMM_KEYS <- sort(unique(unlist(lapply(seq_along(foc_cells), function(ci) {
   cs <- comm_struct[[ci]]; if (is.null(cs)) return(NULL)
   paste(vapply(cs, function(x) x$firm, character(1)), foc_cells[[ci]]$year, sep = "_") }))))
-# (1 - beta) for each plan of a cell, by the plan's insurer-year
-cs_of <- function(fc) {
-  b <- BETA_FY[paste(sub("_.*", "", fc$plan_ids), fc$year, sep = "_")]
-  b[is.na(b)] <- BETA_FY_DEFAULT
-  1 - unname(b)
-}
 
 # M3: one moment per plan-year with at least one plan-cell above the share floor
 PY_OK <- rep(FALSE, N_PY)
@@ -496,11 +491,14 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
     # Claims moving with the enrollee mix; mu = gamma[2] is the pass-through
     cc_cell <- compute_claims_comp(setNames(pred_claims, fc$plan_ids), fc$reins_vec, fc$mix,
                                    fc$own_mat, gamma[2])
+    # (1 - beta) for each plan of the cell, by the plan's insurer-year
+    beta_plan <- BETA_FY[paste(sub("_.*", "", fc$plan_ids), fc$year, sep = "_")]
+    beta_plan[is.na(beta_plan)] <- BETA_FY_DEFAULT
     # Revenue terms carry the age-rating pass-through (rshares, Omega_r);
     # claims, transfers and the commission outlay are per member.
     foc_resid <- fc$rshares + ra_foc_cell - cc_cell -
                  as.vector(fc$Omega_r %*% fc$posted_premium - fc$Omega %*% mc) +
-                 as.vector(fc$Omega_broker %*% (cs_of(fc) * fc$comm_vec))
+                 as.vector(fc$Omega_broker %*% ((1 - unname(beta_plan)) * fc$comm_vec))
 
     # Kept for the commission pieces (pass C), which use the plan-year pricing
     # residual of this pass in the margin
@@ -543,7 +541,9 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
                              cell_env[[ci]], fc$comm_D, fc$own_mat, fc$mix_y, fc$mkt_rev_y)$total
     cc_eta <- compute_claims_comp(setNames(cell_cl[[ci]], fc$plan_ids), fc$reins_vec, fc$mix_y,
                                   fc$own_mat, gamma[2])
-    cost_side <- cell_mc[[ci]] + cs_of(fc) * fc$comm_vec
+    beta_plan <- BETA_FY[paste(sub("_.*", "", fc$plan_ids), fc$year, sep = "_")]
+    beta_plan[is.na(beta_plan)] <- BETA_FY_DEFAULT
+    cost_side <- cell_mc[[ci]] + (1 - unname(beta_plan)) * fc$comm_vec
     for (cf_ in cs) {
       key <- paste(cf_$firm, fc$year, sep = "_")
       MBf <- sum(fc$posted_premium[cf_$jj] * cf_$dq_r[cf_$jj] -
@@ -731,13 +731,13 @@ delta_gmm <- result2$par[N_GAMMA + seq_len(N_DELTA)]
 
 contr2 <- compute_g_bar(result2$par, return_contributions = TRUE)
 comm_fy <- contr2$comm_fy %>%
-  tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE)
+  separate(key, into = c("firm", "year"), sep = "_", convert = TRUE)
 beta_fy_df <- tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
-  tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE) %>%
+  separate(key, into = c("firm", "year"), sep = "_", convert = TRUE) %>%
   filter(paste(firm, year, sep = "_") %in% sub("[.](HMO|PPO)", "", COMM_KEYS))
 
 write_csv(tibble(key = names(BETA_FY), beta = unname(BETA_FY)) %>%
-            tidyr::separate(key, into = c("firm", "year"), sep = "_", convert = TRUE),
+            separate(key, into = c("firm", "year"), sep = "_", convert = TRUE),
           file.path(TEMP_DIR, "commission_beta.csv"))
 write_csv(comm_fy %>% select(firm, year, MB, MC, mu_hat, comm_bar, phi, lev, wedge),
           file.path(TEMP_DIR, "commission_foc_fit.csv"))
@@ -748,8 +748,8 @@ write_csv(contr2$mc_cells, file.path(TEMP_DIR, "mc_gmm.csv"))
 # Plan-year pricing FOC residuals at the GMM solution, in dollars per member-month
 # (the counterfactual holds these fixed; cf1 recomputes them in its own system)
 foc_py_gmm <- contr2$foc_py %>%
-  tidyr::separate(key, into = c("plan_id", "year"), sep = "[|]", convert = TRUE) %>%
-  left_join(plan_metal_map, by = "plan_id") %>%
+  separate(key, into = c("plan_id", "year"), sep = "[|]", convert = TRUE) %>%
+  left_join(plan_metal_map, by = "plan_id", relationship = "many-to-one") %>%
   mutate(insurer = sub("_.*", "", plan_id))
 write_csv(foc_py_gmm, file.path(TEMP_DIR, "foc_plan_year_gmm.csv"))
 

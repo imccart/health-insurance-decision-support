@@ -31,8 +31,6 @@ sipp_logit <- readRDS("data/output/sipp_logit.rds")
 # Complete cases on FPL: drop HHs that never have observed FPL
 hh_with_fpl <- enroll_hh[!is.na(FPL) & is.finite(FPL), unique(household_id)]
 enroll_hh   <- enroll_hh[household_id %in% hh_with_fpl]
-cat(sprintf("  HHs with observed FPL in at least one year: %d\n",
-            length(hh_with_fpl)))
 
 # Build off-year panel: (HH × all years) minus actually-enrolled (HH, year).
 all_years     <- 2014:2019
@@ -62,7 +60,6 @@ panel <- merge(panel,
 setnames(panel, "household_year", "ref_household_year")
 
 # Age members from the reference year by the year gap ----------------------
-cat("  Aging members from the reference year...\n")
 ind <- fread("data/output/enrollment_individual.csv",
              select = c("household_year", "age"))
 mem <- merge(panel[, .(household_id, year, ref_household_year,
@@ -76,8 +73,6 @@ rm(ind)
 over65 <- unique(mem[age >= 65, .(household_id, year)])
 panel  <- panel[!over65, on = c("household_id", "year")]
 mem    <- mem[!over65, on = c("household_id", "year")]
-cat(sprintf("  Dropped %d off-year HH-years with a member aged 65+\n",
-            nrow(over65)))
 rm(over65)
 
 # Members aged below zero (reference year after the off-year, i.e. not yet
@@ -121,9 +116,6 @@ panel[, perc_35to54 := perc_35to44 + perc_45to54]
 # new_enrollee.
 panel[, p_transitioned  := predict(sipp_logit, newdata = panel, type = "response")]
 panel[, market_eligible := as.integer(p_transitioned <= runif(.N))]
-cat(sprintf("  Off-year HH-years: %d (%.1f%% market-eligible after SIPP draw)\n",
-            nrow(panel),
-            100 * mean(panel$market_eligible == 1L)))
 panel[, p_transitioned := NULL]
 
 # Year × hh_size poverty threshold (cap year at 2019 for the CMS table)

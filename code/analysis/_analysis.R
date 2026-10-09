@@ -18,7 +18,7 @@ N_BOOT       <- 50L   # reduced-form bootstrap reps (rf1-rf3); 0 to skip
 N_BOOT_CF    <- 50L   # CF welfare-SE bootstrap draws (cf3_se)
 
 # Packages ----------------------------------------------------------------
-pacman::p_load(tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit, nnet)
+pacman::p_load(tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit, nnet, parallel)
 
 # Helpers (function libraries, loaded once) -------------------------------
 source("code/data-build/_helpers.R")
@@ -32,6 +32,7 @@ source("code/analysis/helpers/se.R")
 source("code/analysis/helpers/cf_cell.R")
 source("code/analysis/helpers/cf_year.R")
 source("code/analysis/helpers/welfare.R")
+source("code/analysis/helpers/score_cf.R")
 
 
 # build: shared data construction -----------------------------------------

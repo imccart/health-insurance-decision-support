@@ -12,19 +12,16 @@
 ##                Output: data/output/broker_density.csv (n_agents, enrollee
 ##                totals, HHI, population, agents_per_10k)
 
-library(readxl)
-
 # =========================================================================
 # Read and stack all year sheets
 # =========================================================================
-
-broker_file <- "data/input/Covered California/RatingRegionAgentEnrollment_from_CY2014_to_CY2019__20260316.xlsx"
 
 all_years <- list()
 
 for (yr in 2014:2019) {
   sheet <- paste0("CY_", yr)
-  d <- read_excel(broker_file, sheet = sheet, skip = 1,
+  d <- read_excel("data/input/Covered California/RatingRegionAgentEnrollment_from_CY2014_to_CY2019__20260316.xlsx",
+                  sheet = sheet, skip = 1,
                   col_names = c("region", "agent_name", "agent_license",
                                 "business_name", "total_enrollees"))
   d$year <- as.integer(yr)
@@ -37,11 +34,6 @@ for (yr in 2014:2019) {
 }
 
 broker_raw <- bind_rows(all_years)
-
-cat("Raw broker data:", nrow(broker_raw), "rows\n")
-cat("  Years:", paste(sort(unique(broker_raw$year)), collapse = ", "), "\n")
-cat("  Regions:", paste(sort(unique(broker_raw$region)), collapse = ", "), "\n")
-cat("  Unique agents:", length(unique(broker_raw$agent_license)), "\n")
 
 # =========================================================================
 # Aggregate to region-year panel
@@ -68,7 +60,7 @@ broker_hhi <- broker_raw %>%
   )
 
 broker_density <- broker_density %>%
-  left_join(broker_hhi, by = c("region", "year"))
+  left_join(broker_hhi, by = c("region", "year"), relationship = "many-to-one")
 
 # =========================================================================
 # Region-year population (Census county estimates)
@@ -93,7 +85,8 @@ county_region <- tibble(county = rownames(rating_areas),
 pop_region <- census_pop %>%
   filter(county != "Los Angeles") %>%
   inner_join(county_region %>% filter(county != "Los Angeles") %>% distinct(),
-             by = "county") %>%
+             by = "county",
+    relationship = "many-to-one") %>%
   group_by(region, year) %>%
   summarize(population = sum(pop), .groups = "drop")
 
@@ -116,18 +109,10 @@ pop_la <- census_pop %>%
   select(region, year, population)
 
 pop_region <- bind_rows(pop_region, pop_la) %>% arrange(region, year)
-cat("\nRegion-year population panel:", nrow(pop_region), "rows;",
-    "statewide 2019:", round(sum(pop_region$population[pop_region$year == 2019]) / 1e6, 2), "M\n")
 
 broker_density <- broker_density %>%
-  left_join(pop_region, by = c("region", "year")) %>%
+  left_join(pop_region, by = c("region", "year"), relationship = "many-to-one") %>%
   mutate(agents_per_10k = n_agents / population * 10000)
-
-cat("\nBroker density panel:", nrow(broker_density), "rows\n")
-cat("  Agents per region-year:\n")
-print(summary(broker_density$n_agents))
-cat("  Broker HHI:\n")
-print(summary(broker_density$broker_hhi))
 
 # =========================================================================
 # Write output

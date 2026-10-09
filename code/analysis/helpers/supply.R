@@ -682,6 +682,12 @@ nest_inside_rows <- function(cell_data, V, V_base, lambda,
 #
 # If cell_data contains pre-computed columns `alpha_i` and `lambda_i`, those are
 # used directly (alpha_b then defaults to alpha_i).
+#
+# channel_filter = "broker" aggregates only over broker-channel households (broker
+# == 1), the households commissions are paid on. Shares and derivatives stay
+# normalized by TOTAL cell weight, so the commission-outlay term
+# Omega_broker %*% comm_vec is in the same share units as the rest of the FOC.
+# Cells with navigators but no brokers return zeros.
 
 compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan,
                                              plans_cell, coefs_cell, spec = NULL,
@@ -835,29 +841,6 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 
   list(shares = shares, rshares = rshares, elast_mat = elast_mat,
        relast_mat = relast_mat, zelast = zelast, plan_ids = plan_ids)
-}
-
-
-# compute_broker_shares_and_elasticities -----------------------------------
-#
-# Like compute_shares_and_elasticities() but aggregates only over
-# broker-channel (broker == 1, i.e. assisted x any_agent) households, the
-# households commissions are paid on. Shares and derivatives are normalized by
-# TOTAL cell weight (all households), matching the all-HH kernel, so the
-# commission-outlay term Omega_broker %*% comm_vec is in the same share units
-# as the rest of the FOC. Cells with navigators but no brokers return zeros.
-# Returns broker-specific market shares and J x J derivative matrix.
-
-compute_broker_shares_and_elasticities <- function(cell_data, V, lambda,
-                                                    benchmark_plan, plans_cell,
-                                                    coefs_cell, spec = NULL,
-                                                    V_base = NULL,
-                                                    add_N = NULL, add_A = NULL) {
-  res <- compute_shares_and_elasticities(cell_data, V, lambda, benchmark_plan,
-                                         plans_cell, coefs_cell, spec = spec,
-                                         V_base = V_base, channel_filter = "broker",
-                                         add_N = add_N, add_A = add_A)
-  list(broker_shares = res$shares, broker_elast_mat = res$elast_mat, plan_ids = res$plan_ids)
 }
 
 

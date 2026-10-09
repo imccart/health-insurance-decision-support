@@ -29,7 +29,6 @@ enroll <- fread("data/output/enrollment_individual.csv")  # data.table
 # Replace CC's descriptive plan_name with the canonical short-code plan_id
 # from plan_data$Plan_Name2. Key (HIOS, year, metal) is unique in plan_data
 # and matches enroll 1:1.
-cat("  Attaching canonical plan_id from plan_data...\n")
 pd_lookup <- as.data.table(plan_data)[, .(HIOS, year = ENROLLMENT_YEAR,
                                           metal = metal_level,
                                           plan_id = Plan_Name2)]
@@ -63,8 +62,6 @@ enroll[, `:=`(
 # CA age rating: factor from age_rating_factors, with separate curve for
 # 2018+. Cap at age 64 (over-65 not offered exchange plans).
 # premiumSLC = 2nd-lowest-silver premium (age-40) × individual rating_factor.
-cat("  Computing individual rating_factor and premiumSLC...\n")
-
 age_capped <- pmin(64L, enroll$age)
 enroll[, rating_factor := fifelse(
   year >= 2018,
@@ -77,8 +74,6 @@ rm(age_capped)
 # For each market, find silver plans that are (a) in plan_data and
 # (b) offered via zip3_choices × product_definitions lookup, take the
 # second-lowest Premium / RATING_FACTOR_AGE40 (= age-21 base premium).
-cat("  Computing SLC benchmark per (zip3, region, year)...\n")
-
 product_cols <- setdiff(colnames(zip3_choices), c("zip3", "Region", "Year"))
 zip_products <- as_tibble(zip3_choices) %>%
   pivot_longer(all_of(product_cols), names_to = "product", values_to = "available") %>%
@@ -89,7 +84,7 @@ prod_defs <- as_tibble(product_definitions) %>%
   mutate(product = rownames(product_definitions))
 
 silver_candidates <- zip_products %>%
-  inner_join(prod_defs, by = "product") %>%
+  inner_join(prod_defs, by = "product", relationship = "many-to-one") %>%
   inner_join(
     plan_data %>%
       filter(metal_level == "Silver") %>%
@@ -131,8 +126,6 @@ rm(slc_by_market, silver_candidates, zip_products, prod_defs, product_cols)
 # Some ahbx_case_ids lump together members that should be separate HHs.
 # We split when members within the same case-year have different
 # (gross_premium, plan_name, aptc) combos.
-cat("  Identifying HH groupings (splitting mixed cases)...\n")
-
 enroll[, `:=`(
   aptc_amt_int = pmax(0, gross_premium_amt_int - net_premium_amt_int),
   hh_case_year = paste(ahbx_case_id_x, year, sep = "_")
@@ -160,14 +153,11 @@ enroll[hh_splits,
 multi_split_cases <- hh_splits[, .N, by = hh_case_year][N > 1, hh_case_year]
 multi_split_case_ids <- unique(enroll[hh_case_year %in% multi_split_cases,
                                        ahbx_case_id_x])
-n_dropped_rows <- sum(enroll$ahbx_case_id_x %in% multi_split_case_ids)
-cat(sprintf("  Dropping %d cases (%d enrollment rows) with any multi-split year\n",
-            length(multi_split_case_ids), n_dropped_rows))
 enroll <- enroll[!ahbx_case_id_x %in% multi_split_case_ids]
 
 enroll[, household_year := paste(hh_case_year, split, sep = "_")]
 enroll[, c("hh_case_year", "split") := NULL]
-rm(hh_splits, multi_split_cases, multi_split_case_ids, n_dropped_rows)
+rm(hh_splits, multi_split_cases, multi_split_case_ids)
 
 
 # Fill missing APTC within HH ---------------------------------------------
@@ -185,8 +175,6 @@ enroll[, aptc_amt_int := {
 # Within-HH consistency check ----------------------------------------------
 # A valid HH-year must have consistent: gross_premium, net_premium, FPL,
 # bracket, zip3, region. If any vary within HH, flag and drop the HH.
-cat("  Checking within-HH consistency...\n")
-
 consistency <- enroll[, .(
   n_gross   = length(unique(gross_premium_amt_int)),
   n_net     = length(unique(net_premium_amt_int)),
@@ -200,8 +188,6 @@ consistency[, bad := n_gross > 1 | n_net > 1 | n_fpl > 1 | n_bracket > 1 |
                      n_zip > 1 | n_region > 1]
 
 bad_hh <- consistency[bad == TRUE, household_year]
-cat(sprintf("  Dropping %d inconsistent HH-years (%.2f%%)\n",
-            length(bad_hh), 100 * length(bad_hh) / nrow(consistency)))
 
 # Anti-join via DT: much faster than %in% with long bad_hh
 bad_dt <- data.table(household_year = bad_hh, key = "household_year")
@@ -213,10 +199,8 @@ rm(consistency, bad_hh, bad_dt)
 # Chunked by year. Single-threaded data.table for the aggregation: with
 # 30+ output cols sharing names with input cols, multi-thread writes hit
 # "cannot change value of locked binding" race conditions.
-cat("  Aggregating to HH-year...\n")
-
-old_threads <- data.table::getDTthreads()
-data.table::setDTthreads(1)
+old_threads <- getDTthreads()
+setDTthreads(1)
 
 years <- sort(unique(enroll$year))
 hh_chunks <- vector("list", length(years))
@@ -271,7 +255,7 @@ for (i in seq_along(years)) {
 }
 hh <- rbindlist(hh_chunks)
 rm(hh_chunks); gc(verbose = FALSE)
-data.table::setDTthreads(old_threads)
+setDTthreads(old_threads)
 
 # Cleanup post-aggregation
 hh[is.infinite(FPL), FPL := NA_real_]
@@ -294,7 +278,5 @@ rm(pov_dt)
 enroll[, HIOS := NULL]
 fwrite(enroll, "data/output/enrollment_individual.csv")
 fwrite(hh,     "data/output/enrollment_hh.csv")
-cat(sprintf("Step 2 complete: %d HH-years, %d individuals.\n",
-            nrow(hh), nrow(enroll)))
 
 rm(enroll, hh); gc(verbose = FALSE)

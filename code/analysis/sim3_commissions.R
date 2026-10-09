@@ -45,7 +45,6 @@
 ##                results/simulations/sim3_wedge.csv (firm-wedge recovery)
 
 suppressMessages({ library(tidyverse); library(data.table); library(nnet) })
-setwd("C:/Users/immccar/SynologyDrive/work/research-projects/health-insurance-decision-support")
 TEMP_DIR <- "D:/temp-research-data/health-insurance-decision-support"
 source("code/analysis/helpers/covariates.R")
 source("code/analysis/helpers/estimate_demand.R")

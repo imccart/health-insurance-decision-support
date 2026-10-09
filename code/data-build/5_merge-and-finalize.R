@@ -18,7 +18,6 @@ cc_uninsured <- fread("data/output/cc_uninsured.csv")    %>% as_tibble()
 # (insured = 0, plan fields NA). Weight = household_size for both.
 # market_eligible = 1 always for enrolled (in market by definition);
 # step 4's SIPP draw populates it for uninsured rows.
-cat("  Binding CC enrolled + CC uninsured...\n")
 demand_hh <- bind_rows(
   cc_enrolled  %>% mutate(source = "CC_enrolled",  insured = 1L,
                            weight = as.numeric(household_size),
@@ -31,10 +30,6 @@ demand_hh <- bind_rows(
                            network_type = NA_character_,
                            agent = 0L, broker = 0L, navigator = 0L)
 )
-cat(sprintf("  Demand dataset: %d HH-years (%d enrolled, %d uninsured)\n",
-            nrow(demand_hh),
-            sum(demand_hh$insured == 1L),
-            sum(demand_hh$insured == 0L)))
 
 
 # Cheapest bronze + benchmark (second-lowest-cost silver) ------------------
@@ -43,7 +38,6 @@ cat(sprintf("  Demand dataset: %d HH-years (%d enrolled, %d uninsured)\n",
 # here; enrolled rows keep the household premiumSLC step 2 already built from
 # the same table. Region-level second-lowest silver is only a fallback where
 # the zip3 market is missing (or a step-2 value came through as 0/NA).
-cat("  Computing cheapest bronze and benchmark per market × year...\n")
 plan_data <- read_csv("data/input/Covered California/plan_data.csv",
                        show_col_types = FALSE)
 
@@ -63,9 +57,9 @@ slc_region <- plan_data %>%
   }, .groups = "drop")
 
 demand_hh <- demand_hh %>%
-  left_join(cheapest_br, by = c("year", "region")) %>%
-  left_join(slc_zip3,    by = c("zip3", "region", "year")) %>%
-  left_join(slc_region,  by = c("year", "region")) %>%
+  left_join(cheapest_br, by = c("year", "region"), relationship = "many-to-one") %>%
+  left_join(slc_zip3,    by = c("zip3", "region", "year"), relationship = "many-to-one") %>%
+  left_join(slc_region,  by = c("year", "region"), relationship = "many-to-one") %>%
   mutate(cheapest_premium = cheapest_br_base / RATING_FACTOR_AGE40 * rating_factor,
          premiumSLC = case_when(
            insured == 1L & is.finite(premiumSLC) & premiumSLC > 0
@@ -86,7 +80,6 @@ rm(plan_data, cheapest_br, slc_zip3, slc_region)
 # it measures enrolled and off-year rows symmetrically; the observed APTC
 # additionally reflects credit elections and mid-year adjustments, which are
 # about tax reconciliation rather than the monthly price faced at choice.
-cat("  Computing formula subsidy...\n")
 fpl_lb_lookup <- setNames(FPL_BRACKETS$fpl_LB, FPL_BRACKETS$bracket)
 fpl_ub_lookup <- setNames(FPL_BRACKETS$fpl_UB, FPL_BRACKETS$bracket)
 
@@ -124,7 +117,6 @@ demand_hh <- demand_hh %>%
                             pmax(0, premiumSLC - SLC_contribution),
                             0)) %>%
   select(-subsidy_eligible_fpl, -fpl_LB, -fpl_UB, -perc_LB, -perc_UB)
-formula_only_mean <- mean(demand_hh$subsidy[demand_hh$insured == 1L & demand_hh$aptc_amt_int > 0], na.rm = TRUE)
 
 
 # Tax-household size from the observed advance credit ----------------------
@@ -139,7 +131,6 @@ formula_only_mean <- mean(demand_hh$subsidy[demand_hh$insured == 1L & demand_hh$
 # (enrolled and off-year), taken from its earliest enrolled year with a usable
 # credit. Households without one keep the enrolled count. Rows with a usable
 # credit keep the observed contribution itself.
-cat("  Tax-household size from the advance credit...\n")
 pov_year <- poverty_guidelines_long %>%
   group_by(year) %>%
   summarize(g1     = poverty_threshold[Family_Size == 1],
@@ -148,7 +139,7 @@ pov_year <- poverty_guidelines_long %>%
 n_before <- nrow(demand_hh)
 demand_hh <- demand_hh %>%
   mutate(year_cap = pmin(year, 2019L)) %>%
-  left_join(pov_year, by = c("year_cap" = "year")) %>%
+  left_join(pov_year, by = c("year_cap" = "year"), relationship = "many-to-one") %>%
   mutate(contrib_obs = if_else(insured == 1L & is.finite(SLC_contribution) & SLC_contribution > 0 &
                                  is.finite(aptc_amt_int) & aptc_amt_int > 0 &
                                  is.finite(net_premium_amt_int) & net_premium_amt_int > 0,
@@ -162,7 +153,7 @@ tax_size <- demand_hh %>%
   distinct(household_id, .keep_all = TRUE) %>%
   select(household_id, tax_household_size = size_implied)
 demand_hh <- demand_hh %>%
-  left_join(tax_size, by = "household_id") %>%
+  left_join(tax_size, by = "household_id", relationship = "many-to-one") %>%
   mutate(tax_household_size = coalesce(tax_household_size, as.numeric(household_size)),
          pct_contribution   = SLC_contribution / (poverty_threshold / 12 * FPL),
          poverty_threshold  = g1 + g_step * (tax_household_size - 1),
@@ -170,20 +161,7 @@ demand_hh <- demand_hh %>%
          subsidy            = if_else(FPL <= 4.0, pmax(0, premiumSLC - SLC_contribution), 0)) %>%
   select(-year_cap, -g1, -g_step, -g_max, -contrib_obs, -size_raw, -size_implied, -pct_contribution)
 stopifnot(nrow(demand_hh) == n_before)
-rm(pov_year, tax_size)
-enr <- demand_hh %>% filter(insured == 1L)
-cat(sprintf("    usable credit on %d of %d enrolled rows (%.1f%%); tax size above enrolled count for %.1f%% of households\n",
-            sum(enr$aptc_amt_int > 0 & enr$net_premium_amt_int > 0 & enr$FPL <= 4.0, na.rm = TRUE), nrow(enr),
-            100 * mean(enr$aptc_amt_int > 0 & enr$net_premium_amt_int > 0 & enr$FPL <= 4.0, na.rm = TRUE),
-            100 * mean((enr %>% distinct(household_id, .keep_all = TRUE) %>%
-                          mutate(up = tax_household_size > household_size))$up, na.rm = TRUE)))
-cat(sprintf("    enrolled rows with a credit: observed APTC mean $%.0f, formula-only subsidy $%.0f, subsidy now $%.0f\n",
-            mean(enr$aptc_amt_int[enr$aptc_amt_int > 0], na.rm = TRUE), formula_only_mean,
-            mean(enr$subsidy[enr$aptc_amt_int > 0], na.rm = TRUE)))
-cat(sprintf("    subsidy: enrolled mean $%.0f, off-year mean $%.0f\n",
-            mean(demand_hh$subsidy[demand_hh$insured == 1L], na.rm = TRUE),
-            mean(demand_hh$subsidy[demand_hh$insured == 0L], na.rm = TRUE)))
-rm(enr, formula_only_mean, n_before)
+rm(pov_year, tax_size, n_before)
 # SLC_contribution (the income contribution cap zeta_it) and premiumSLC (the HH
 # benchmark premium) are RETAINED: the structural counterfactual endogenizes the
 # subsidy = pmax(0, premiumSLC(p) - SLC_contribution) as the benchmark price moves.
@@ -193,8 +171,6 @@ rm(enr, formula_only_mean, n_before)
 # Mandate penalty ----------------------------------------------------------
 # n_adults derived from HH-level perc_0to17 × household_size (consistent for
 # CC enrolled and CC uninsured — no individual-level data needed).
-cat("  Computing mandate penalties...\n")
-
 filing_lookup <- tribble(
   ~year, ~single, ~household_head, ~married,
   2014L, 10150,   13050,           20300,
@@ -225,7 +201,7 @@ demand_hh <- demand_hh %>%
       TRUE                ~ "household_head"
     )
   ) %>%
-  left_join(filing_lookup, by = c("year", "tax_unit_type")) %>%
+  left_join(filing_lookup, by = c("year", "tax_unit_type"), relationship = "many-to-one") %>%
   mutate(
     eff_cheapest = pmax(0, cheapest_premium - coalesce(subsidy, 0)),
     afford_pct   = afford[as.character(year)],
@@ -247,10 +223,6 @@ demand_hh <- demand_hh %>%
   select(-n_adults, -n_children, -tax_unit_type, -filing_threshold,
          -eff_cheapest, -afford_pct, -exempt)
 rm(filing_lookup)
-
-cat(sprintf("    penalty: mean $%.0f, %.1f%% zero\n",
-            mean(demand_hh$penalty, na.rm = TRUE),
-            100 * mean(demand_hh$penalty == 0, na.rm = TRUE)))
 
 
 # Save ---------------------------------------------------------------------

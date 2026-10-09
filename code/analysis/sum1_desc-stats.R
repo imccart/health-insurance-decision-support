@@ -243,9 +243,12 @@ sum_stats <- bind_rows(group_stats, overall)
 var_names <- setdiff(names(sum_stats), "channel")
 tab_rows <- lapply(var_names, function(v) {
   vals <- sum_stats %>% pull(v)
-  fmt <- if (v == "N") scales::comma(vals) else sprintf("%.3f", vals)
+  # FPL is a ratio and the \% rows are shares; both print as percentages
+  fmt <- if (v == "N") scales::comma(vals)
+         else if (v == "HH Size") sprintf("%.2f", vals)
+         else sprintf("%.1f", 100 * vals)
   names(fmt) <- sum_stats$channel
-  c(Variable = v, fmt)
+  c(Variable = if (v == "FPL") "Income (\\% of FPL)" else v, fmt)
 })
 tab_df <- do.call(rbind, tab_rows) %>% as.data.frame()
 

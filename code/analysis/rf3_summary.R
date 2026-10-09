@@ -134,11 +134,11 @@ bs_ins <- bs_parsed %>%
 # Merge point estimates with CIs ------------------------------------------
 
 metal_final <- metal_summary %>%
-  left_join(bs_metal, by = "metal") %>%
+  left_join(bs_metal, by = "metal", relationship = "many-to-one") %>%
   mutate(ci_lo = att - 1.96 * se, ci_hi = att + 1.96 * se)
 
 ins_final <- ins_summary %>%
-  left_join(bs_ins, by = "insurer_abbr") %>%
+  left_join(bs_ins, by = "insurer_abbr", relationship = "many-to-one") %>%
   mutate(ci_lo = att - 1.96 * se, ci_hi = att + 1.96 * se)
 
 write_csv(metal_final, "results/choice_att_metal.csv")
@@ -160,9 +160,9 @@ theme_paper <- theme_bw() +
 
 choice_metals <- metal_final %>%
   mutate(metal = factor(metal_labels[metal], levels = metal_order)) %>%
-  ggplot(aes(x = metal, y = att)) +
+  ggplot(aes(x = metal, y = 100 * att)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi), width = 0.15, linewidth = 0.8) +
+  geom_errorbar(aes(ymin = 100 * ci_lo, ymax = 100 * ci_hi), width = 0.15, linewidth = 0.8) +
   geom_point(size = 2, color = "black") +
   labs(y = "ATT (percentage points)", x = "Metal Level") +
   theme_paper
@@ -170,14 +170,14 @@ ggsave("results/figures/choice_metals.png", choice_metals, width = 6, height = 4
 
 # Decode insurer abbreviations
 ins_labels <- c(ANT = "Anthem", BS = "Blue Shield", HN = "Health Net",
-                KA = "Kaiser", Small = "Other")
-ins_order  <- c("Anthem", "Blue Shield", "Health Net", "Kaiser", "Other")
+                KA = "Kaiser", Small = "Regional insurers")
+ins_order  <- c("Anthem", "Blue Shield", "Health Net", "Kaiser", "Regional insurers")
 
 choice_insurer <- ins_final %>%
   mutate(insurer = factor(ins_labels[insurer_abbr], levels = ins_order)) %>%
-  ggplot(aes(x = insurer, y = att)) +
+  ggplot(aes(x = insurer, y = 100 * att)) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-  geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi), width = 0.15, linewidth = 0.8) +
+  geom_errorbar(aes(ymin = 100 * ci_lo, ymax = 100 * ci_hi), width = 0.15, linewidth = 0.8) +
   geom_point(size = 2, color = "black") +
   labs(y = "ATT (percentage points)", x = "Insurer") +
   theme_paper
@@ -195,9 +195,9 @@ if (file.exists(new_file)) {
   metal_new <- compute_att(all_new, metal)        %>% select(metal, att_new = att)
   ins_new   <- compute_att(all_new, insurer_abbr) %>% select(insurer_abbr, att_new = att)
   metal_cmp <- metal_summary %>% select(metal, att_all = att) %>%
-    left_join(metal_new, by = "metal")
+    left_join(metal_new, by = "metal", relationship = "many-to-one")
   ins_cmp   <- ins_summary %>% select(insurer_abbr, att_all = att) %>%
-    left_join(ins_new, by = "insurer_abbr")
+    left_join(ins_new, by = "insurer_abbr", relationship = "many-to-one")
   write_csv(metal_cmp, "results/choice_new_vs_all_metal.csv")
   write_csv(ins_cmp,   "results/choice_new_vs_all_insurer.csv")
 }

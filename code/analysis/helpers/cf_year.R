@@ -67,11 +67,11 @@ cf_year_aggregate <- function(pieces) {
 # One full evaluation of the year at P: phase 1 on every worker, the statewide
 # transfer sums, phase 2. Returns the pieces (NULL on a failed cell).
 cf_year_evaluate <- function(cl, P) {
-  recs <- parallel::clusterCall(cl, cf_cell_eval_p1, P)
+  recs <- clusterCall(cl, cf_cell_eval_p1, P)
   ok <- !vapply(recs, is.null, logical(1))
   if (!any(ok)) return(NULL)
   st <- ra_state_totals(recs[ok], RA_TP)
-  pieces <- parallel::clusterCall(cl, cf_cell_eval_p2, st)
+  pieces <- clusterCall(cl, cf_cell_eval_p2, st)
   pieces
 }
 
@@ -295,7 +295,7 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
     spec <- spec_base
     spec$comm <- "firmscale"
     spec$k_firm <- k
-    invisible(parallel::clusterCall(yr$cl, cf_cell_scenario, label, spec))
+    invisible(clusterCall(yr$cl, cf_cell_scenario, label, spec))
 
     # Premium equilibrium at the current schedules
     pieces0 <- cf_year_evaluate(yr$cl, P)
@@ -333,9 +333,9 @@ solve_cf_commissions <- function(yr, label, solve_ids, P_init, J_P, spec_base,
     }
 
     # The commission condition at the solved premiums
-    invisible(parallel::clusterCall(yr$cl, cf_cell_set_calib, TRUE))
+    invisible(clusterCall(yr$cl, cf_cell_set_calib, TRUE))
     pieces_c <- cf_year_evaluate(yr$cl, P)
-    invisible(parallel::clusterCall(yr$cl, cf_cell_set_calib, FALSE))
+    invisible(clusterCall(yr$cl, cf_cell_set_calib, FALSE))
     if (is.null(pieces_c) || !all(!vapply(pieces_c[yr$active], is.null, logical(1)))) {
       cf_log(paste("    ", label, "- condition evaluation failed\n")); return(NULL)
     }

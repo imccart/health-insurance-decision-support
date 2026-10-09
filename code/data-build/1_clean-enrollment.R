@@ -16,7 +16,6 @@ enroll <- fread("data/input/Covered California/pra_07192019.csv") %>%
 
 
 # Variable repair + renames ------------------------------------------------
-cat("  Repairing variables...\n")
 enroll <- enroll %>%
   rename(
     year          = enrlee_enrlmnt_yr,
@@ -78,7 +77,7 @@ oep_cutoffs <- tribble(
   2017L,  9L,  2018L, 8L,  2019L, 4L
 )
 enroll <- enroll %>%
-  left_join(oep_cutoffs, by = "year") %>%
+  left_join(oep_cutoffs, by = "year", relationship = "many-to-one") %>%
   mutate(OEP = start_week <= max_oep_week) %>%
   select(-max_oep_week)
 
@@ -86,7 +85,6 @@ enroll <- enroll %>%
 # Dedupe mid-year transitions ----------------------------------------------
 # (individual_id, year) PK. ~1400 records with >1 row = mid-year plan switches.
 # Keep the row closest to January 1 (earliest start_week).
-cat("  Deduping mid-year transitions...\n")
 enroll <- enroll %>%
   arrange(individual_id, year, start_week) %>%
   distinct(individual_id, year, .keep_all = TRUE)
@@ -97,8 +95,6 @@ enroll <- enroll %>%
 # Availability: zip3_choices wide table, one col per product, indicates
 # which products (insurer × network × MSP × network_num) are sold in
 # each (zip3, region, year).
-cat("  Validating plan availability...\n")
-
 # Long-format zip3 × product availability
 product_cols <- setdiff(colnames(zip3_choices), c("zip3", "Region", "Year"))
 zip_product_long <- zip3_choices %>%
@@ -114,7 +110,7 @@ prod_defs <- product_definitions %>%
 
 # Join product × plan_data to list the valid (zip3, region, year, HIOS+metal) combos
 valid_plans <- zip_product_long %>%
-  inner_join(prod_defs, by = "product") %>%
+  inner_join(prod_defs, by = "product", relationship = "many-to-one") %>%
   inner_join(
     plan_data %>%
       select(HIOS, metal_level, ENROLLMENT_YEAR, region,
@@ -146,7 +142,8 @@ enroll <- enroll %>%
   left_join(
     valid_plans %>% mutate(plan_valid = TRUE) %>%
       rename(metal = metal_level),
-    by = c("zip3", "region", "year", "HIOS", "metal")
+    by = c("zip3", "region", "year", "HIOS", "metal"),
+    relationship = "many-to-one"
   ) %>%
   mutate(
     plan_valid = coalesce(plan_valid, FALSE),
@@ -159,7 +156,6 @@ enroll <- enroll %>%
 # Records where subsidy_fpl_bracket is "FPL Unavailable" / "Unsubsidized Applica"
 # but subsidy_fpl_percent_int has a valid value: fill the bracket from that.
 # Otherwise: flag & will be dropped.
-cat("  Filling / validating FPL brackets...\n")
 enroll <- enroll %>%
   mutate(
     subsidy_fpl_bracket = as.character(subsidy_fpl_bracket),
@@ -180,10 +176,6 @@ enroll <- enroll %>%
 
 
 # Drop flagged records -----------------------------------------------------
-n_raw       <- nrow(enroll)
-n_flagged   <- sum(enroll$flagged)
-cat(sprintf("  Flagged %d / %d records (%.1f%%)\n",
-            n_flagged, n_raw, 100 * n_flagged / n_raw))
 enroll <- enroll %>% filter(!flagged) %>% select(-flagged)
 
 
@@ -212,5 +204,3 @@ enroll <- enroll %>%
 
 # Save ---------------------------------------------------------------------
 fwrite(enroll, "data/output/enrollment_individual.csv")
-cat(sprintf("Step 1 complete: %d individuals, %d HH-cases.\n",
-            nrow(enroll), length(unique(paste0(enroll$ahbx_case_id_x, "_", enroll$year)))))

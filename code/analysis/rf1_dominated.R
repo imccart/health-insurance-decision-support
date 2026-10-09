@@ -274,9 +274,9 @@ theme_paper <- theme_bw() +
   theme(text = element_text(size = 12), panel.grid.minor = element_blank(),
         plot.title = element_blank())
 
-plot_att <- ggplot(att_summary, aes(x = Channel, y = ATT)) +
+plot_att <- ggplot(att_summary, aes(x = Channel, y = 100 * ATT)) +
   geom_point(size = 2, color = "black") +
-  geom_errorbar(aes(ymin = CI_lower, ymax = CI_upper), width = 0.2) +
+  geom_errorbar(aes(ymin = 100 * CI_lower, ymax = 100 * CI_upper), width = 0.2) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
   labs(y = "ATT (percentage points)", x = NULL) +
   theme_paper

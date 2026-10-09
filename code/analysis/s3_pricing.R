@@ -38,12 +38,12 @@ rsdata <- read_csv("data/output/rate_filing_rsdata.csv", show_col_types = FALSE)
 plan_demo <- read_csv(file.path(TEMP_DIR, "plan_demographics.csv"), show_col_types = FALSE)
 for (yy in SUPPLY_YEARS[-1]) rsdata[[paste0("year_", yy)]] <- as.integer(rsdata$year == yy)
 rsdata <- rsdata %>%
-  left_join(plan_demo, by = c("plan_id", "year")) %>%
+  left_join(plan_demo, by = c("plan_id", "year"), relationship = "many-to-one") %>%
   left_join(plan_choice %>%
               select(plan_id, year, all_of(CLAIMS_REGION_TERMS)) %>%
               distinct(plan_id, year, .keep_all = TRUE),
-            by = c("plan_id", "year"))
-n_matched <- sum(!is.na(rsdata$share_18to34))
+            by = c("plan_id", "year"),
+    relationship = "many-to-one")
 rm(plan_demo)
 
 # Risk-score rows: SRRT scores at insurer x metal x region x year, with the
@@ -69,14 +69,14 @@ plan_net_map <- plan_choice %>%
   distinct(plan_id, network)
 stopifnot(!any(duplicated(plan_net_map$plan_id)))
 pdr <- read_csv(file.path(TEMP_DIR, "plan_demographics_region.csv"), show_col_types = FALSE) %>%
-  inner_join(plan_metal_map, by = "plan_id") %>%
-  inner_join(plan_net_map, by = "plan_id") %>%
+  inner_join(plan_metal_map, by = "plan_id", relationship = "many-to-one") %>%
+  inner_join(plan_net_map, by = "plan_id", relationship = "many-to-one") %>%
   mutate(insurer_prefix = sub("_.*", "", plan_id)) %>%
   group_by(insurer_prefix, metal, region, year, network) %>%
   summarize(across(all_of(RS_DEMO_TERMS), ~ weighted.mean(.x, enrollment)),
             .groups = "drop")
 rs_srrt <- rs_srrt %>%
-  inner_join(pdr, by = c("insurer_prefix", "metal", "region", "year", "network")) %>%
+  inner_join(pdr, by = c("insurer_prefix", "metal", "region", "year", "network"), relationship = "many-to-one") %>%
   mutate(Silver = as.integer(metal == "Silver"), Gold = as.integer(metal == "Gold"),
          Platinum = as.integer(metal == "Platinum"))
 rm(pdr, plan_metal_map, plan_net_map)
@@ -224,11 +224,12 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   # -----------------------------------------------------------------------
   # Step 4: Broker shares and elasticities (assisted HH only)
   # -----------------------------------------------------------------------
-  broker_result <- compute_broker_shares_and_elasticities(
+  broker_result <- compute_shares_and_elasticities(
     cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
-    spec = STRUCTURAL_SPEC, V_base = V_base, add_N = add_N, add_A = add_A
+    spec = STRUCTURAL_SPEC, V_base = V_base, channel_filter = "broker",
+    add_N = add_N, add_A = add_A
   )
-  broker_elast_mat <- broker_result$broker_elast_mat
+  broker_elast_mat <- broker_result$elast_mat
   Omega_broker <- -own_mat * t(broker_elast_mat)  # same transpose as Omega
 
   # Commission-condition inputs for the s4 diagnostics: broker enrollment qB_j and the

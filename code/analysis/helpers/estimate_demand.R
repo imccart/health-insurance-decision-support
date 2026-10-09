@@ -59,16 +59,16 @@ load_one_cell <- function(path, covars, filter_assisted = -1L) {
 
   # Intersect with actual columns to avoid fread crash on missing names;
   # missing covariates are filled with 0 in the X matrix below
-  header <- names(data.table::fread(path, nrows = 0L))
+  header <- names(fread(path, nrows = 0L))
   available <- intersect(needed, header)
-  df <- data.table::fread(path, select = available, data.table = TRUE)
+  df <- fread(path, select = available, data.table = TRUE)
 
   if (filter_assisted >= 0) {
     df <- df[assisted == filter_assisted]
     if (nrow(df) == 0) return(NULL)
   }
 
-  data.table::setorder(df, household_number, plan_id)
+  setorder(df, household_number, plan_id)
 
   K <- length(covars)
   n_rows <- nrow(df)

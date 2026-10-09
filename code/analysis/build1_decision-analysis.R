@@ -72,7 +72,6 @@ hh <- hh %>%
 # Drop market-ineligible uninsured rows (HH likely had ESI / Medicaid /
 # Medicare / left CA in that year). Done AFTER lag so new_enrollee is
 # correctly set for the years immediately following these gaps.
-n_before <- nrow(hh)
 hh <- hh %>% filter(market_eligible == 1L)
 
 

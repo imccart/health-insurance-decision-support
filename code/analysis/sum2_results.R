@@ -9,14 +9,7 @@
 ##                whenever you want to update paper assets without re-running
 ##                estimation.
 
-# Packages ----------------------------------------------------------------
-pacman::p_load(
-  tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit
-)
-
-TEMP_DIR <- "D:/temp-research-data/health-insurance-decision-support"
-
-# Ensure output dirs exist
+# Output directories ------------------------------------------------------
 dir.create("results/tables", recursive = TRUE, showWarnings = FALSE)
 dir.create("results/figures", recursive = TRUE, showWarnings = FALSE)
 
@@ -55,7 +48,7 @@ supply_results   <- read_csv("results/supply_results.csv", show_col_types = FALS
 # broadcast across the plan rows by region/year/scenario).
 cf_results <- tryCatch(
   read_csv("results/counterfactual_results.csv", show_col_types = FALSE),
-  error = function(e) { cat("  counterfactual_results.csv not found\n"); NULL }
+  error = function(e) NULL
 )
 if (!is.null(cf_results)) {
   # premium_change is measured from the baseline equilibrium, the reference for
@@ -63,16 +56,17 @@ if (!is.null(cf_results)) {
   cf_results <- cf_results %>%
     left_join(cf_results %>% filter(scenario == "baseline") %>%
                 select(region, year, plan_id, premium_base = premium_cf),
-              by = c("region", "year", "plan_id")) %>%
+              by = c("region", "year", "plan_id"),
+    relationship = "many-to-one") %>%
     mutate(premium_change = premium_cf - premium_base) %>%
     select(-premium_base)
   cf_welfare <- tryCatch(read_csv("results/counterfactual_welfare.csv", show_col_types = FALSE),
-                         error = function(e) { cat("  counterfactual_welfare.csv not found\n"); NULL })
+                         error = function(e) NULL)
   if (!is.null(cf_welfare))
     cf_results <- cf_results %>%
       select(-any_of(c("cs_weighted", "cs_nocomm", "cs_welfare_nav", "cs_welfare_obj",
                        "obj_prem", "obj_eoop", "obj_risk"))) %>%
-      left_join(cf_welfare, by = c("region", "year", "scenario"))
+      left_join(cf_welfare, by = c("region", "year", "scenario"), relationship = "many-to-one")
 }
 
 
@@ -152,8 +146,6 @@ if (has_col(hh_full, "channel")) {
 
   # summary_stats.tex is owned by sum1_desc-stats.R, whose table carries the
   # dominated-choice row the paper caption references.
-} else {
-  cat("  Skipped (channel column not found in hh_full)\n")
 }
 
 
@@ -188,7 +180,7 @@ flat_comm <- comm %>%
     insurer_prefix == "ANT" ~ "Anthem",
     insurer_prefix == "KA"  ~ "Kaiser",
     insurer_prefix == "HN"  ~ "Health Net",
-    insurer_prefix == "Small" ~ "Small Insurers",
+    insurer_prefix == "Small" ~ "Regional insurers",
     TRUE ~ insurer_prefix
   ), network)) %>%
   filter(insurer_prefix %in% c("ANT", "KA", "HN", "Small"))
@@ -198,6 +190,7 @@ p_flat <- ggplot(flat_comm, aes(x = year, y = rate, color = insurer, shape = ins
   geom_point(size = 2.5) +
   labs(x = "Year", y = "Commission ($ PMPM)", color = NULL, shape = NULL) +
   scale_x_continuous(breaks = 2014:2019) +
+  expand_limits(y = 0) +
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom")
 
@@ -355,8 +348,6 @@ if (nrow(coefs_structural) > 0) {
 
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/demand_estimates.tex")
-} else {
-  cat("  Skipped (no structural coefficients)\n")
 }
 
 
@@ -444,7 +435,7 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     for (i in seq_len(nrow(sv))) {
       lab <- ifelse(sv$param[i] %in% names(comm_labels), comm_labels[sv$param[i]],
              ifelse(grepl("^wedge_", sv$param[i]),
-                    sprintf("Cross-market wedge, %s ($\\delta_{f}$)",
+                    sprintf("Carrier constant, %s ($\\delta_{f}$)",
                             gsub("_", "\\\\_", sub("^wedge_", "", sv$param[i]))),
                     gsub("_", "\\\\_", sv$param[i])))
       tab_lines <- c(tab_lines,
@@ -454,8 +445,6 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
   }
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/cost_estimates.tex")
-} else {
-  cat("  Skipped (no cost GMM standard errors)\n")
 }
 
 
@@ -470,7 +459,7 @@ if (nrow(supply_results) > 0) {
   # starting-value version and is not reported.
   mc_gmm_df <- read_csv(file.path(TEMP_DIR, "mc_gmm.csv"), show_col_types = FALSE)
   sr <- supply_results %>%
-    inner_join(mc_gmm_df, by = c("region", "year", "plan_id")) %>%
+    inner_join(mc_gmm_df, by = c("region", "year", "plan_id"), relationship = "many-to-one") %>%
     mutate(markup = realized_premium - mc_gmm,
            lerner_index = markup / realized_premium) %>%
     filter(!is.na(mc_foc), !is.na(realized_premium))
@@ -532,8 +521,6 @@ if (nrow(supply_results) > 0) {
       ggsave("results/figures/supply_mc_foc_vs_structural.png", p_mc, width = 6, height = 5)
     }
   }
-} else {
-  cat("  Skipped (no supply results)\n")
 }
 
 
@@ -557,7 +544,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
   # Objective welfare band: rebuild low/central/high from cf2's components with the
   # uninsured-cost constants (from helpers/welfare.R). Per member per year.
-  if (!exists("UNINS_RISK_PROT")) source("code/analysis/helpers/welfare.R")
   obj_band <- function(cm, cs) cm$ins - cm$oop - UNINS_RISK_PROT[[cs]] * cm$shu -
     UNINS_MORT_REDUX[[cs]] * UNINS_VSL[[cs]] * cm$mort - DISTRESS_COST * cm$cat
 
@@ -615,10 +601,10 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
                    scale_0.50 = "Scaled commission (50\\%)",
                    flat_mandate = "Flat-fee mandate",
                    defund_0.50 = "Navigator defunding (50\\%)",
-                   endog_tau0.50 = "Agents to navigators (endog.\\ commissions)")
+                   endog_tau0.50 = "Navigator expansion (50\\%)")
 
   cf_summary <- prem_summary %>%
-    left_join(welf_summary, by = "scenario") %>%
+    left_join(welf_summary, by = "scenario", relationship = "many-to-one") %>%
     mutate(scenario = factor(scenario, levels = scen_levels)) %>%
     filter(!is.na(scenario)) %>%
     arrange(scenario) %>%
@@ -720,16 +706,15 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     as.numeric(t(a) %*% V_comm[names(a), names(a)] %*% a)
   }
   if (!is.null(draws) && nrow(draws) > 1) {
-    if (is.null(V_comm)) cat("  cf_delta_vcov.csv not found -- welfare SEs carry the demand channel only\n")
     RPc <- UNINS_RISK_PROT[["central"]]; MRc <- UNINS_MORT_REDUX[["central"]]
     VSLc <- UNINS_VSL[["central"]]
-    se_scen <- c(zero_tau0.00  = "Remove assistance ($\\tau$=0)",
-                 zero_tau1.00  = "Agents to navigators ($\\tau$=1)",
+    se_scen <- c(zero_tau0.00  = "Zero commission ($\\tau$=0)",
+                 zero_tau1.00  = "Zero commission ($\\tau$=1)",
                  uniform_low   = "Low uniform commission",
                  aligned       = "Aligned commissions",
                  flat_mandate  = "Flat-fee mandate",
                  defund_0.50   = "Navigator defunding",
-                 endog_tau0.50 = "Agents to navigators (endog.\\ comm.)")
+                 endog_tau0.50 = "Navigator expansion")
     col <- function(p, s) draws[[paste0(p, "_", s)]]
     # Point estimate with bootstrap SE in parentheses (2 significant figures).
     sefmt <- function(x) format(signif(x, 2), scientific = FALSE, trim = TRUE)
@@ -754,8 +739,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     }
     wl <- c(wl, "\\hline\\hline", "\\end{tabular}")
     writeLines(wl, "results/tables/counterfactual_welfare_se.tex")
-  } else {
-    cat("  cf_bootstrap_draws.csv not found -- run cf3 to populate welfare SEs\n")
   }
 
   # --- 5b. Welfare gradient figure (CS by tau), from the cell-level welfare
@@ -763,7 +746,7 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   if (!is.null(cf_welfare) && "cs_nocomm" %in% names(cf_welfare)) {
   scen_tau <- cf_results %>% distinct(scenario, tau)
   tau_results <- cf_welfare %>%
-    inner_join(scen_tau, by = "scenario") %>%
+    inner_join(scen_tau, by = "scenario", relationship = "many-to-one") %>%
     filter(str_detect(scenario, "^zero_tau")) %>%
     group_by(tau) %>%
     summarize(mean_cs = mean(cs_nocomm, na.rm = TRUE), .groups = "drop")
@@ -824,8 +807,6 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
 
     ggsave("results/figures/cf_premium_change.png", p_prem, width = 7, height = 4)
   }
-} else {
-  cat("  Skipped (no counterfactual results)\n")
 }
 
 
@@ -923,7 +904,8 @@ add_num("nDemandHH", sum(vapply(cell_files, function(f)
 if (nrow(supply_results) > 0) {
   sr <- supply_results %>%
     inner_join(read_csv(file.path(TEMP_DIR, "mc_gmm.csv"), show_col_types = FALSE),
-               by = c("region", "year", "plan_id")) %>%
+               by = c("region", "year", "plan_id"),
+    relationship = "many-to-one") %>%
     mutate(markup = realized_premium - mc_gmm,
            lerner_index = markup / realized_premium) %>%
     filter(!is.na(mc_foc), !is.na(realized_premium))

@@ -47,7 +47,7 @@ plan_risk_scores <- rs %>%
   mutate(log_risk_score = log(risk_score))
 cat("  insurer-metal-region-year rows:", nrow(plan_risk_scores), "\n")
 print(plan_risk_scores %>% count(year, insurer_prefix) %>%
-        tidyr::pivot_wider(names_from = year, values_from = n, values_fill = 0))
+        pivot_wider(names_from = year, values_from = n, values_fill = 0))
 
 plan_risk_scores_year <- rs %>%
   group_by(insurer_prefix, metal, year, network) %>%

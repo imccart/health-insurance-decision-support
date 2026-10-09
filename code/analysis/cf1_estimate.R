@@ -104,8 +104,8 @@ for (y in years) {
   })
 
   # One worker per cell; each keeps its cell's state for the whole year
-  cl <- parallel::makeCluster(length(tasks), type = "PSOCK", outfile = "")
-  parallel::clusterEvalQ(cl, {
+  cl <- makeCluster(length(tasks), type = "PSOCK", outfile = "")
+  clusterEvalQ(cl, {
     suppressMessages({ library(tidyverse); library(data.table); library(nleqslv) })
     source("code/data-build/_helpers.R")
     source("code/analysis/helpers/constants.R")
@@ -115,13 +115,13 @@ for (y in years) {
     source("code/analysis/helpers/ra.R")
     source("code/analysis/helpers/estimate_demand.R")
     source("code/analysis/helpers/cf_cell.R")
-    data.table::setDTthreads(1)
+    setDTthreads(1)
   })
-  parallel::clusterExport(cl, c("SAMPLE_FRAC", "plan_choice", "supply_results", "coefs",
+  clusterExport(cl, c("SAMPLE_FRAC", "plan_choice", "supply_results", "coefs",
     "commission_lookup", "rs_coefs", "claims_coefs", "reins_df", "STRUCTURAL_SPEC",
     "ADMIN_LOOKUP", "BETA_LOOKUP"))
   t_init <- Sys.time()
-  inits <- parallel::clusterApply(cl, tasks, function(task) {
+  inits <- clusterApply(cl, tasks, function(task) {
     if (is.null(task$hhs)) return(NULL)
     tryCatch(cf_cell_init(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
                           plan_choice, supply_results, coefs, commission_lookup,
@@ -130,7 +130,7 @@ for (y in years) {
              error = function(e) { cat("  init error cell", task$r, task$y, ":", conditionMessage(e), "\n"); NULL })
   })
   active <- !vapply(inits, is.null, logical(1))
-  if (!any(active)) { parallel::stopCluster(cl); next }
+  if (!any(active)) { stopCluster(cl); next }
   yr <- list(y = y, cl = cl, cells = inits, active = active)
 
   # Plan-year base premiums (observed) and the plans priced in the solve: those
@@ -146,14 +146,14 @@ for (y in years) {
   # Observed point: the pricing-residual fit diagnostic and the insurers'
   # observed mean commissions
   spec_obs <- list(comm = "observed", calib = TRUE)
-  invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline", spec_obs))
+  invisible(clusterCall(cl, cf_cell_scenario, "baseline", spec_obs))
   # The transfer formula's premium total: premiums collected at the observed
   # premiums, held at that value in every evaluation of the year
-  recs_obs <- parallel::clusterCall(cl, cf_cell_eval_p1, P_obs)
+  recs_obs <- clusterCall(cl, cf_cell_eval_p1, P_obs)
   RA_TP <- ra_premium_total(recs_obs[!vapply(recs_obs, is.null, logical(1))])
   pieces_obs <- cf_year_evaluate(cl, P_obs)
   if (is.null(pieces_obs) || !all(!vapply(pieces_obs[active], is.null, logical(1)))) {
-    cat("  observed-point evaluation failed; year skipped\n"); parallel::stopCluster(cl); next
+    cat("  observed-point evaluation failed; year skipped\n"); stopCluster(cl); next
   }
   ag_obs <- cf_year_aggregate(pieces_obs)
   N_year <- sum(vapply(inits[active], function(cs) cs$N, numeric(1)))
@@ -179,10 +179,10 @@ for (y in years) {
   rows_y <- list()
   save_rows <- function(label, rows) {
     if (is.null(rows) || nrow(rows) == 0) return(invisible(NULL))
-    data.table::fwrite(rows, file.path(CF_YEAR_DIR, sprintf("year_%d_%s.csv", y, label)))
+    fwrite(rows, file.path(CF_YEAR_DIR, sprintf("year_%d_%s.csv", y, label)))
     rows_y[[label]] <<- rows
   }
-  invisible(parallel::clusterCall(cl, cf_cell_scenario, "baseline",
+  invisible(clusterCall(cl, cf_cell_scenario, "baseline",
                                   list(comm = "observed")))
   # Warm start from a saved fixed point of an earlier run of this year, if any.
   # A saved point predates the current estimates unless this year already ran
@@ -202,7 +202,7 @@ for (y in years) {
     }
   }
   fp <- solve_cf_year_fixed_point(yr, "baseline", solve_ids, P_start)
-  if (is.null(fp)) { cf_log(sprintf("  [%s] baseline iteration failed; year skipped\n", y)); parallel::stopCluster(cl); next }
+  if (is.null(fp)) { cf_log(sprintf("  [%s] baseline iteration failed; year skipped\n", y)); stopCluster(cl); next }
   k_tab <- if (is.null(fp$kappa_plan)) "none" else
     paste(sprintf("%.2f:%d", as.numeric(names(table(fp$kappa_plan))),
                   as.integer(table(fp$kappa_plan))), collapse = " ")
@@ -210,12 +210,12 @@ for (y in years) {
                  y, fp$iter, fp$converged, fp$elapsed, k_tab))
   write_csv(tibble(kind = "P", id = names(fp$P), value = unname(fp$P)), fp_file)
   J_P_year <- cf_year_jacobian_P(yr, solve_ids, fp$P)
-  if (is.null(J_P_year)) { cf_log(sprintf("  [%s] jacobian evaluation failed; year skipped\n", y)); parallel::stopCluster(cl); next }
-  data.table::fwrite(data.table::data.table(row = rownames(J_P_year), J_P_year),
+  if (is.null(J_P_year)) { cf_log(sprintf("  [%s] jacobian evaluation failed; year skipped\n", y)); stopCluster(cl); next }
+  fwrite(data.table(row = rownames(J_P_year), J_P_year),
                      file.path(CF_YEAR_DIR, sprintf("jacobian_%d.csv", y)))
 
   run_scenario <- function(label, tau, spec, P_init, comm_scale = 1, set_scenario = TRUE) {
-    if (set_scenario) invisible(parallel::clusterCall(cl, cf_cell_scenario, label, spec))
+    if (set_scenario) invisible(clusterCall(cl, cf_cell_scenario, label, spec))
     ids <- solve_ids
     if (set_scenario) {
       # One evaluation under the scenario at the start point: gate the solve
@@ -244,14 +244,14 @@ for (y in years) {
     cf_log(sprintf("   [%s] %s - %s (termcd %d, %d iterations, %d evaluations, %.1f min, max residual %.2f $)\n",
                    y, label, if (res$converged) "converged" else "off tolerance",
                    res$termcd, res$iter, res$n_eval, res$elapsed, res$max_miss))
-    data.table::fwrite(data.table::data.table(
+    fwrite(data.table(
       year = y, scenario = label, plan_id = names(res$resid),
       resid_dollars = unname(res$resid), kink = unname(res$kink[names(res$resid)]),
       converged = res$converged),
       file.path(CF_YEAR_DIR, sprintf("resid_%d_%s.csv", y, label)))
     save_rows(label, cf_year_rows(yr, label, tau, res$pieces, P_full, comm_scale,
                                   res$termcd, res$iter))
-    data.table::fwrite(cf_year_firm_rows(yr, label, res$pieces),
+    fwrite(cf_year_firm_rows(yr, label, res$pieces),
                        file.path(CF_YEAR_DIR, sprintf("firms_%d_%s.csv", y, label)))
     list(P = P_full, pieces = res$pieces)
   }
@@ -260,7 +260,7 @@ for (y in years) {
   # already set on the workers): the premium equilibrium at observed
   # commissions, the warm start for the commission solve
   base <- run_scenario("baseline", NA_real_, NULL, fp$P, set_scenario = FALSE)
-  if (is.null(base)) { cat("  baseline evaluation failed; year skipped\n"); parallel::stopCluster(cl); next }
+  if (is.null(base)) { cat("  baseline evaluation failed; year skipped\n"); stopCluster(cl); next }
   P_base <- base$P
 
   # The baseline commission equilibrium: each gated insurer's rate re-solved to
@@ -285,7 +285,7 @@ for (y in years) {
       k_base[names(base_c$k)] <- base_c$k
       save_rows("baseline", cf_year_rows(yr, "baseline", NA_real_, base_c$pieces, P_base,
                                          NA_real_, if (base_c$converged) 1L else 9L, base_c$rounds))
-      data.table::fwrite(cf_year_firm_rows(yr, "baseline", base_c$pieces,
+      fwrite(cf_year_firm_rows(yr, "baseline", base_c$pieces,
                                            k = base_c$k, phi = base_c$phi),
                          file.path(CF_YEAR_DIR, sprintf("firms_%d_baseline.csv", y)))
       base_comm_rows[[as.character(y)]] <- tibble(
@@ -338,7 +338,7 @@ for (y in years) {
     P_full <- P_obs; P_full[names(out$P)] <- out$P
     save_rows(label, cf_year_rows(yr, label, tau_row, out$pieces, P_full, NA_real_,
                                   if (out$converged) 1L else 9L, out$rounds))
-    data.table::fwrite(cf_year_firm_rows(yr, label, out$pieces, k = out$k, phi = out$phi),
+    fwrite(cf_year_firm_rows(yr, label, out$pieces, k = out$k, phi = out$phi),
                        file.path(CF_YEAR_DIR, sprintf("firms_%d_%s.csv", y, label)))
     invisible(out)
   }
@@ -350,7 +350,7 @@ for (y in years) {
                         list(tau = tt, broker_remain = TRUE), tau_row = tt)
   }
 
-  parallel::stopCluster(cl)
+  stopCluster(cl)
   year_results[[as.character(y)]] <- bind_rows(rows_y)
   cat(sprintf("  year %d done: %d scenarios, %.1f min elapsed overall\n", y, length(rows_y),
               as.numeric(difftime(Sys.time(), t_start, units = "mins"))))

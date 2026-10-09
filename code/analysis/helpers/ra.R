@@ -76,7 +76,8 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
   # One effect per insurer-metal cell (Kaiser silver the base) plus the plan's
   # demographic shares. An unobserved cell carries a zero, not an NA.
   rs_key <- paste0("im_", rs_valid$insurer_prefix, "_", rs_valid$metal)
-  for (nm in RS_IM_TERMS) rs_valid[[nm]] <- as.integer(rs_key == nm)
+  rs_valid <- rs_valid %>%
+    mutate(!!!set_names(map(RS_IM_TERMS, ~ as.integer(rs_key == .x)), RS_IM_TERMS))
   has_demo <- all(RS_DEMO_TERMS %in% names(rs_valid))
   if (has_demo) {
     rs_valid <- rs_valid %>% filter(if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)))
@@ -97,10 +98,13 @@ estimate_ra_regressions <- function(rsdata, rs_srrt) {
   claims_valid <- rsdata %>%
     filter(!is.na(log_cost), is.finite(log_cost), EXP_MM > 0,
            if_all(all_of(RS_DEMO_TERMS), ~ !is.na(.x)))
-  for (rc in CLAIMS_REGION_TERMS) if (!rc %in% names(claims_valid)) claims_valid[[rc]] <- 0
+  region_missing <- setdiff(CLAIMS_REGION_TERMS, names(claims_valid))
+  claims_valid <- claims_valid %>%
+    mutate(!!!set_names(as.list(rep(0, length(region_missing))), region_missing))
   cl_key <- paste0("im_", sub("_.*", "", claims_valid$plan_id), "_",
                    if ("METAL" %in% names(claims_valid)) claims_valid$METAL else claims_valid$metal)
-  for (nm in RS_IM_TERMS) claims_valid[[nm]] <- as.integer(cl_key == nm)
+  claims_valid <- claims_valid %>%
+    mutate(!!!set_names(map(RS_IM_TERMS, ~ as.integer(cl_key == .x)), RS_IM_TERMS))
   claims_valid <- claims_valid %>%
     mutate(across(all_of(CLAIMS_REGION_TERMS), ~ ifelse(is.na(.x), 0, .x)),
            log_risk_score = predict(rs_reg, newdata = claims_valid))

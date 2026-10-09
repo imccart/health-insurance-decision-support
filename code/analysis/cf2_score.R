@@ -19,7 +19,6 @@ demand_spec <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))
 STRUCTURAL_SPEC <- demand_spec$all
 COMM_TERMS <- c("commission_broker", "commission_broker_sq")
 
-source("code/analysis/helpers/welfare.R")
 CS_TABLE <- read.csv("data/input/ca_standard_cost_sharing.csv", stringsAsFactors = FALSE)
 # Age/income spending schedule (NULL falls back to flat MEAN_SPENDING).
 SPENDING_SCHEDULE <- load_spending_schedule()
@@ -33,13 +32,10 @@ if (dir.exists(CF_WELFARE_HH_DIR)) unlink(CF_WELFARE_HH_DIR, recursive = TRUE)
 dir.create(CF_WELFARE_HH_DIR, recursive = TRUE)
 cells_cf <- unique(cfres[, .(region, year)])
 
-# Per-cell scorer (shared with cf3) ---------------------------------------
-source("code/analysis/helpers/score_cf.R")
-
 # Driver (parallel) -------------------------------------------------------
 tasks <- lapply(seq_len(nrow(cells_cf)), function(i) list(r = cells_cf$region[i], y = cells_cf$year[i]))
-n_workers <- max(1L, parallel::detectCores() - 2L)
-cl <- tryCatch(parallel::makeCluster(n_workers, type = "PSOCK", outfile = ""), error = function(e) NULL)
+n_workers <- max(1L, detectCores() - 2L)
+cl <- tryCatch(makeCluster(n_workers, type = "PSOCK", outfile = ""), error = function(e) NULL)
 
 score_one <- function(task) {
   res <- tryCatch(score_cf_cell(task$r, task$y, cfres[region == task$r & year == task$y], CF_WELFARE_HH_DIR, coefs, lambda),
@@ -48,7 +44,7 @@ score_one <- function(task) {
 }
 
 if (!is.null(cl)) {
-  parallel::clusterEvalQ(cl, {
+  clusterEvalQ(cl, {
     suppressMessages({ library(tidyverse); library(data.table) })
     source("code/data-build/_helpers.R"); source("code/analysis/helpers/constants.R")
     source("code/analysis/helpers/covariates.R"); source("code/analysis/helpers/choice.R")
@@ -56,24 +52,18 @@ if (!is.null(cl)) {
     source("code/analysis/helpers/estimate_demand.R")
     source("code/analysis/helpers/cf_cell.R")
     source("code/analysis/helpers/welfare.R")
-    data.table::setDTthreads(1)
+    setDTthreads(1)
   })
-  parallel::clusterExport(cl, c("score_cf_cell", "coefs", "lambda", "supply_results", "cfres",
+  clusterExport(cl, c("score_cf_cell", "coefs", "lambda", "supply_results", "cfres",
     "STRUCTURAL_SPEC", "COMM_TERMS", "CS_TABLE", "SPENDING_SCHEDULE", "UNINS_SCHED", "CELL_DIR", "CF_WELFARE_HH_DIR", "TEMP_DIR"))
-  welfare_list <- parallel::parLapplyLB(cl, tasks, score_one)
-  parallel::stopCluster(cl)
+  welfare_list <- parLapplyLB(cl, tasks, score_one)
+  stopCluster(cl)
 } else {
   welfare_list <- lapply(tasks, score_one)
 }
 
 cf_welfare <- rbindlist(welfare_list)
 write_csv(cf_welfare, "results/counterfactual_welfare.csv")
-
-# Internal check: the objective decomposes into its three components ----------
-cat("\n  --- decomposition check (spending schedule ",
-    if (!is.null(SPENDING_SCHEDULE)) "ON" else "OFF", ") ---\n", sep = "")
-cat("    obj = prem+eoop+risk (max |resid|):",
-    round(max(abs(cf_welfare$cs_welfare_obj - (cf_welfare$obj_prem + cf_welfare$obj_eoop + cf_welfare$obj_risk)), na.rm = TRUE), 6), "\n")
 
 # Distribution of effects across households (point estimate) -----------------
 # Each household's effect vs its own observed choice, summarized per scenario (share

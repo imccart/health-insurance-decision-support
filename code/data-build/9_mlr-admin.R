@@ -25,7 +25,6 @@
 ##                  beta, se): per-carrier substitution rates from the national
 ##                  filings, bounded in (0,1) and varying with filer size
 
-MLR_DIR <- "D:/research-data/insurance-mlr"
 MLR_ROWS <- c(MEMBER_MONTHS = "mm", TOTAL_DIRECT_PREMIUM_EARNED = "premium",
               TOTAL_INCURRED_CLAIMS_PT1 = "claims", AGNTS_AND_BROKERS_FEES_COMMS = "commissions",
               DIR_SALES_SALARIES_AND_BENEFITS = "direct_sales", OTHER_GENERAL_AND_ADM_EXPENSES = "other_ga",
@@ -37,12 +36,12 @@ MLR_PREFIX <- c("blue cross of california|anthem" = "ANT", "blue shield" = "BS",
 
 read_mlr_year <- function(y, all_states = FALSE) {
   if (y %in% c(2014, 2015)) {
-    zp <- file.path(MLR_DIR, paste0("MLR_", y, ".zip"))
+    zp <- file.path("D:/research-data/insurance-mlr", paste0("MLR_", y, ".zip"))
     hdr <- read_csv(unz(zp, "MR_Submission_Template_Header.csv"), show_col_types = FALSE, name_repair = "minimal")
     p12 <- read_csv(unz(zp, "Part1_2_Summary_Data_Premium_Claims.csv"), show_col_types = FALSE, name_repair = "minimal")
   } else {
-    hdr <- read_csv(file.path(MLR_DIR, y, "MR_Submission_Template_Header.csv"), show_col_types = FALSE, name_repair = "minimal")
-    p12 <- read_csv(file.path(MLR_DIR, y, "Part1_2_Summary_Data_Premium_Claims.csv"), show_col_types = FALSE, name_repair = "minimal")
+    hdr <- read_csv(file.path("D:/research-data/insurance-mlr", y, "MR_Submission_Template_Header.csv"), show_col_types = FALSE, name_repair = "minimal")
+    p12 <- read_csv(file.path("D:/research-data/insurance-mlr", y, "Part1_2_Summary_Data_Premium_Claims.csv"), show_col_types = FALSE, name_repair = "minimal")
   }
   names(hdr) <- sub("^\ufeff", "", names(hdr)); names(p12) <- sub("^\ufeff", "", names(p12))
   hdr <- hdr %>% mutate(state = str_trim(BUSINESS_STATE))
@@ -62,8 +61,8 @@ read_mlr_year <- function(y, all_states = FALSE) {
     transmute(MR_SUBMISSION_TEMPLATE_ID, item = unname(MLR_ROWS[ROW_LOOKUP_CODE]),
               value = ifelse(is.na(CMM_INDIVIDUAL_Q1), CMM_INDIVIDUAL_YEARLY, CMM_INDIVIDUAL_Q1)) %>%
     pivot_wider(names_from = item, values_from = value, values_fn = first)
-  hdr %>% inner_join(p12, by = "MR_SUBMISSION_TEMPLATE_ID") %>%
-    left_join(mm_seg, by = "MR_SUBMISSION_TEMPLATE_ID") %>% mutate(year = y)
+  hdr %>% inner_join(p12, by = "MR_SUBMISSION_TEMPLATE_ID", relationship = "many-to-one") %>%
+    left_join(mm_seg, by = "MR_SUBMISSION_TEMPLATE_ID", relationship = "many-to-one") %>% mutate(year = y)
 }
 
 mlr <- bind_rows(lapply(2014:2018, read_mlr_year)) %>%
@@ -71,8 +70,6 @@ mlr <- bind_rows(lapply(2014:2018, read_mlr_year)) %>%
   mutate(name = tolower(paste(COMPANY_NAME, DBA_MARKETING_NAME)),
          insurer_prefix = NA_character_)
 for (pat in names(MLR_PREFIX)) mlr$insurer_prefix[is.na(mlr$insurer_prefix) & str_detect(mlr$name, pat)] <- MLR_PREFIX[[pat]]
-cat("  California individual-market filers matched to our insurers:", sum(!is.na(mlr$insurer_prefix)),
-    "of", nrow(mlr), "filer-years\n")
 
 mlr_admin <- mlr %>%
   filter(!is.na(insurer_prefix)) %>%
@@ -89,11 +86,6 @@ mlr_admin <- mlr %>%
 # 2019 is not in the files on disk: carry the 2018 values
 mlr_admin <- bind_rows(mlr_admin,
                        mlr_admin %>% filter(year == 2018) %>% mutate(year = 2019L, mm = NA_real_))
-cat("  insurer-years:", nrow(mlr_admin), "(2019 carried from 2018)\n")
-cat("  non-commission administrative cost per member-month by insurer (mean over years):\n")
-print(mlr_admin %>% group_by(insurer_prefix) %>%
-        summarize(admin_pmpm = round(mean(admin_pmpm), 1), commission_pmpm = round(mean(commission_pmpm, na.rm = TRUE), 1),
-                  .groups = "drop"))
 
 # Commissionable-book shares: the individual market's share of each carrier's
 # CA member months, with and without the large-group book. w_all (individual /
@@ -111,9 +103,6 @@ book_share <- mlr %>%
 book_share <- bind_rows(book_share,
                         book_share %>% filter(year == 2018) %>% mutate(year = 2019L))
 write_csv(book_share, "data/output/commission_book_share.csv")
-cat("  commissionable-book shares (w_all, mean by insurer):\n")
-print(book_share %>% group_by(insurer_prefix) %>%
-        summarize(w_all = round(mean(w_all), 3), .groups = "drop"))
 
 # Within-insurer relation of sales and G&A cost to commission outlay, per
 # member-month (claims adjustment expense does not move with commissions and is
@@ -122,8 +111,6 @@ print(book_share %>% group_by(insurer_prefix) %>%
 reg <- mlr_admin %>% filter(!is.na(mm), is.finite(sales_ga_pmpm), is.finite(commission_pmpm))
 fit <- feols(sales_ga_pmpm ~ commission_pmpm | insurer_prefix + year, data = reg, weights = ~mm, cluster = ~insurer_prefix)
 beta0 <- -unname(coef(fit)["commission_pmpm"])
-cat("  administrative saving per commission dollar (within insurer): beta0 =", round(beta0, 3),
-    " se", round(unname(se(fit)["commission_pmpm"]), 3), " n =", nobs(fit), "\n")
 
 # The administrative-cost level that enters marginal cost: the fitted sales and
 # G&A cost before any commission saving (insurer effect + year effect; the
@@ -137,9 +124,6 @@ mlr_admin <- mlr_admin %>%
          sales_ga0_pmpm = fe_ins + fe_year,
          admin0_pmpm    = sales_ga0_pmpm + (admin_pmpm - sales_ga_pmpm)) %>%
   select(-fe_year, -fe_ins)
-cat("  administrative level before commission saving (admin0), mean by insurer:\n")
-print(mlr_admin %>% group_by(insurer_prefix) %>%
-        summarize(admin0 = round(mean(admin0_pmpm), 1), observed = round(mean(admin_pmpm), 1), .groups = "drop"))
 
 write_csv(mlr_admin, "data/output/mlr_admin.csv")
 write_csv(tibble(beta0 = beta0, se = unname(se(fit)["commission_pmpm"]), n = nobs(fit)),
@@ -152,7 +136,6 @@ write_csv(tibble(beta0 = beta0, se = unname(se(fit)["commission_pmpm"]), n = nob
 # beta(z) = plogis(g0 + g1 z), z the filer's standardized log member-months.
 # Each California carrier's beta is the profile evaluated at its own size.
 # Cluster bootstrap by filer for the SEs on the beta levels.
-cat("Estimating per-carrier substitution rates from the national filings...\n")
 nat <- bind_rows(lapply(2014:2018, read_mlr_year, all_states = TRUE)) %>%
   filter(!is.na(mm), mm > 20000) %>%
   mutate(state = case_when(state == "District of Columbia" ~ "DC",
@@ -164,7 +147,6 @@ nat <- bind_rows(lapply(2014:2018, read_mlr_year, all_states = TRUE)) %>%
   filter(is.finite(sales_ga_pmpm), is.finite(commission_pmpm), commission_pmpm >= 0) %>%
   mutate(z_size = as.numeric(scale(log(mm)))) %>%
   group_by(unit) %>% mutate(z_u = mean(z_size)) %>% ungroup()
-cat("  national filer-years:", nrow(nat), " filers:", n_distinct(nat$unit), "\n")
 
 nat_dm <- demean(X = as.matrix(nat[, c("sales_ga_pmpm", "commission_pmpm")]),
                  f = nat[, c("unit", "year")], weights = nat$mm)
@@ -191,7 +173,6 @@ beta_fit <- function(dat) {
   optim(start, beta_obj, gr = beta_grad, dat = dat, method = "BFGS")
 }
 g_hat <- beta_fit(list(X = idx_mat(nat), a_t = nat$a_t, c_t = nat$c_t, w = nat$w))$par
-cat("  logistic transition: g0 =", round(g_hat[1], 3), " g1 =", round(g_hat[2], 3), "\n")
 
 set.seed(20260224)
 units_nat <- unique(nat$unit)
@@ -228,9 +209,6 @@ if (length(missing_pref) > 0) {
     summarize(z = (mean(log(mm)) - lm_mean) / lm_sd, .groups = "drop") %>%
     mutate(beta = plogis(g_hat[1] + g_hat[2] * z),
            se = beta_se_at(z))
-  cat("  carriers filled from California member-months:", paste(fill$insurer_prefix, collapse = ", "), "\n")
   beta_carrier <- bind_rows(beta_carrier, fill) %>% arrange(insurer_prefix)
 }
-cat("  substitution rate by carrier:\n")
-print(beta_carrier %>% mutate(across(where(is.numeric), ~ round(.x, 3))))
 write_csv(beta_carrier, "data/output/commission_beta_carrier.csv")

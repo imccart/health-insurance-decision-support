@@ -62,8 +62,8 @@ dist_headline <- function(hh_dir) {
   out <- setNames(rep(NA_real_, length(nm)), nm)
   files <- list.files(hh_dir, full.names = TRUE)
   if (length(files) == 0) return(out)
-  d <- tryCatch(data.table::rbindlist(lapply(files, function(f) {
-    h   <- data.table::fread(f)
+  d <- tryCatch(rbindlist(lapply(files, function(f) {
+    h   <- fread(f)
     obs <- h[scenario == "baseline", .(region, year, household_number, o_obj = obj, o_nav = nav)]
     m   <- merge(h[scenario != "baseline"], obs, by = c("region", "year", "household_number"))
     m[, .(scenario, w, e_obj = obj - o_obj, e_nav = nav - o_nav)]
@@ -103,10 +103,10 @@ run_one_boot <- function(task) {
 }
 
 # Cluster (set up once; static objects exported once, params per draw) -----
-n_workers <- max(1L, parallel::detectCores() - 2L)
+n_workers <- max(1L, detectCores() - 2L)
 # outfile = "" streams each worker's per-cell progress to the console.
-cl <- parallel::makeCluster(n_workers, type = "PSOCK", outfile = "")
-parallel::clusterEvalQ(cl, {
+cl <- makeCluster(n_workers, type = "PSOCK", outfile = "")
+clusterEvalQ(cl, {
   suppressMessages({ library(tidyverse); library(data.table); library(nleqslv) })
   source("code/data-build/_helpers.R")
   source("code/analysis/helpers/constants.R")
@@ -118,9 +118,9 @@ parallel::clusterEvalQ(cl, {
   source("code/analysis/helpers/cf_cell.R")
   source("code/analysis/helpers/welfare.R")
   source("code/analysis/helpers/score_cf.R")
-  data.table::setDTthreads(1)
+  setDTthreads(1)
 })
-parallel::clusterExport(cl, c("run_one_boot", "cf_base", "supply_results",
+clusterExport(cl, c("run_one_boot", "cf_base", "supply_results",
   "STRUCTURAL_SPEC", "CS_TABLE", "HH_SINK", "CELL_DIR", "COMM_TERMS",
   "SPENDING_SCHEDULE", "UNINS_SCHED", "TEMP_DIR"))
 
@@ -161,11 +161,11 @@ for (b in seq_len(N_BOOT_CF)) {
   if (b <= done) next
 
   draw_b <- b
-  parallel::clusterExport(cl, c("coefs_b", "draw_b", "lambda_b"), envir = environment())
+  clusterExport(cl, c("coefs_b", "draw_b", "lambda_b"), envir = environment())
   # Fresh per-household sink for this draw (workers write per cell; pooled below).
   unlink(HH_SINK, recursive = TRUE); dir.create(HH_SINK, recursive = TRUE, showWarnings = FALSE)
   message(sprintf("  --- draw %d/%d: scoring %d cells ---", b, N_BOOT_CF, length(tasks)))
-  res  <- parallel::parLapplyLB(cl, tasks, run_one_boot)
+  res  <- parLapplyLB(cl, tasks, run_one_boot)
   cf_b <- bind_rows(res[!vapply(res, is.null, logical(1))])
   stats <- if (nrow(cf_b) > 0) c(summarize_cf_headline(cf_b), dist_headline(HH_SINK)) else NULL
 
@@ -188,7 +188,7 @@ for (b in seq_len(N_BOOT_CF)) {
                 b, N_BOOT_CF, as.numeric(difftime(Sys.time(), t0, units = "mins"))))
   }
 },
-finally = try(parallel::stopCluster(cl), silent = TRUE))
+finally = try(stopCluster(cl), silent = TRUE))
 
 # Summary -----------------------------------------------------------------
 D <- do.call(rbind, draws[!vapply(draws, is.null, logical(1))])

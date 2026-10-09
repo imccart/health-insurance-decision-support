@@ -46,7 +46,6 @@ gc(verbose = FALSE)
 
 rdata <- bind_rows(puf_list)
 rm(puf_list)
-cat("  Combined PUFs:", nrow(rdata), "rows\n")
 
 
 # Filter to CA, Individual, on-exchange -----------------------------------
@@ -54,13 +53,9 @@ cat("  Combined PUFs:", nrow(rdata), "rows\n")
 rdata <- rdata %>%
   filter(STATE == "CA", MARKET == "Individual")
 
-cat("  CA Individual:", nrow(rdata), "rows\n")
-
 # Drop catastrophic and "Not Applicable" metals
 rdata <- rdata %>%
   filter(!METAL %in% c("Catastrophic", "Not Applicable"))
-
-cat("  After dropping CAT/NA metals:", nrow(rdata), "rows\n")
 
 
 # Harmonize company names -------------------------------------------------
@@ -92,8 +87,6 @@ rdata <- rdata %>%
       TRUE ~ insurer
     )
   )
-
-cat("  Insurers:", paste(sort(unique(rdata$insurer_small)), collapse = ", "), "\n")
 
 
 # Build plan_id crosswalk -----------------------------------------------
@@ -152,9 +145,6 @@ rdata <- rdata %>%
                       if_else(network_suffix == "3", "HMO", "PPO"), "Both")
   )
 
-cat("  Plan names:", length(unique(rdata$plan_id)), "unique\n")
-cat("  Examples:", paste(head(sort(unique(rdata$plan_id)), 10), collapse = ", "), "\n")
-
 
 
 # Company-level experience stamped on every plan row --------------------------
@@ -171,14 +161,8 @@ exp_flat <- rdata %>%
   filter(n_plans > 1, n_mm == 1, n_clm == 1) %>%
   transmute(filing, COMPANY, exp_company_level = TRUE)
 
-if (nrow(exp_flat) > 0) {
-  cat("  experience block is company-level, dropped:",
-      paste(paste0(exp_flat$COMPANY, " (", exp_flat$filing - 2L, ")"),
-            collapse = "; "), "\n")
-}
-
 rdata <- rdata %>%
-  left_join(exp_flat, by = c("filing", "COMPANY")) %>%
+  left_join(exp_flat, by = c("filing", "COMPANY"), relationship = "many-to-one") %>%
   mutate(across(c(EXP_MM, EXP_TP, EXP_INC_CLM, EXP_RSK_ADJ, EXP_REIN),
                 ~ if_else(coalesce(exp_company_level, FALSE), NA_real_, as.numeric(.x)))) %>%
   select(-exp_company_level)
@@ -223,11 +207,8 @@ projection <- rdata %>%
     .groups = "drop"
   )
 
-cat("  Experience plan-years:", nrow(experience), " (", paste(range(experience$year), collapse = "-"),
-    ")  projection plan-years:", nrow(projection), " (", paste(range(projection$year), collapse = "-"), ")\n")
-
 rsdata <- experience %>%
-  left_join(projection, by = c("plan_id", "year", "insurer_small", "METAL", "hmo", "network")) %>%
+  left_join(projection, by = c("plan_id", "year", "insurer_small", "METAL", "hmo", "network"), relationship = "many-to-one") %>%
   mutate(across(c(PRJ_MM, PRJ_INC_CLM, PRJ_RSK_ADJ, PRJ_REIN), ~ ifelse(is.na(.x), 0, .x)))
 stopifnot(nrow(rsdata) == nrow(experience),
           !any(duplicated(rsdata[, c("plan_id", "year")])))
@@ -243,9 +224,6 @@ rsdata <- rsdata %>%
     PRJ_RSK_ADJ_PMPM = if_else(PRJ_MM > 0, PRJ_RSK_ADJ / PRJ_MM, NA_real_),
     PRJ_REIN_PMPM    = if_else(PRJ_MM > 0, PRJ_REIN / PRJ_MM, NA_real_)
   )
-
-cat("\n  rsdata:", nrow(rsdata), "plan-year observations\n")
-cat("  Years:", paste(sort(unique(rsdata$year)), collapse = ", "), "\n")
 
 
 # Compute risk scores -----------------------------------------------------
@@ -270,8 +248,6 @@ rsdata <- rsdata %>%
     log_risk_score = log(if_else(risk_score > 0, risk_score, NA_real_))
   ) %>%
   ungroup()
-
-cat("  Risk score range:", round(range(rsdata$risk_score, na.rm = TRUE), 3), "\n")
 
 # Check for invalid risk scores
 n_invalid <- sum(is.na(rsdata$risk_score) | rsdata$risk_score <= 0)
@@ -314,44 +290,10 @@ rsdata <- rsdata %>%
     reins_factor = pmin(reins_factor, 1)  # cap at 100%
   )
 
-cat("  Reinsurance factor by year:\n")
-rsdata %>%
-  group_by(year) %>%
-  summarize(
-    mean_reins = round(mean(reins_factor, na.rm = TRUE), 4),
-    max_reins  = round(max(reins_factor, na.rm = TRUE), 4),
-    .groups = "drop"
-  ) %>%
-  print(n = Inf)
-
 
 # Save --------------------------------------------------------------------
 
 write_csv(rsdata, "data/output/rate_filing_rsdata.csv")
-cat("\nRate filing data saved:", nrow(rsdata), "rows -> data/output/rate_filing_rsdata.csv\n")
-
-# Diagnostics
-cat("\n--- Rate Filing Diagnostics ---\n")
-cat("  Plans per year:\n")
-rsdata %>% count(year) %>% print(n = Inf)
-cat("\n  Risk score by metal:\n")
-rsdata %>%
-  group_by(METAL) %>%
-  summarize(
-    mean_rs = round(mean(risk_score, na.rm = TRUE), 3),
-    sd_rs   = round(sd(risk_score, na.rm = TRUE), 3),
-    n       = n(),
-    .groups = "drop"
-  ) %>%
-  print(n = Inf)
-cat("\n  Claims PMPM by metal:\n")
-rsdata %>%
-  group_by(METAL) %>%
-  summarize(
-    mean_claims = round(mean(EXP_INC_CLM_PMPM, na.rm = TRUE), 2),
-    .groups = "drop"
-  ) %>%
-  print(n = Inf)
 
 rm(rdata)
 gc(verbose = FALSE)

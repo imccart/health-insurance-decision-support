@@ -12,8 +12,8 @@
 ##
 ##                Sourced by _analysis.R after s2_demand.R and supp1_demand-specs.R.
 
-CELL_DIR <- "D:/temp-research-data/health-insurance-decision-support/choice_cells"
-FILT_DIR <- "D:/temp-research-data/health-insurance-decision-support/choice_cells_noPBE"
+CELL_DIR <- file.path(TEMP_DIR, "choice_cells")
+FILT_DIR <- file.path(TEMP_DIR, "choice_cells_noPBE")
 
 # Body specification (col3 in the demand-spec sensitivity fits) ------------
 fits <- read.csv("results/demand_spec_fits.csv", stringsAsFactors = FALSE)

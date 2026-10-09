@@ -407,9 +407,10 @@ cf_cell_eval_p1 <- function(P) {
                    error = function(e) NULL)
   if (is.null(demo)) { .cf$ev <- NULL; return(NULL) }
   br <- tryCatch(
-    compute_broker_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
-                                            cl$coefs, spec = cl$spec, V_base = util$V_base,
-                                            add_N = util$add_N, add_A = util$add_A),
+    compute_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
+                                     cl$coefs, spec = cl$spec, V_base = util$V_base,
+                                     channel_filter = "broker",
+                                     add_N = util$add_N, add_A = util$add_A),
     error = function(e) NULL)
   ck <- if (sc$calib) tryCatch(
     compute_commission_derivatives(dt, util$V, cl$lambda, cl$coefs, V_base = util$V_base,
@@ -423,8 +424,8 @@ cf_cell_eval_p1 <- function(P) {
                  elast = se$elast_mat[pn, pn], relast = se$relast_mat[pn, pn],
                  zelast = lapply(se$zelast, function(m) m[pn, pn]),
                  demo = demo, rs = rs_vec,
-                 qB_plan = if (!is.null(br)) unname(br$broker_shares[pn]) else rep(0, length(pn)),
-                 broker_elast = if (!is.null(br)) br$broker_elast_mat[pn, pn] else NULL,
+                 qB_plan = if (!is.null(br)) unname(br$shares[pn]) else rep(0, length(pn)),
+                 broker_elast = if (!is.null(br)) br$elast_mat[pn, pn] else NULL,
                  comm_D = if (!is.null(ck)) ck$D[pn, pn] else NULL,
                  comm_D_r = if (!is.null(ck)) ck$D_r[pn, pn] else NULL,
                  comm_Dz = if (!is.null(ck)) lapply(ck$D_z, function(m) m[pn, pn]) else NULL,

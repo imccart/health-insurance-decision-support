@@ -58,7 +58,6 @@ for (f in list.files(SRRT_DIR, pattern = "^20(18|19|20)_SRRT_.*[.]xlsx$", full.n
   }
 }
 srrt <- bind_rows(srrt_rows)
-cat("  SRRT commission rows:", nrow(srrt), "\n")
 
 mlr <- read_csv("data/output/mlr_admin.csv", show_col_types = FALSE) %>%
   filter(!is.na(mm)) %>%
@@ -67,7 +66,7 @@ mlr <- read_csv("data/output/mlr_admin.csv", show_col_types = FALSE) %>%
 # Shares of premium (values below 0.1) in dollars at the insurer's premium per
 # member; the latest filing's actual for each plan year; Health Net's two filers averaged
 srrt <- srrt %>%
-  left_join(mlr %>% select(insurer_prefix, year, premium_pmpm), by = c("insurer_prefix", "year")) %>%
+  left_join(mlr %>% select(insurer_prefix, year, premium_pmpm), by = c("insurer_prefix", "year"), relationship = "many-to-one") %>%
   group_by(insurer_prefix) %>%
   mutate(premium_pmpm = ifelse(is.na(premium_pmpm), max(premium_pmpm, na.rm = TRUE), premium_pmpm)) %>%
   ungroup() %>%
@@ -87,8 +86,8 @@ on_ex <- hh[, .(mm_on = 12 * sum(household_size),
             by = .(insurer_prefix, year)]
 rm(hh); gc(verbose = FALSE)
 
-comm <- full_join(srrt, mlr, by = c("insurer_prefix", "year")) %>%
-  inner_join(as_tibble(on_ex), by = c("insurer_prefix", "year")) %>%
+comm <- full_join(srrt, mlr, by = c("insurer_prefix", "year"), relationship = "one-to-one") %>%
+  inner_join(as_tibble(on_ex), by = c("insurer_prefix", "year"), relationship = "many-to-one") %>%
   mutate(comm_pmpm = ifelse(is.na(srrt_comm_pmpm), mlr_comm_pmpm, srrt_comm_pmpm),
          source    = ifelse(is.na(srrt_comm_pmpm), "MLR", "SRRT"),
          on_share  = ifelse(is.na(mm_book), 1, pmin(mm_on / mm_book, 1)),
@@ -96,10 +95,6 @@ comm <- full_join(srrt, mlr, by = c("insurer_prefix", "year")) %>%
          rate      = comm_pmpm / bs_book) %>%
   filter(is.finite(rate), rate >= 0) %>%
   select(insurer_prefix, year, rate, comm_pmpm, source, srrt_comm_pmpm, mlr_comm_pmpm, on_share, bs_on, bs_book)
-cat("  insurer-years with a commission from the filings:", nrow(comm), "\n")
-cat("  rate per broker enrollee ($ per member-month) by insurer and year:\n")
-print(comm %>% select(insurer_prefix, year, rate) %>% mutate(rate = round(rate, 1)) %>%
-        pivot_wider(names_from = year, values_from = rate), n = Inf)
 
 # Hybrid: the filings' figure is per member of the whole individual book, so the
 # implied rate is an on-exchange rate without further assumption only for the
@@ -118,10 +113,6 @@ if (!file.exists("data/output/commission_lookup_schedules.csv"))
 old <- read_csv("data/output/commission_lookup_schedules.csv", show_col_types = FALSE)
 on_share_ins <- comm %>% group_by(insurer_prefix) %>% summarize(on_share = mean(on_share), .groups = "drop")
 filings_ins <- on_share_ins$insurer_prefix[on_share_ins$on_share >= 0.75]
-cat("  on-exchange share of the book by insurer:",
-    paste(on_share_ins$insurer_prefix, round(on_share_ins$on_share, 2), collapse = ", "), "\n")
-cat("  commission from the filings:", paste(filings_ins, collapse = ", "),
-    "; from the schedule table:", paste(setdiff(unique(old$insurer_prefix), filings_ins), collapse = ", "), "\n")
 comm_used <- comm %>% filter(insurer_prefix %in% filings_ins)
 
 # Blue Shield and Health Net file network-level rates (HMO and PPO schedules in
@@ -161,10 +152,6 @@ flat_rows <- bind_rows(comm_used %>% transmute(insurer_prefix, year, rate, is_pc
 lookup <- bind_rows(flat_rows %>% mutate(hmo = 0L), flat_rows %>% mutate(hmo = 1L), net_used) %>%
   select(insurer_prefix, year, hmo, rate, is_pct) %>%
   arrange(insurer_prefix, year, hmo)
-n_split <- lookup %>% group_by(insurer_prefix, year) %>%
-  summarize(split = n_distinct(rate) > 1, .groups = "drop") %>% filter(split)
-cat("  carrier-years with distinct network rates:",
-    paste(n_split$insurer_prefix, n_split$year, collapse = ", "), "\n")
 # An enrolled insurer-year in no commission source (schedule table or filings)
 # gets an explicit zero-rate row: the model assigns it zero commission, which
 # the attachment sites otherwise impose through the missing-rate fallback

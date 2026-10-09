@@ -52,7 +52,7 @@ aca_contribution <- function(fpl, perc_LB, perc_UB, fpl_LB, fpl_UB,
 # Reference tables ---------------------------------------------------------
 # Bracket name → FPL lower/upper bounds (ratio form).
 # Matches the CC enrollment data's subsidy_linear_piece variable.
-FPL_BRACKETS <- tibble::tribble(
+FPL_BRACKETS <- tribble(
   ~bracket,                 ~fpl_LB, ~fpl_UB,
   "138% FPL or less",        0,       1.38,
   "138% FPL to 150% FPL",    1.38,    1.5,
