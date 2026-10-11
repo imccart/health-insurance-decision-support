@@ -248,7 +248,7 @@ The household enrolls if $\lambda \bar{I}_{it} + \eta_{it}$ exceeds $U_{i0t}$, s
 \label{eqn:two_part}
 	q_{ijt}({\bf p},{\bf y}) = \underbrace{\frac{e^{V_{ijt}/\lambda}}{\sum_{k \in J_{mt}} e^{V_{ikt}/\lambda}}}_{\text{plan } \mid \text{ enrolled}} \times \underbrace{\frac{e^{\lambda \bar{I}_{it}}}{e^{\lambda \bar{I}_{it}} + e^{V_{i0t}}}}_{\text{enrolled}},
 \end{equation}
-where $V_{ijt}$ is utility at the household's realized channel. The parameter $\lambda \in (0,1]$ scales the plan-level shocks relative to $\eta_{it}$ and $\varepsilon_{i0t}$ and governs how strongly enrollment responds to the value of the menu. A small $\lambda$ reproduces the substitution pattern between silver plans and the outside option that arises from the ACA's linkage of cost-sharing reductions to silver plan enrollment, and when $\lambda \rightarrow 1$ the plan choice converges to the standard logit.
+where $V_{ijt}$ is utility at the household's realized channel.
 
 With a single channel, Equation~\eqref{eqn:two_part} is the nested logit with nesting parameter $\lambda$, with the exchange plans in one nest and the outside option in a second nest, and it is the same model whether the household knows the draws $\varepsilon_{ikt}$ when it decides to enroll or learns them afterward. With three channels, the two readings differ. A nested logit would have each household compare the outside option with the plan it would choose in its own channel, so that enrollment depends on the realized channel. Equation~\eqref{eqn:two_part} instead has the household compare the outside option with the expected value of the menu before the channel is realized, so that enrollment depends on $\pi_{ict}$ and plan choice on the realized channel.
 
