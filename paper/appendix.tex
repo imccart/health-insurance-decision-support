@@ -176,7 +176,7 @@ This appendix summarizes the formulas used in our model.   Household $i$ in mark
 q'_{ijt}({\bf p},{\bf y}) = \frac{e^{V_{ijt}({\bf p},{\bf y})/\lambda}}{\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}}, \qquad
 q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y}) = \frac{e^{\lambda I_{it}({\bf p},{\bf y})}}{e^{\lambda I_{it}({\bf p},{\bf y})} + e^{V_{i0t}}},
 \end{equation}
-and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},{\bf y})\, q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})$, which is the nested-logit expression in the main text. Total plan demand is the sum of the choice probabilities, i.e.,  $q_{jt}({\bf p},{\bf y}) = \sum_{i \in I} \, q_{ijt}({\bf p},{\bf y})$.
+and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},{\bf y})\, q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})$, which is the two-part expression in the main text with a single channel. Total plan demand is the sum of the choice probabilities, i.e.,  $q_{jt}({\bf p},{\bf y}) = \sum_{i \in I} \, q_{ijt}({\bf p},{\bf y})$.
 
 \paragraph{Price and commission derivatives.} Under the two-part form in the main text, the within-nest probability $q'_{ijt}$ is evaluated at the household's realized channel, while the nest probability uses the expected inclusive value $\bar{I}_{it} = \sum_c \pi_{ict} I^c_{it}$, with $I^c_{it}$ the inclusive value under channel state $c$ and $q'^{\,c}_{ijt}$ the within-nest probability under that state. The partial derivative of demand with respect to the insurer's base premium is
 
