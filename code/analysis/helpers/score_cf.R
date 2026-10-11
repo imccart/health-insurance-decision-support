@@ -46,12 +46,12 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   compute_consumer_surplus <- function(cell_data, coefs_cell, welfare_drop = character()) {
     lambda_cs <- setNames(coefs_cell$estimate, coefs_cell$term)[["lambda"]]
     if (length(welfare_drop) > 0) { cell_data <- as.data.table(copy(cell_data)); for (cn in intersect(welfare_drop, names(cell_data))) cell_data[[cn]] <- 0 }
-    # Two-part nested logit: the enrollment log-sum uses the expected inclusive
-    # value over channel states, Ibar = p0 I^0 + pN I^N + pA I^A; the realized
-    # within-nest gain, lambda (I_full - Ibar), is added back:
-    #   CS = (1/alpha) [ lambda (I_full - Ibar) + log(exp(V_0) + exp(lambda Ibar)) ],
-    # the ordinary log-sum when I_full = Ibar. Without the channel probabilities
-    # on the cells, Ibar falls back to the shop-alone I^0.
+    # Consumer surplus is the household's expected utility before its channel
+    # is realized, the log-sum at the expected inclusive value over channel
+    # states, Ibar = p0 I^0 + pN I^N + pA I^A:
+    #   CS = (1/alpha) log(exp(V_0) + exp(lambda Ibar)).
+    # Without the channel probabilities on the cells, Ibar falls back to the
+    # shop-alone I^0.
     util <- compute_utility(cell_data, coefs_cell)
     add_N_cs <- util$add_N; add_A_cs <- util$add_A
     # welfare_drop zeroes the interacted columns, which handles V; the state
@@ -91,8 +91,7 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     hh_cs[, log_D_lam := lambda_cs * Ibar]
     hh_cs[, mx := pmax(V_0, log_D_lam)]
     # per member per year (matches the objective): / hh_size, x 12 (premium is monthly)
-    hh_cs[, cs := (1 / abs(alpha_base)) * (lambda_cs * (I_full - Ibar) +
-                                           mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
+    hh_cs[, cs := (1 / abs(alpha_base)) * (mx + log(exp(V_0 - mx) + exp(pmin(log_D_lam - mx, 500)))) / hh_size * 12]
     sum(hh_cs$hh_weight * hh_cs$cs) / sum(hh_cs$hh_weight)
   }
 
