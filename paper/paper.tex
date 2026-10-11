@@ -232,7 +232,7 @@ The household's subsidized premium is
 \end{equation}
 where $\sigma_{it}$ is the household's age-based rating factor, $p_{jmt}$ is the base premium for plan $j$ in market $m$ at time $t$, $p_{bmt}$ is the base premium of the benchmark plan (the second-cheapest silver plan), and $\zeta_{it}$ is the household's income contribution cap. Premium subsidies are available to households with incomes between 100\% and 400\% of FPL. The income contribution cap ranged from 2\% of annual income at 100\% FPL to 9.5\% at 400\% FPL in 2014, with slight annual increases. Subsidies can be applied toward any non-catastrophic plan. For some low-income consumers, the subsidy may exceed certain bronze plan premiums, in which case the premium is set to zero.
 
-\paragraph{Choice probabilities.} Having enrolled, a household in channel $c$ chooses plan $j$ with probability $e^{V^c_{ijt}/\lambda} / \sum_{k \in J_{mt}} e^{V^c_{ikt}/\lambda}$, where $J_{mt}$ is the set of exchange plans in market $m$ at time $t$. The inclusive value of the menu under channel $c$ is
+\paragraph{Choice probabilities.} Conditional on enrolling via channel $c$, the household chooses plan $j$ with probability $e^{V^c_{ijt}/\lambda} / \sum_{k \in J_{mt}} e^{V^c_{ikt}/\lambda}$, where $J_{mt}$ is the set of exchange plans in market $m$ at time $t$. The inclusive value of the menu under channel $c$ is
 \begin{equation}
 \label{eqn:inclusive_value}
 	I^c_{it}({\bf p},{\bf y}) = \ln \sum_{k \in J_{mt}} e^{V^c_{ikt}({\bf p},{\bf y})/\lambda},
