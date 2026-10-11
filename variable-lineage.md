@@ -566,7 +566,7 @@ benefit designs), `data/input/meps_spending_by_demographics.csv` and
 
 ### Consumer surplus: `cs_weighted`, `cs_nocomm`
 - Paper: the "CS" column of the counterfactual table; the welfare-gradient figure.
-- Chain: `compute_consumer_surplus` (`score_cf.R`) computes each household's expected surplus from the two-part model as the log-sum over the outside option and the inclusive value of the plans, converted to dollars by the household's base price coefficient (`compute_alpha_i` with the channel slopes excluded), per member per year. `cs_weighted` keeps every estimated term; `cs_nocomm` drops the commission terms from the agent state (`welfare_drop = COMM_TERMS`) and is the reported measure. Cell values are member-weighted means; `sum2_results.R` averages cells and differences from the baseline.
+- Chain: `compute_consumer_surplus` (`score_cf.R`) computes each household's expected surplus from the two-part model as the log-sum over the outside option and the expected inclusive value of the plans (the channel-probability-weighted average of the three channel inclusive values, as in the enrollment margin), converted to dollars by the household's base price coefficient (`compute_alpha_i` with the channel slopes excluded), per member per year. `cs_weighted` keeps every estimated term; `cs_nocomm` drops the commission terms from the agent state (`welfare_drop = COMM_TERMS`) and is the reported measure. Cell values are member-weighted means; `sum2_results.R` averages cells and differences from the baseline.
 - Level: region-year-scenario, dollars per member per year.
 - Files: `score_cf.R`, `cf2_score.R`, `cf3_se.R`, `welfare.R`, `sum2_results.R`.
 
