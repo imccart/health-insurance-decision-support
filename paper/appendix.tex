@@ -161,24 +161,17 @@ The steering pattern, toward silver with agents steering more strongly than navi
 
 \section{Model Formulas}\label{app:formulas}
 
-This appendix summarizes the formulas used in our model.   Household $i$ in market $m$ and year $t$ chooses among the exchange plans $j \in J_{mt}$ and the outside option, with deterministic utilities $V_{ijt}$ and $V_{i0t} = \alpha_{it}\, \rho_{it}$, nesting parameter $\lambda$, and household price coefficient $\alpha_{it}$. The indicator $a^A_{it}$ equals one for an agent-assisted household.
+This appendix summarizes the formulas used in our model.   Household $i$ in market $m$ and year $t$ decides whether to enroll and, if it enrolls, chooses among the exchange plans $j \in J_{mt}$, with deterministic utilities $V^c_{ijt}$ under channel state $c$ and $V_{i0t} = \alpha_{it}\, \rho_{it}$ for the outside option, nesting parameter $\lambda$, and household price coefficient $\alpha_{it}$. The indicator $a^A_{it}$ equals one for an agent-assisted household.
 
-\paragraph{Choice probabilities.} The choice probabilities in the main text are
-
-\begin{equation*}
-	q_{ijt}({\bf p},{\bf y}) =  \frac{e^{V_{ijt}({\bf p},{\bf y})/\lambda}\left(\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}\right)^{\lambda-1}}{e^{V_{i0t}} + \left(\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}\right)^{\lambda}},
-\end{equation*}
-
-
-\noindent Let $I_{it}({\bf p},{\bf y}) \equiv \log \sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}$ denote the inclusive value of the exchange nest. The within-nest and nest probabilities are
+\paragraph{Choice probabilities.} The choice probabilities in the main text are the product of a second-stage plan probability and a first-stage enrollment probability. Under channel state $c$, with deterministic utilities $V^c_{ijt}$ and inclusive value $I^c_{it}({\bf p},{\bf y}) \equiv \log \sum_{k \in J_{mt}} e^{V^c_{ikt}({\bf p},{\bf y})/\lambda}$, the plan and enrollment probabilities are
 \begin{equation}
 \label{eqn:app-shares}
-q'_{ijt}({\bf p},{\bf y}) = \frac{e^{V_{ijt}({\bf p},{\bf y})/\lambda}}{\sum_{k \in J_{mt}} e^{V_{ikt}({\bf p},{\bf y})/\lambda}}, \qquad
-q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y}) = \frac{e^{\lambda I_{it}({\bf p},{\bf y})}}{e^{\lambda I_{it}({\bf p},{\bf y})} + e^{V_{i0t}}},
+q'^{\,c}_{ijt}({\bf p},{\bf y}) = \frac{e^{V^c_{ijt}({\bf p},{\bf y})/\lambda}}{\sum_{k \in J_{mt}} e^{V^c_{ikt}({\bf p},{\bf y})/\lambda}}, \qquad
+q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y}) = \frac{e^{\lambda \bar{I}_{it}({\bf p},{\bf y})}}{e^{\lambda \bar{I}_{it}({\bf p},{\bf y})} + e^{V_{i0t}}},
 \end{equation}
-and the plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},{\bf y})\, q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})$, which is the two-part expression in the main text with a single channel. Total plan demand is the sum of the choice probabilities, i.e.,  $q_{jt}({\bf p},{\bf y}) = \sum_{i \in I} \, q_{ijt}({\bf p},{\bf y})$.
+where $\bar{I}_{it} = \sum_c \pi_{ict} I^c_{it}$ is the expected inclusive value over channel states. The plan choice probability is $q_{ijt}({\bf p},{\bf y}) = q'_{ijt}({\bf p},{\bf y})\, q^{\,\mathrm{nest}}_{it}({\bf p},{\bf y})$, where $q'_{ijt}$ and $V_{ijt}$ without a superscript are evaluated at the household's realized channel. Total plan demand is the sum of the choice probabilities, i.e.,  $q_{jt}({\bf p},{\bf y}) = \sum_{i \in I} \, q_{ijt}({\bf p},{\bf y})$.
 
-\paragraph{Price and commission derivatives.} Under the two-part form in the main text, the within-nest probability $q'_{ijt}$ is evaluated at the household's realized channel, while the nest probability uses the expected inclusive value $\bar{I}_{it} = \sum_c \pi_{ict} I^c_{it}$, with $I^c_{it}$ the inclusive value under channel state $c$ and $q'^{\,c}_{ijt}$ the within-nest probability under that state. The partial derivative of demand with respect to the insurer's base premium is
+\paragraph{Price and commission derivatives.} The partial derivative of demand with respect to the insurer's base premium is
 
 \begin{equation*}
 		\frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{l \in J_{mt}} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{ilt}({\bf p})}\frac{ \partial p_{ilt}({\bf p})}{\partial p_{jmt}}
