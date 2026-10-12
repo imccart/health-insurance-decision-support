@@ -129,18 +129,13 @@ set.seed(BOOT_SEED)
 n_clamp <- 0L
 t0 <- Sys.time()
 draws <- vector("list", N_BOOT_CF)
-# Draws already in DRAWS_PATH from the current inputs are kept and their random
-# draws replayed below, so the sequence matches an uninterrupted run; a draws
-# file older than the cf1 premiums or the demand estimates is discarded.
+# Draws already in DRAWS_PATH are kept and their random draws replayed below, so
+# the sequence matches an uninterrupted run.
 done <- 0L
 if (file.exists(DRAWS_PATH)) {
-  inputs <- c("results/counterfactual_results.csv", "results/choice_coefficients_structural.csv",
-              "results/choice_coefficients_structural_vcov.csv")
-  if (file.mtime(DRAWS_PATH) > max(file.mtime(inputs))) {
-    prev <- read.csv(DRAWS_PATH, check.names = FALSE)
-    done <- nrow(prev)
-    for (b in seq_len(done)) draws[[b]] <- unlist(prev[b, -1])
-  } else unlink(DRAWS_PATH)
+  prev <- read.csv(DRAWS_PATH, check.names = FALSE)
+  done <- nrow(prev)
+  for (b in seq_len(done)) draws[[b]] <- unlist(prev[b, -1])
 }
 # finally stops the cluster even if a draw errors.
 tryCatch(

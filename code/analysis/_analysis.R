@@ -15,7 +15,8 @@ TEMP_DIR     <- "D:/temp-research-data/health-insurance-decision-support"
 SAMPLE_FRAC  <- 0.20
 MASTER_SEED  <- 20260224
 N_BOOT       <- 50L   # reduced-form bootstrap reps (rf1-rf3); 0 to skip
-N_BOOT_CF    <- 50L   # CF welfare-SE bootstrap draws (cf3_se)
+N_BOOT_CF    <- 20L   # CF welfare-SE bootstrap draws (cf3_se)
+# unlink("results/cf_bootstrap_draws.csv") # uncomment to restart cf bootstraps from draw 1.
 
 # Packages ----------------------------------------------------------------
 pacman::p_load(tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit, nnet, parallel)
