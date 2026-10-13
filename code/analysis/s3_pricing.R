@@ -55,7 +55,9 @@ rs_srrt <- read_csv("data/output/plan_risk_scores.csv", show_col_types = FALSE)
 # commission conditions.
 mlr_admin <- read_csv("data/output/mlr_admin.csv", show_col_types = FALSE)
 ADMIN_LOOKUP <- setNames(mlr_admin$admin0_pmpm, paste(mlr_admin$insurer_prefix, mlr_admin$year, sep = "_"))
-BETA_ADMIN <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
+BETA0 <- read_csv("data/output/mlr_admin_beta.csv", show_col_types = FALSE)$beta0[1]
+beta_carrier <- read_csv("data/output/commission_beta_carrier.csv", show_col_types = FALSE)
+BETA_LOOKUP <- setNames(beta_carrier$beta, beta_carrier$insurer_prefix)
 plan_metal_map <- plan_choice %>%
   distinct(plan_id, metal) %>%
   mutate(metal = sub(" - Enhanced.*", "", metal)) %>%
@@ -389,7 +391,11 @@ for (k in seq_along(pass1)) {
   # inversion mc_foc stays as a diagnostic only.
   admin_vec <- setNames(ADMIN_LOOKUP[paste(sub("_.*", "", plan_ids_cell), y, sep = "_")], plan_ids_cell)
   admin_vec[is.na(admin_vec)] <- 0
-  rhs <- cl$rshares + ra_foc - cc + (1 - BETA_ADMIN) * as.numeric(cl$Omega_broker %*% cl$comm_vec)
+  # (1 - beta) for each plan by its carrier; carriers outside the substitution
+  # table take the pooled slope
+  beta_plan <- unname(BETA_LOOKUP[sub("_.*", "", plan_ids_cell)])
+  beta_plan[is.na(beta_plan)] <- BETA0
+  rhs <- cl$rshares + ra_foc - cc + as.numeric(cl$Omega_broker %*% ((1 - beta_plan) * cl$comm_vec))
   foc_resid <- rhs - as.vector(cl$Omega_r %*% cl$posted_premium -
                                cl$Omega %*% (mc_structural + admin_vec))
   # The condition is rhs = Omega_r p - Omega (mc + admin), so the cost the
