@@ -29,6 +29,7 @@ source("code/analysis/helpers/choice.R")
 source("code/analysis/helpers/supply.R")
 source("code/analysis/helpers/ra.R")
 source("code/analysis/helpers/estimate_demand.R")
+source("code/analysis/helpers/estimate_demand_alt_nest.R")
 source("code/analysis/helpers/se.R")
 source("code/analysis/helpers/cf_cell.R")
 source("code/analysis/helpers/cf_year.R")
@@ -71,3 +72,4 @@ source("code/analysis/supp3_channel-table.R")
 source("code/analysis/supp4_pbe-robustness.R")        # reads the body spec from supp1
 source("code/analysis/supp5_menu-simulation.R")
 source("code/analysis/supp6_inertia-lag.R")           # body spec with a prior-year plan indicator
+source("code/analysis/supp7_alt_nest.R")              # three-level nest against the two-part model (5% sample)

@@ -444,6 +444,45 @@ Nonetheless, the exclusion of inertia does not appear to meaningfully affect our
 \end{minipage}
 \end{table}
 
+\section{Alternative Nesting Structure}
+\label{app:alt-nest}
+
+In the main text, the household decides whether to enroll knowing the menu it would face under each channel, but its channel is drawn from the first-stage channel probabilities $\pi_{ict}$. The menus therefore affect enrollment and plan choice within a channel, but not which channel the household uses. In a model of commissions, this structure has the advantage that commissions affect which plan an agent's client chooses but are not a reason for the household to use an agent.
+
+A more traditional alternative is a three-level nested logit in which the household decides whether to enroll, then chooses a channel, then chooses a plan. The household chooses channel $c$ on $W_{ict} + \lambda I^c_{it}$, where $I^c_{it}$ is the inclusive value of the menu under channel $c$, as defined in the main text, and $W_{ict}$ is linear in the first-stage covariates (agent density, demographic composition, income group, household size, and year effects), with $W_{i0t} = 0$. The channel shocks are extreme value with scale $\lambda_C$. As in the main text, each shock is realized at its own stage, enrollment before channel and channel before plan, so the restriction $\lambda \leq \lambda_C \leq 1$ that applies when all shocks are drawn at once does not apply here.
+
+Any such nest makes commissions part of the value of the agent channel. The commission terms are part of the plan utilities in the agent state, so they enter $I^A_{it}$, and the channel choice must use the same inclusive value that governs plan choice. Higher commissions therefore make the agent channel more attractive to the household, and a nested logit cannot keep commissions in plan choice while excluding them from channel choice.
+
+We estimate three versions of the nest, which differ in the value of enrolling. In the standard three-level nest, Nest (B), the value of enrolling is $\lambda_C \ln \sum_c \exp\left[(W_{ict} + \lambda I^c_{it})/\lambda_C\right]$. This value can be written as
+$$\lambda_C \ln \sum_c \tilde{\pi}_{ict} \exp\left(\lambda I^c_{it}/\lambda_C\right) + \lambda_C \ln \sum_c \exp\left(W_{ict}/\lambda_C\right),$$
+where $\tilde{\pi}_{ict}$ is the multinomial logit in $W_{ict}/\lambda_C$. The first term replaces $\lambda \bar{I}_{it}$ in our enrollment probability. The second term depends only on the channel covariates, so in Nest (B) agent density, the channel intercepts, and the year effects in $W_{ict}$ shift enrollment directly, regardless of the menus. Nest (A) excludes the second term, so that, as in the main text, the channel covariates determine which channel a household uses but are not themselves a source of value from enrolling. The main difference from our model is that menu values also affect the choice of channel. Nest (C) is the standard nest with year effects and agent density added to the enrollment utility, since in Nest (B) the second term is the only route by which these covariates reach enrollment.
+
+We estimate each nest by maximum likelihood on a quarter of the households in each cell of the 20 percent structural sample (373,147 households), starting from our main estimates. Table~\ref{tab:app-alt-nest-coef} reports the plan-utility coefficients. The premium, actuarial value, and commission coefficients and $\lambda$ are close to our main estimates in all three nests. The navigator and agent terms vary more across specifications, with the navigator terms smaller than in the main text in Nests (A) and (C) and larger in Nest (B). The estimate of $\lambda_C$ is 0.28 in Nest (A), 2.15 in Nest (B), and 0.20 in Nest (C), and Nest (C) has the highest likelihood.
+
+Table~\ref{tab:app-alt-nest-scen} compares the predictions of the four models. We estimate only the demand side of each nest, so we hold premiums and commissions at their observed levels in all four models. The two-part figures therefore differ slightly from the equilibrium results in the main text. Removing the agent channel raises the uninsured share by 2.8 percentage points in Nest (A) and 2.3 percentage points in Nest (C), with most former agent clients shopping alone or moving to navigators. In the two-part model at observed premiums, the same scenario raises the uninsured share by 6.3 percentage points at $\tau = 0$ and lowers it by 0.5 percentage points at $\tau = 1$, so Nests (A) and (C) correspond to a $\tau$ of about 0.50 and 0.58, inside the range we report. Nest (B) instead predicts that removing the agent channel raises the uninsured share by 29.5 percentage points. Households that use an agent make up 34 percent of all households in the sample, insured or not, so Nest (B) implies that nearly all of them would leave the market. This prediction comes from the second term of the enrollment value, whose agent component is set by how common agents are among enrollees. Nest (B) therefore treats the popularity of agents as value that households lose when agents are unavailable.
+
+The nests also differ from our model in their response to commissions. Setting commissions to zero lowers agent use by 12.9, 2.4, and 15.8 percentage points in Nests (A), (B), and (C), while channel use is fixed in our model by construction. This response comes from the treatment of commissions as part of the value of the agent channel described above, not from evidence that households seek out agents because of commissions. The effect of commissions on coverage is nevertheless similar across all four models, between 1.2 and 1.7 percentage points when commissions are set to zero.
+
+Taken together, the more traditional nests do not meaningfully change our conclusions. Nests (A) and (C), for example, predict coverage effects inside the range we report, with similar effects of commissions on coverage; however, those nesting structures also implicitly allow commissions to directly affect an enrollee's value attached to agents, which our preferred structure in the main paper avoids. Nest (B) also predicts coverage losses that are not credible given the observed shares of assistance and insurance. We therefore conclude that our preferred structure yields coverage predictions similar to those of the credible traditional alternatives, without treating commissions as part of the value of using an agent.
+
+\begin{table}[!h]
+\centering
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Demand Estimates under Alternative Nesting Structures}\footnote{Demand estimates from our two-part model (20\% structural sample) and from three alternative three-level nests in which households choose a channel on its menu value, each estimated on a quarter of the households in each cell of the structural sample. Nest (A) uses the enrollment equation of our model; Nest (B) is the standard three-level nest; Nest (C) adds year effects and agent density to the enrollment utility of Nest (B). Premiums are net of subsidy and measured in hundreds of dollars. The channel-utility coefficients of the nests are not shown.}}
+\label{tab:app-alt-nest-coef}
+\centerline{\input{results/tables/alt_nest_coefficients.tex}}
+\end{minipage}
+\end{table}
+
+\begin{table}[!h]
+\centering
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Coverage and Channel Use under Alternative Nesting Structures}\footnote{Changes in member-weighted shares, in percentage points, relative to each model's baseline, at observed premiums, for the households in Table~\ref{tab:app-alt-nest-coef}. In our two-part model, channel use is fixed, and the no-agent scenario moves a share $\tau$ of each household's agent probability to navigators and the remainder to shopping alone.}}
+\label{tab:app-alt-nest-scen}
+\centerline{\input{results/tables/alt_nest_scenarios.tex}}
+\end{minipage}
+\end{table}
+
 \section{Cost Sharing and the Objective Welfare Measure}
 \label{app:welfare}
 
