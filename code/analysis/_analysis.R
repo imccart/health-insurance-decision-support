@@ -73,3 +73,4 @@ source("code/analysis/supp4_pbe-robustness.R")        # reads the body spec from
 source("code/analysis/supp5_menu-simulation.R")
 source("code/analysis/supp6_inertia-lag.R")           # body spec with a prior-year plan indicator
 source("code/analysis/supp7_alt_nest.R")              # three-level nest against the two-part model (5% sample)
+source("code/analysis/supp8_channel-menu.R")          # agent use against carriers, plans, premium spread, and commissions

@@ -1,17 +1,18 @@
 # Meta --------------------------------------------------------------------
 #
 ## Author:        Ian McCarthy
-## Description:   Alternative nesting structures for demand. Estimates three
+## Description:   Alternative nesting structures for demand. Estimates two
 ##                three-level nests (enroll, channel, plan) in
 ##                helpers/estimate_demand_alt_nest.R, in each of which the
 ##                channel choice depends on the channel's menu value as well
-##                as the first-stage covariates, and compares them with the
-##                two-part model on the same households at observed premiums:
-##                  menu   enrollment equation of the two-part model; the
-##                         channel covariates set channel use only
-##                  std    standard three-level nest
-##                  std_e  standard three-level nest with year effects and
-##                         agent density in the enrollment equation
+##                as the first-stage covariates, and the two-part model, all
+##                on the same households, and compares them at observed
+##                premiums:
+##                  std_e  Nest (A): standard three-level nest with year
+##                         effects and agent density in the enrollment
+##                         equation
+##                  menu   Nest (B): enrollment equation of the two-part
+##                         model; the channel covariates set channel use only
 ##                Scenarios: the agent channel removed (against the two-part
 ##                model's tau gradient), commissions halved, and commissions
 ##                set to zero. A quarter of the households in each 20% choice
@@ -29,7 +30,6 @@ a10k <- as.list(setNames(as.numeric(scale(bd$agents_per_10k)), paste(bd$region, 
 
 models <- list(
   menu  = list(covars = spec_df$term, normalize = TRUE),
-  std   = list(covars = spec_df$term, normalize = FALSE),
   std_e = list(covars = c(spec_df$term, "inside_a10k", paste0("inside_", AN_YEAR_TERMS)), normalize = FALSE))
 
 theta_of <- function(df, covars) {
@@ -65,7 +65,7 @@ nest_shares <- function(th, cells, K, normalize, comm_scale, agents = TRUE) {
 # commissions scaled
 taus <- seq(0, 1, by = 0.05)
 two_part <- function(cells, K, comm_scale) {
-  th <- theta_of(body, models$menu$covars)
+  th <- theta_of(two_part_fit, models$menu$covars)
   th[K + 2] <- 1
   tp <- an_split_theta(th, K)
   num <- numeric(length(taus) + 1); den <- 0
@@ -86,9 +86,15 @@ coefs <- list(); scen <- list(); summ <- list()
 for (nm in names(models)) {
   md <- models[[nm]]
   K <- length(md$covars)
-  if (nm != "std") cells <- an_load_cells(CELL_DIR, md$covars, asst, a10k, sub_frac = 0.25, seed0 = MASTER_SEED)
+  cells <- an_load_cells(CELL_DIR, md$covars, asst, a10k, sub_frac = 0.25, seed0 = MASTER_SEED)
 
+  # The two-part model on the same households, from the main estimates
   if (nm == "menu") {
+    tp_cells <- prepare_cells(cells, md$covars, asst)
+    tp_start <- c(body$estimate[match(md$covars, body$term)], body$estimate[body$term == "lambda"])
+    two_part_fit <- data.frame(term = c(md$covars, "lambda"), estimate = bfgs_bhhh(tp_start, tp_cells))
+    rm(tp_cells)
+    coefs[["two_part"]] <- data.frame(model = "two_part", two_part_fit)
     tp1 <- two_part(cells, K, 1)
     tau_curve <- data.frame(tau = taus, d_unins = tp1[-1] - tp1[1])
     two_part_comm <- c(comm_half = two_part(cells, K, 0.5)[1] - tp1[1],
@@ -110,7 +116,7 @@ for (nm in names(models)) {
                            tau_flow = d["no_agents", "navigator"] / (d["no_agents", "navigator"] + d["no_agents", "unassisted"]),
                            tau_coverage = if (du > max(tau_curve$d_unins) || du < min(tau_curve$d_unins)) NA
                                           else approx(tau_curve$d_unins, tau_curve$tau, xout = du)$y)
-  if (nm != "menu") rm(cells)
+  rm(cells)
 }
 coefs <- do.call(rbind, coefs); scen <- do.call(rbind, scen); summ <- do.call(rbind, summ)
 write.csv(coefs, "results/alt_nest_coefficients.csv", row.names = FALSE)
@@ -132,22 +138,21 @@ lab <- c(premium              = "Premium",
          lambda               = "$\\lambda$ (plans within channel)",
          lambda_C             = "$\\lambda_C$ (channels within enrollment)")
 fmt <- function(x) ifelse(is.na(x), "", sprintf("%.4f", x))
-cf <- function(nm, t) coefs$estimate[coefs$model == nm & coefs$term == t]
-tl <- c("\\begin{tabular}{lcccc}", "\\hline\\hline",
-        " & Two-part & Nest (A) & Nest (B) & Nest (C) \\\\", "\\hline")
+cf <- function(nm, t) { x <- coefs$estimate[coefs$model == nm & coefs$term == t]; if (length(x)) x else NA }
+tl <- c("\\begin{tabular}{lccc}", "\\hline\\hline",
+        " & Two-part & Nest (A) & Nest (B) \\\\", "\\hline")
 for (t in names(lab))
-  tl <- c(tl, sprintf("%s & %s & %s & %s & %s \\\\", lab[[t]], fmt(body$estimate[match(t, body$term)]),
-                      fmt(cf("menu", t)), fmt(cf("std", t)), fmt(cf("std_e", t))))
-tl <- c(tl, sprintf("Log-likelihood & & %s & %s & %s \\\\",
-                    format(round(-summ$negll[summ$model == "menu"]), big.mark = ","),
-                    format(round(-summ$negll[summ$model == "std"]), big.mark = ","),
-                    format(round(-summ$negll[summ$model == "std_e"]), big.mark = ",")),
+  tl <- c(tl, sprintf("%s & %s & %s & %s \\\\", lab[[t]], fmt(cf("two_part", t)),
+                      fmt(cf("std_e", t)), fmt(cf("menu", t))))
+tl <- c(tl, sprintf("Log-likelihood & & %s & %s \\\\",
+                    format(round(-summ$negll[summ$model == "std_e"]), big.mark = ","),
+                    format(round(-summ$negll[summ$model == "menu"]), big.mark = ",")),
         "\\hline\\hline", "\\end{tabular}")
 writeLines(tl, "results/tables/alt_nest_coefficients.tex")
 
 pp <- function(x) ifelse(is.na(x), "", sprintf("%.1f", 100 * x))
 rows <- c(no_agents = "No agent channel", comm_half = "Commissions halved", comm_zero = "Commissions zero")
-heads <- c(menu = "Nest (A)", std = "Nest (B)", std_e = "Nest (C)")
+heads <- c(std_e = "Nest (A)", menu = "Nest (B)")
 tl <- c("\\begin{tabular}{lcccc}", "\\hline\\hline",
         " & Uninsured & Unassisted & Navigator & Agent \\\\", "\\hline",
         "\\multicolumn{5}{l}{Two-part model} \\\\")
@@ -167,4 +172,4 @@ for (nm in names(heads)) {
 tl <- c(tl, "\\hline\\hline", "\\end{tabular}")
 writeLines(tl, "results/tables/alt_nest_scenarios.tex")
 
-rm(coefs, scen, summ, body, spec_df, bd, a10k, tau_curve, two_part_comm, models)
+rm(coefs, scen, summ, body, spec_df, bd, a10k, tau_curve, two_part_comm, two_part_fit, models)
