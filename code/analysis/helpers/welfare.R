@@ -394,7 +394,9 @@ scenario_welfare <- function(dt_final, coefs, lambda, year, cs_table,
   p   <- choice_probs(dt_final, coefs, lambda)
   nc  <- vN_navigator_coefs(coefs)
   vnv <- compute_utility(dt_final, nc)$V
-  anv <- compute_alpha_i(dt_final, nc, spec = nc$term)
+  # compute_alpha_i is per household dollar; times household size it converts
+  # utils to dollars per member, the basis of the other welfare measures
+  anv <- compute_alpha_i(dt_final, nc, spec = nc$term) * dt_final$hh_size
   vob <- vN_objective(dt_final, year, cs_table, cv, rho, mean_spending,
                       unins_sched = unins_sched, unins_scenario = unins_scenario)
   w   <- dt_final$hh_weight

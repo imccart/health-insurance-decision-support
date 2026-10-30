@@ -112,7 +112,7 @@ Table~\ref{tab:app-dominated} reports linear probability models of the dominated
 
 The assistance coefficient is stable across the columns, moving only from $-0.0152$ to $-0.0168$ as controls accumulate and settling at $-0.0161$ once region fixed effects absorb differences in market composition.
 
-Table~\ref{tab:app-dominated-sample} reports the main-text estimator re-run on new enrollees alongside the all-enrollee estimates. The main-text sample is all enrollees so that the design-based analysis and the structural model are estimated on the same households. Restricting to new enrollees produces larger effects for every channel, consistent with assistance mattering most for households making a first plan choice, and leaves the ordering across channels unchanged.
+Table~\ref{tab:app-dominated-sample} reports the main-text estimator re-run on new enrollees alongside the all-enrollee estimates. The main-text sample is all enrollees so that the design-based analysis and the structural model are estimated on the same households. Restricting to new enrollees produces larger effects for every channel, consistent with assistance mattering most for households entering the market without a prior-year plan, and leaves the ordering across channels unchanged.
 
 \begin{table}[!h]
 \centering
@@ -128,7 +128,7 @@ Table~\ref{tab:app-dominated-sample} reports the main-text estimator re-run on n
 \begin{table}[!h]
 \centering
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Dominated Choice ATT, All Enrollees Versus New Enrollees}\footnote{Prediction-based ATT of decision assistance on the probability of selecting a dominated plan, weighted by inverse propensity weights. The all-enrollee column is the main-text estimate. The new-enrollee column re-runs the same estimator on households enrolling for the first time.}}
+\caption[]{\textbf{Dominated Choice ATT, All Enrollees Versus New Enrollees}\footnote{Prediction-based ATT of decision assistance on the probability of selecting a dominated plan, weighted by inverse propensity weights. The all-enrollee column is the main-text estimate. The new-enrollee column re-runs the same estimator on households that were not enrolled in the prior year.}}
 \label{tab:app-dominated-sample}
 \centerline{%
     \input{results/tables/dominated_new_vs_all.tex}
@@ -226,11 +226,11 @@ where $\bar{I}_{it} = \sum_c \pi_{ict} I^c_{it}$ is the expected inclusive value
 	\noindent where the plan's expected average claims with adverse selection $\widehat{c}_{kmt}({\bf p},{\bf y})$ and the plan's expected average claims without adverse selection $\widetilde{c}_{kmt}({\bf p},{\bf y})$ are given by 
     
         \begin{equation*}
-            \widehat{c}_{kmt}({\bf p},{\bf y}) = \frac{\widehat{h}_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})} \, \nu\overline{p}
+            \widehat{c}_{kmt}({\bf p},{\bf y}) = \frac{\widehat{h}_{kmt}({\bf p},{\bf y}) \sum_{n \in M,l \in J_{nt}} q_{lnt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})} \, \nu\overline{p}
         \end{equation*}
 
         \begin{equation*}
-            \widetilde{c}_{kmt}({\bf p},{\bf y}) = \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})} \, \nu\overline{p}
+            \widetilde{c}_{kmt}({\bf p},{\bf y}) = \frac{\widetilde{h}_{kmt}({\bf p},{\bf y}) \sum_{n \in M,l \in J_{nt}} q_{lnt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})} \, \nu\overline{p}
         \end{equation*}
     
     
@@ -255,7 +255,7 @@ where $\bar{I}_{it} = \sum_c \pi_{ict} I^c_{it}$ is the expected inclusive value
 \paragraph{Premium first-order conditions.} The partial derivative of firm revenue with respect to the base premium is
 
     \begin{equation*}
-		\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial p_{jmt}}  =   \sum_{i \in I, k \in J_{fmt}} \mathbb{I}_{i,m,t} \sigma_{it} \left(    q_{ijt}({\bf p},{\bf y}) \, \, +   p_{kmt} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}}\right)
+		\frac{\partial R_{ft}({\bf p},{\bf y})}{\partial p_{jmt}}  =   \sum_{i \in I} \mathbb{I}_{i,m,t} \sigma_{it} \left(    q_{ijt}({\bf p},{\bf y}) \, \, +   \sum_{k \in J_{fmt}} p_{kmt} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}}\right)
 	\end{equation*}
 
 \noindent The partial derivative of firm claims with respect to the base premium is
@@ -274,7 +274,7 @@ where $\bar{I}_{it} = \sum_c \pi_{ict} I^c_{it}$ is the expected inclusive value
 \noindent The partial derivative of total firm commissions with respect to the base premium is
 
 \begin{equation*}
-    \frac{ \partial Y_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^A \, y_{jt}  \, \frac{ \partial q_{kmt}({\bf p},{\bf y})}{\partial p_{jmt}}
+    \frac{ \partial Y_{ft}({\bf p},{\bf y})}{\partial p_{jmt}} = \sum_{k \in J_{ft}} \sum_{i \in I} a_{it}^A \, y_{kt}  \, \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial p_{jmt}}
 \end{equation*}
 
 \noindent 	Define $ rs_{kmt}({\bf p},{\bf y}) \equiv \frac{\widehat{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M,l \in J_{nt}} \widehat{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$ and $us_{kmt}({\bf p},{\bf y}) \equiv \frac{\widetilde{h}_{kmt}({\bf p},{\bf y})q_{kmt}({\bf p},{\bf y})}{\sum_{n \in M, l \in J_{nt}} \widetilde{h}_{lnt}({\bf p},{\bf y})q_{lnt}({\bf p},{\bf y})}$.  Let $R_t({\bf p},{\bf y}) \equiv  \sum_{f \in F} R_{ft}({\bf p},{\bf y})$ be total premiums collected. 
@@ -344,7 +344,7 @@ The partial derivative of firm revenue with respect to the commission is
 \noindent The partial derivative of firm claims with respect to the commission is
 
 \begin{equation*}
-		\frac{\partial C_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{m \in M, k \in J_{fmt}}  \left[\frac{\partial c_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} q_{kmt}({\bf p},{\bf y}) + c_{kmt}({\bf p},{\bf y}) \frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}}\right]
+		\frac{\partial C_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{m \in M, k \in J_{fmt}}  \left[\frac{\partial c_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} q_{kmt}({\bf p},{\bf y}) + c_{kmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}}\right]
 \end{equation*}
 
 \noindent where
@@ -357,7 +357,7 @@ The partial derivative of firm revenue with respect to the commission is
 \noindent The partial derivative of total firm commissions paid with respect to the commission is
 
 \begin{equation*}
-    \frac{\partial Y_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{j \in J_{ft}} \sum_{i \in I} a_{it}^A\left[  \, q_{ijt}({\bf p},{\bf y}) +  y_{jt}  \, \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} \right]
+    \frac{\partial Y_{ft}({\bf p},{\bf y})}{\partial y_{jt}} = \sum_{i \in I} a_{it}^A\left[  \, q_{ijt}({\bf p},{\bf y}) +  \sum_{k \in J_{ft}} y_{kt}  \, \frac{\partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}} \right]
 \end{equation*}
 
 \noindent The partial derivative of the risk adjustment transfer with respect to the commission is

@@ -249,11 +249,6 @@ rsdata <- rsdata %>%
   ) %>%
   ungroup()
 
-# Check for invalid risk scores
-n_invalid <- sum(is.na(rsdata$risk_score) | rsdata$risk_score <= 0)
-if (n_invalid > 0) {
-  cat("  WARNING:", n_invalid, "invalid risk scores (NA or <= 0)\n")
-}
 
 
 # Add plan characteristics for regressions --------------------------------

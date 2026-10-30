@@ -234,14 +234,16 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   broker_elast_mat <- broker_result$elast_mat
   Omega_broker <- -own_mat * t(broker_elast_mat)  # same transpose as Omega
 
-  # Commission-condition inputs for the s4 diagnostics: broker enrollment qB_j and the
-  # broker commission-derivative matrix D[j,k] = dqB_j/deta_k. Both are fixed given the
-  # demand estimates (they run through the commission coefficients, not the cost parameters), so we
-  # precompute them here and the cost GMM evaluates the commission FOC at its own theta
-  # using these plus the cost-implied marginal cost. [D %*% w_f]_j = dqB_j/dk_f.
+  # Commission-condition inputs for s4: broker enrollment qB_j and the commission
+  # derivatives D[j,k] = dq_j/deta_k (total enrollment) and D_B[j,k] = dqB_j/deta_k
+  # (broker enrollment). All are fixed given the demand estimates (they run through
+  # the commission coefficients, not the cost parameters), so we precompute them here
+  # and the cost GMM evaluates the commission FOC at its own theta using these plus
+  # the cost-implied marginal cost.
   comm_deriv <- compute_commission_derivatives(cell_data, V, lambda, coefs,
                                                V_base = V_base, add_N = add_N, add_A = add_A)
   comm_D  <- comm_deriv$D[plan_ids_cell, plan_ids_cell, drop = FALSE]
+  comm_D_B <- comm_deriv$D_B[plan_ids_cell, plan_ids_cell, drop = FALSE]
   comm_D_r <- comm_deriv$D_r[plan_ids_cell, plan_ids_cell, drop = FALSE]
   comm_Dz <- lapply(comm_deriv$D_z, function(m) m[plan_ids_cell, plan_ids_cell, drop = FALSE])
   comm_qB <- comm_deriv$qB[plan_ids_cell]
@@ -303,7 +305,7 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
     region = r, year = y, plan_ids = plan_ids_cell, N = N_cell,
     shares = shares, rshares = rshares, elast_mat = elast_mat,
     relast_mat = relast_mat, zelast = zelast, own_mat = own_mat, Omega = Omega, Omega_r = Omega_r,
-    Omega_broker = Omega_broker, comm_D = comm_D, comm_D_r = comm_D_r, comm_Dz = comm_Dz,
+    Omega_broker = Omega_broker, comm_D = comm_D, comm_D_B = comm_D_B, comm_D_r = comm_D_r, comm_Dz = comm_Dz,
     comm_qB = comm_qB, comm_vec = comm_vec,
     posted_premium = posted_premium, plan_avs = plan_avs, plan_metal = plan_metal,
     plan_issuer = plan_issuer, plan_chars_cell = plan_chars_cell, demo_shares = demo_shares,
@@ -314,7 +316,7 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   rm(cell_data, plans, plan_attrs, pa, V, V_base, se_result, broker_result, util_result,
      shares, rshares, elast_mat, relast_mat, own_mat, Omega, Omega_r,
      broker_elast_mat, Omega_broker, comm_deriv,
-     comm_D, comm_qB, comm_vec, posted_premium, plan_metal, plan_issuer, plan_chars_cell,
+     comm_D, comm_D_B, comm_qB, comm_vec, posted_premium, plan_metal, plan_issuer, plan_chars_cell,
      plan_avs, demo_shares, reins_vec, rf_cell, N_cell)
   gc(verbose = FALSE)
 
@@ -437,7 +439,8 @@ for (k in seq_along(pass1)) {
     demo_shares    = cl$demo_shares, # demand-model-predicted demographic shares and ARF for M1/M3
     hmo            = setNames(cl$plan_chars_cell$HMO, cl$plan_chars_cell$plan_id),
     comm_hmo       = cl$comm_hmo,    # schedule side (HMO/HSP vs PPO/EPO) for the M4 units
-    comm_D         = cl$comm_D,      # broker commission-derivative matrix dqB_j/deta_k (M4 commission FOC)
+    comm_D         = cl$comm_D,      # commission derivative of total enrollment dq_j/deta_k (M4 commission FOC)
+    comm_D_B       = cl$comm_D_B,    # the same for broker enrollment dqB_j/deta_k, the commission-paying part
     comm_D_r       = cl$comm_D_r,    # the same, rating-weighted, for the revenue half of MB
     comm_Dz        = cl$comm_Dz,     # the same, weighted by each enrollee characteristic
     relast_mat     = cl$relast_mat,  # rating-weighted premium derivative (premiums collected)

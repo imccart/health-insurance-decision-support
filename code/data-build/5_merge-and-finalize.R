@@ -38,8 +38,7 @@ demand_hh <- bind_rows(
 # here; enrolled rows keep the household premiumSLC step 2 already built from
 # the same table. Region-level second-lowest silver is only a fallback where
 # the zip3 market is missing (or a step-2 value came through as 0/NA).
-plan_data <- read_csv("data/input/Covered California/plan_data.csv",
-                       show_col_types = FALSE)
+plan_data <- read_plan_data(c("metal_level", "ENROLLMENT_YEAR", "region", "Premium"))
 
 cheapest_br <- plan_data %>%
   filter(metal_level == "Bronze") %>%
@@ -176,9 +175,9 @@ filing_lookup <- tribble(
   2014L, 10150,   13050,           20300,
   2015L, 10300,   13250,           20600,
   2016L, 10350,   13350,           20700,
-  2017L, 10400,   16400,           20800,
-  2018L, 12000,   24000,           18000,
-  2019L, 12200,   24400,           18350
+  2017L, 10400,   13400,           20800,
+  2018L, 12000,   18000,           24000,
+  2019L, 12200,   18350,           24400
 ) %>%
   pivot_longer(-year, names_to = "tax_unit_type", values_to = "filing_threshold")
 

@@ -21,42 +21,12 @@ library(readr)
 raw <- read_dta("D:/research-data/meps/h209.dta",
                 col_select = c(DUPERSID, AGELAST, PERWT18F, TOTEXP18, POVLEV18, POVCAT18))
 
-cat("rows read:", nrow(raw), "\n")
-cat("cols:", paste(names(raw), collapse = ", "), "\n\n")
-
 meps <- raw %>% mutate(across(everything(), as.numeric))
 
-# --- external validation: weights and mean must match AHRQ's published 2018 ---
-cat("weighted population (all ages):", format(sum(meps$PERWT18F), big.mark = ","),
-    "(AHRQ 2018: 326,327,888)\n")
-cat("weighted mean TOTEXP18 (all ages):",
-    round(sum(meps$PERWT18F * meps$TOTEXP18) / sum(meps$PERWT18F), 2),
-    "(AHRQ 2018: 6,063)\n\n")
-
-# --- raw distributions (full file) ---
-cat("--- raw distributions (full file) ---\n")
-cat("AGELAST : min", min(meps$AGELAST), "max", max(meps$AGELAST),
-    "| n < 0:", sum(meps$AGELAST < 0), "| NA:", sum(is.na(meps$AGELAST)), "\n")
-cat("PERWT18F: min", min(meps$PERWT18F), "max", round(max(meps$PERWT18F)),
-    "| n == 0:", sum(meps$PERWT18F == 0), "| NA:", sum(is.na(meps$PERWT18F)), "\n")
-cat("TOTEXP18: min", min(meps$TOTEXP18), "max", max(meps$TOTEXP18),
-    "| n < 0:", sum(meps$TOTEXP18 < 0), "| NA:", sum(is.na(meps$TOTEXP18)),
-    "| mean", round(mean(meps$TOTEXP18), 1), "\n")
-cat("POVLEV18: min", round(min(meps$POVLEV18), 1), "max", round(max(meps$POVLEV18), 1),
-    "| n < 0:", sum(meps$POVLEV18 < 0), "| NA:", sum(is.na(meps$POVLEV18)), "\n")
-
-# --- sample restrictions (report survivors at each step) ---
-n0 <- nrow(meps)
-samp <- meps %>% filter(AGELAST >= 0, AGELAST < 65)
-cat("\nunder-65 restriction:", nrow(samp), "kept /", n0, "dropped", n0 - nrow(samp), "\n")
-
-n1 <- nrow(samp)
-samp <- samp %>% filter(PERWT18F > 0)
-cat("positive person weight  :", nrow(samp), "kept /", n1, "dropped", n1 - nrow(samp), "\n")
-
-n2 <- nrow(samp)
-samp <- samp %>% filter(!is.na(POVLEV18), !is.na(TOTEXP18))
-cat("non-missing POVLEV/TOTEXP:", nrow(samp), "kept /", n2, "dropped", n2 - nrow(samp), "\n")
+# --- sample: under 65, positive weight, non-missing income and spending ---
+samp <- meps %>%
+  filter(AGELAST >= 0, AGELAST < 65, PERWT18F > 0,
+         !is.na(POVLEV18), !is.na(TOTEXP18))
 
 # --- cell definitions ---
 samp <- samp %>%
@@ -87,9 +57,6 @@ cells <- samp %>%
   ) %>%
   arrange(age_group, income)
 
-cat("\n--- cell results (unweighted n, weighted mean spend) ---\n")
-print(as.data.frame(cells %>% mutate(mean_spend_wtd = round(mean_spend_wtd, 0))))
-
 # --- write output ---
 out <- cells %>%
   transmute(
@@ -107,5 +74,3 @@ out <- cells %>%
   )
 
 write_csv(out, "data/input/meps_spending_by_demographics.csv")
-cat("\nwrote data/input/meps_spending_by_demographics.csv\n")
-print(as.data.frame(out))

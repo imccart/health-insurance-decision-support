@@ -38,8 +38,8 @@ broker_density <- fread("data/output/broker_density.csv") %>% as_tibble() %>%
 
 commission_lookup <- fread("data/output/commission_lookup.csv") %>% as_tibble()
 
-plan_data <- read_csv("data/input/Covered California/plan_data.csv",
-                      show_col_types = FALSE, name_repair = "minimal")
+plan_data <- read_plan_data(c("region", "ENROLLMENT_YEAR", "Issuer_Name", "metal_level",
+                               "Plan_Name2", "PLAN_NETWORK_TYPE", "Premium", "MSP", "HSA"))
 
 
 # HH-side prep ------------------------------------------------------------

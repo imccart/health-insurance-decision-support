@@ -77,3 +77,17 @@ assign_bracket <- function(fpl) {
               "400% FPL or greater")
   labels[findInterval(fpl, breaks, left.open = TRUE)]
 }
+
+# read_plan_data ----------------------------------------------------------
+# plan_data.csv carries two unlabeled columns after Plan_ID_Order: a
+# reconstructed premium and its gap from Premium (within $0.03 in every row).
+# They are named here so the read needs no name repair; cols selects the
+# columns the caller uses.
+read_plan_data <- function(cols) {
+  f <- "data/input/Covered California/plan_data.csv"
+  hdr <- str_trim(str_split(read_lines(f, n_max = 1), ",")[[1]])
+  stopifnot(sum(hdr == "") == 2, hdr[length(hdr) - 2] == "Plan_ID_Order")
+  hdr[hdr == ""] <- c("premium_check", "premium_check_gap")
+  read_csv(f, skip = 1, col_names = hdr, col_select = all_of(cols),
+           show_col_types = FALSE)
+}

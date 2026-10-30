@@ -34,11 +34,6 @@ pd_lookup <- as.data.table(plan_data)[, .(HIOS, year = ENROLLMENT_YEAR,
                                           plan_id = Plan_Name2)]
 pd_lookup <- unique(pd_lookup, by = c("HIOS", "year", "metal"))
 enroll[pd_lookup, on = c("HIOS", "year", "metal"), plan_id := i.plan_id]
-n_unmatched <- sum(is.na(enroll$plan_id))
-if (n_unmatched > 0) {
-  cat(sprintf("    WARNING: %d enroll rows (%.2f%%) missing plan_id after crosswalk\n",
-              n_unmatched, 100 * n_unmatched / nrow(enroll)))
-}
 enroll[, plan_name := NULL]
 rm(pd_lookup)
 
@@ -206,7 +201,6 @@ years <- sort(unique(enroll$year))
 hh_chunks <- vector("list", length(years))
 for (i in seq_along(years)) {
   yr <- years[i]
-  cat(sprintf("    Year %d (%d/%d)...\n", yr, i, length(years)))
   d <- enroll[year == yr]
   hh_chunks[[i]] <- d[, .(
     household_id          = first(ahbx_case_id_x),

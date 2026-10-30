@@ -159,8 +159,6 @@ missing <- on_ex %>% filter(mm_on > 0) %>%
   anti_join(lookup, by = c("insurer_prefix", "year")) %>%
   distinct(insurer_prefix, year)
 if (nrow(missing) > 0) {
-  cat("  no commission source (zero-rate rows written):",
-      paste(missing$insurer_prefix, missing$year, collapse = ", "), "\n")
   lookup <- bind_rows(lookup,
                       missing %>% crossing(hmo = c(0L, 1L)) %>%
                         mutate(rate = 0, is_pct = FALSE)) %>%

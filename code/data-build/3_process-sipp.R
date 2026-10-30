@@ -21,7 +21,6 @@ sipp_dir <- "data/input/SIPP Data"
 # panel (calendar 2013-2015) since it tracks plan transitions across years.
 # Plan codes (status20YY): 1=nongroup, 2=military, 3=Medicare, 4=ESI,
 # 5=Medicaid/CHIP, 6=other, 7=uninsured.
-cat("  Fitting nongroup-transition logit on SIPP 2014 panel...\n")
 
 read_wave <- function(pu_path, status_path, yr) {
   pu <- fread(pu_path)
@@ -157,9 +156,4 @@ sipp_logit <- glm(
 )
 saveRDS(sipp_logit, "data/output/sipp_logit.rds")
 rm(sipp_pm, sipp_hh, hh_head_jan); gc(verbose = FALSE)
-cat("  done. n =", length(sipp_logit$y),
-    "; mean(transitioned) =", round(mean(sipp_logit$y), 3), "\n")
-
-
-cat("Step 3 complete: nongroup-transition logit fit.\n")
 rm(sipp_logit); gc(verbose = FALSE)

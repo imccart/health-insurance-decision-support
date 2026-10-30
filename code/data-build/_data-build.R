@@ -15,9 +15,9 @@ pacman::p_load(
   tidyverse, data.table, fixest, kableExtra, nleqslv, mlogit, readxl
 )
 
-source("code/data-build/_helpers.R")
+options(datatable.showProgress = FALSE)
 
-cat("=== Starting data build ===\n\n")
+source("code/data-build/_helpers.R")
 
 # Shared reference files (loaded once, available to all steps) -------------
 
@@ -45,68 +45,16 @@ poverty_guidelines_long <- poverty_guidelines %>%
 contribution_percentages <- read.csv("data/input/Covered California/contribution_percentages.csv",
                                       stringsAsFactors = FALSE)
 
-# ----------------------------------------------------------------------------
-# Step 1: Clean individual-level CC enrollment data
-# ----------------------------------------------------------------------------
-cat("\n--- Step 1: Clean individual enrollment ---\n")
+
+# Individual build steps -----------------------------------------------------
+
 source("code/data-build/1_clean-enrollment.R")
-
-# ----------------------------------------------------------------------------
-# Step 2: Aggregate to HH-year (one row per household-year)
-# ----------------------------------------------------------------------------
-cat("\n--- Step 2: Aggregate to HH-year ---\n")
 source("code/data-build/2_aggregate-to-hh.R")
-
-# ----------------------------------------------------------------------------
-# Step 3: Process SIPP (fit the market-transition logit)
-# ----------------------------------------------------------------------------
-cat("\n--- Step 3: Process SIPP ---\n")
 source("code/data-build/3_process-sipp.R")
-
-# ----------------------------------------------------------------------------
-# Step 4: Build the uninsured pool from CC HHs in their off-enrollment years
-#         (RAND 2021 Appendix E approach). Applies SIPP transition logit to
-#         drop HH-years where the HH likely lost market eligibility.
-# ----------------------------------------------------------------------------
-cat("\n--- Step 4: Build CC uninsured pool ---\n")
 source("code/data-build/4_build-cc-uninsured.R")
-
-# ----------------------------------------------------------------------------
-# Step 5: Merge CC + ACS, impute income for CC >400%, finalize
-# ----------------------------------------------------------------------------
-cat("\n--- Step 5: Merge and finalize ---\n")
 source("code/data-build/5_merge-and-finalize.R")
-
-# ----------------------------------------------------------------------------
-# Step 6: Broker density
-# ----------------------------------------------------------------------------
-cat("\n--- Step 6: Broker density ---\n")
 source("code/data-build/6_broker-density.R")
-
-# ----------------------------------------------------------------------------
-# Step 7: Rate filings (for supply-side RA regressions)
-# ----------------------------------------------------------------------------
-cat("\n--- Step 7: Rate filings ---\n")
 source("code/data-build/7_rate-filings.R")
-
-# ----------------------------------------------------------------------------
-# Step 8: SRRT plan risk scores (insurer x metal x region x year)
-# ----------------------------------------------------------------------------
-cat("
---- Step 8: SRRT risk scores ---
-")
 source("code/data-build/8_risk-scores.R")
-
-# ----------------------------------------------------------------------------
-# Step 9: MLR administrative costs by insurer-year (commission substitution)
-# ----------------------------------------------------------------------------
-cat("\n--- Step 9: MLR administrative costs ---\n")
 source("code/data-build/9_mlr-admin.R")
-
-# ----------------------------------------------------------------------------
-# Step 10: commissions per broker enrollee from the filings (SRRT, MLR)
-# ----------------------------------------------------------------------------
-cat("\n--- Step 10: commissions from the filings ---\n")
 source("code/data-build/10_commissions.R")
-
-cat("\n=== Data build complete ===\n")

@@ -2,15 +2,10 @@
 # objective. Standalone reference build (not in the numbered 1-7 sequence, not
 # sourced by _data-build.R), parallel to build-meps-spending.R.
 #
-# Motivation: the objective welfare measure had been charging an uninsured person
-# their FULL medical spending, uncapped, and applying the risk penalty to that
-# enormous variance -- giving an uninsured value near -$30,000/year that dominated
-# and destabilized the counterfactual. In reality the uninsured do not pay the
-# catastrophic bills (bad debt, charity care), so realized out-of-pocket is far
-# lower and far less variable. This table measures what uninsured people actually
-# pay, and how often their spending crosses a catastrophic-expenditure line, so the
-# objective measure can value the uninsured option realistically and separate the
-# measured burden from the assumption-driven cost of financial distress.
+# The uninsured do not pay their catastrophic bills (bad debt, charity care), so
+# the objective measure values the uninsured option at realized out-of-pocket
+# spending. This table gives that spending and the share whose total spending
+# crosses a catastrophic-expenditure line, which the measure prices separately.
 #
 # Uninsured all year: INSCOV18 == 3. OOP paid: TOTSLF18. Total spending: TOTEXP18.
 # Family income: FAMINC18. Catastrophic = total spending > 40% of family income
@@ -41,12 +36,6 @@ meps <- raw %>%
                            TOTEXP18 > 0)
   )
 
-cat("uninsured-all-year persons under 65, non-missing POVLEV:", nrow(meps), "\n")
-cat("weighted mean realized OOP (all cells):",
-    round(sum(meps$PERWT18F * meps$TOTSLF18) / sum(meps$PERWT18F), 0), "\n")
-cat("weighted catastrophic rate (all cells):",
-    round(100 * sum(meps$PERWT18F * meps$catastrophic) / sum(meps$PERWT18F), 1), "%\n\n")
-
 sched <- meps %>%
   group_by(age_group, income) %>%
   summarize(
@@ -68,10 +57,6 @@ sched <- meps %>%
          source = sprintf("MEPS2018_HC209_uninsured_TOTSLF18_cat%.0fpct_%s_x_%s",
                           100 * CATASTROPHIC_FRAC, age_group, income))
 
-print(as.data.frame(sched[, c("age_group", "income", "n", "mean_oop",
-                              "catastrophic_rate")]), row.names = FALSE)
-
 write.csv(sched[, c("age_group", "income", "mean_oop", "var_oop",
                     "catastrophic_rate", "n", "source")],
           "data/input/meps_uninsured_oop.csv", row.names = FALSE)
-cat("\nwrote data/input/meps_uninsured_oop.csv\n")

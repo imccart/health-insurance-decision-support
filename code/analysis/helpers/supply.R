@@ -846,9 +846,10 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 
 # compute_commission_derivatives --------------------------------------------
 #
-# D[j,k] = d qB_j / d eta_k over broker-channel households (share units per $
-# of commission PMPM, normalized by TOTAL cell weight); qB = broker enrollment
-# in the same share units. Two parts. Within the nest, the commission moves the
+# D[j,k] = d q_j / d eta_k, the response of total enrollment (share units per $
+# of commission PMPM, normalized by TOTAL cell weight); D_B[j,k] = d qB_j / d eta_k,
+# the response of broker enrollment, on which the commission is paid; qB = broker
+# enrollment in the same share units. Two parts. Within the nest, the commission moves the
 # realized-channel utility of broker households:
 #
 #   sum_{i in broker} mu_i w_i q_ij (1{j=k} - s_ik|g) / lambda_i / W_total
@@ -865,11 +866,13 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
 # The first sum runs over broker households, whose plan choice carries the
 # commission. The second runs over every household: enrollment depends on the
 # expected inclusive value, in which the agent state has weight p_agent_i for
-# broker and non-broker households alike.
+# broker and non-broker households alike. D_B keeps the broker households'
+# rows of that sum.
 #
 # No alpha_i, no rating factor, and no benchmark 4-case logic (commissions do
-# not touch the subsidy). Used by the CF commission FOC (helpers/cf_cell.R):
-# [D %*% w_f]_j is d qB_j / d k_f with NO transpose, rows respond, columns move.
+# not touch the subsidy). Used by the commission FOC (s4, helpers/cf_cell.R):
+# [D %*% w_f]_j is d q_j / d k_f and [D_B %*% w_f]_j is d qB_j / d k_f, with NO
+# transpose, rows respond, columns move.
 
 compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
                                            V_base = NULL, add_N = NULL, add_A = NULL) {
@@ -913,16 +916,21 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
                             .SDcols = unname(MIX_COLS)][order(household_number)]
   zeroJ <- matrix(0, J, J, dimnames = list(plan_ids, plan_ids))
 
-  # Enrollment margin, every household: q_ij (1 - s_g) p_agent s_ik_A
-  E <- E_r <- zeroJ
+  # Enrollment margin, every household: q_ij (1 - s_g) p_agent s_ik_A. E_B is
+  # the same sum over broker households only, the part of the response on
+  # which the insurer pays a commission.
+  E <- E_r <- E_B <- zeroJ
   E_z <- setNames(rep(list(zeroJ), length(MIX_COLS)), names(MIX_COLS))
   if (use_states) {
     ins_dt[, wq2 := hh_weight * q_j * (1 - s_g) * p_agent_hat]
     ins_dt[, wq2r := rf_i * q_j * (1 - s_g) * p_agent_hat]
-    Wq2_m <- wide(ins_dt, "wq2"); Wq2r_m <- wide(ins_dt, "wq2r")
+    ins_dt[, wq2b := wq2 * fifelse(broker == 1L, 1, 0, na = 0)]
+    Wq2_m <- wide(ins_dt, "wq2"); Wq2r_m <- wide(ins_dt, "wq2r"); Wq2b_m <- wide(ins_dt, "wq2b")
     SAPhi <- wide(ins_dt, "s_jg_A") * wide(ins_dt, "comm_ratio", fill = 1)
     E   <- beta_comm * crossprod(Wq2_m, SAPhi) / total_weight
     E_r <- beta_comm * crossprod(Wq2r_m, SAPhi) / total_weight
+    E_B <- beta_comm * crossprod(Wq2b_m, SAPhi) / total_weight
+    rm(Wq2b_m)
     hz <- hh_mix(ins_dt)
     E_z <- lapply(MIX_COLS, function(col) {
       zv <- hz[[col]]; zv[is.na(zv)] <- 0
@@ -934,9 +942,9 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
   # Plan choice, broker households: q_ij (1{j=k} - s_ik|g) / lambda_i
   ins_b <- ins_dt[broker == 1L]
   if (nrow(ins_b) == 0) {
-    dimnames(E) <- dimnames(E_r) <- list(plan_ids, plan_ids)
+    dimnames(E) <- dimnames(E_r) <- dimnames(E_B) <- list(plan_ids, plan_ids)
     E_z <- lapply(E_z, function(m) { dimnames(m) <- list(plan_ids, plan_ids); m })
-    return(list(qB = setNames(rep(0, J), plan_ids), D = E, D_r = E_r, D_z = E_z,
+    return(list(qB = setNames(rep(0, J), plan_ids), D = E, D_B = E_B, D_r = E_r, D_z = E_z,
                 plan_ids = plan_ids, W_total = total_weight))
   }
   ins_b[, wq := hh_weight * q_j]
@@ -946,11 +954,13 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
   Phi_m <- wide(ins_b, "comm_ratio", fill = 1)
   lam <- ins_b[, .(lam = first(lambda_i)), by = household_number][order(household_number), lam]
 
-  D <- beta_comm * (diag(colSums(Wq_m * Phi_m / lam), nrow = J) -
-                    crossprod(Wq_m / lam, SmPhi)) / total_weight + E
+  D_plan <- beta_comm * (diag(colSums(Wq_m * Phi_m / lam), nrow = J) -
+                         crossprod(Wq_m / lam, SmPhi)) / total_weight
+  D   <- D_plan + E
+  D_B <- D_plan + E_B
   D_r <- beta_comm * (diag(colSums(Wqr_m * Phi_m / lam), nrow = J) -
                       crossprod(Wqr_m / lam, SmPhi)) / total_weight + E_r
-  dimnames(D) <- list(plan_ids, plan_ids)
+  dimnames(D) <- dimnames(D_B) <- list(plan_ids, plan_ids)
   dimnames(D_r) <- list(plan_ids, plan_ids)
 
   hz <- hh_mix(ins_b)
@@ -964,5 +974,5 @@ compute_commission_derivatives <- function(cell_data, V, lambda, coefs_cell,
 
   qB <- setNames(colSums(Wq_m) / total_weight, plan_ids)
 
-  list(qB = qB, D = D, D_r = D_r, D_z = D_z, plan_ids = plan_ids, W_total = total_weight)
+  list(qB = qB, D = D, D_B = D_B, D_r = D_r, D_z = D_z, plan_ids = plan_ids, W_total = total_weight)
 }

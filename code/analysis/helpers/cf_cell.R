@@ -353,10 +353,19 @@ cf_cell_scenario <- function(label, spec) {
       plan_val <- cd_nc[plan_id != "Uninsured", .(val = mean(V_nc, na.rm = TRUE)), by = plan_id]
       val_vec <- setNames(plan_val$val, plan_val$plan_id)[pn]
       val_vec[!is.finite(val_vec)] <- min(val_vec[is.finite(val_vec)], na.rm = TRUE)
-      obs_share <- cl$share_obs; obs_share[!is.finite(obs_share)] <- 0
+      # Commissions are paid on agent enrollees, so the budget is the outlay
+      # on the model's agent enrollment at observed premiums and commissions
+      cd_obs <- build_scenario_data(cl, cl$comm_obs)
+      up_obs <- update_premiums(cl, cd_obs, cl$p_obs)
+      u_obs  <- compute_utility(up_obs$dt, cl$coefs)
+      br_obs <- compute_shares_and_elasticities(up_obs$dt, u_obs$V, cl$lambda, up_obs$bench,
+                                                cl$plan_attrs, cl$coefs, spec = cl$spec,
+                                                V_base = u_obs$V_base, channel_filter = "broker",
+                                                add_N = u_obs$add_N, add_A = u_obs$add_A)
+      qB_obs <- unname(br_obs$shares[pn]); qB_obs[!is.finite(qB_obs)] <- 0
       w_val  <- val_vec - min(val_vec)
-      budget <- sum(cl$comm_obs * obs_share, na.rm = TRUE)
-      denom  <- sum(w_val * obs_share, na.rm = TRUE)
+      budget <- sum(cl$comm_obs * qB_obs, na.rm = TRUE)
+      denom  <- sum(w_val * qB_obs, na.rm = TRUE)
       setNames(as.numeric(if (denom > 0) w_val * (budget / denom) else cl$comm_obs), pn)
     },
     stop("unknown commission basis ", spec$comm))
@@ -427,6 +436,7 @@ cf_cell_eval_p1 <- function(P) {
                  qB_plan = if (!is.null(br)) unname(br$shares[pn]) else rep(0, length(pn)),
                  broker_elast = if (!is.null(br)) br$elast_mat[pn, pn] else NULL,
                  comm_D = if (!is.null(ck)) ck$D[pn, pn] else NULL,
+                 comm_D_B = if (!is.null(ck)) ck$D_B[pn, pn] else NULL,
                  comm_D_r = if (!is.null(ck)) ck$D_r[pn, pn] else NULL,
                  comm_Dz = if (!is.null(ck)) lapply(ck$D_z, function(m) m[pn, pn]) else NULL,
                  comm_qB = if (!is.null(ck)) ck$qB[pn] else NULL)
@@ -473,9 +483,11 @@ cf_cell_eval_p2 <- function(st) {
   }
 
   # Commission pieces per commission-setting unit (the carrier, or the
-  # carrier-network where the schedule files network rates): MB_f = margin x
-  # d qB / d k + RA response, MC_f = outlay, qB_f = broker enrollment;
-  # weights w = the plan's commission under the scenario's schedule.
+  # carrier-network where the schedule files network rates): MB_f = (premium -
+  # mc) x d q / d k - net commission x d qB / d k + RA response, MC_f = outlay,
+  # qB_f = broker enrollment; weights w = the plan's commission under the
+  # scenario's schedule. The commission is paid on broker enrollees only, so
+  # its cost applies to the broker part of the enrollment response.
   MB <- MC <- qB <- setNames(numeric(0), character(0))
   MB_steer <- MB_ra <- MB_fb <- setNames(numeric(0), character(0))
   if (!is.null(ev$comm_D)) {
@@ -485,7 +497,7 @@ cf_cell_eval_p2 <- function(st) {
                            mix_y, mkt_rev_y)
     ra_eta <- ra_y$total
     cc_eta <- compute_claims_comp(mc_res$predicted_claims, cl$reins_vec, mix_y, cl$own_mat, mu)
-    cost_side <- mc + cs * ev$eta
+    net_comm <- cs * ev$eta
     w_basis <- sc$comm
     firms <- unique(cl$unit[sc$comm > 0])
     for (f in firms) {
@@ -493,8 +505,10 @@ cf_cell_eval_p2 <- function(st) {
       jj <- which(cl$prefix == sub("[.].*$", "", f))  # the carrier's plans: its margins all enter MB
       w_f <- numeric(J); w_f[ii] <- w_basis[ii]
       dq <- as.numeric(ev$comm_D %*% w_f)
+      dq_B <- as.numeric(ev$comm_D_B %*% w_f)
       dq_r <- as.numeric(ev$comm_D_r %*% w_f)
-      MB_steer[f] <- sum(ev$p[jj] * dq_r[jj] - cost_side[jj] * dq[jj]) - sum(w_basis[ii] * cc_eta[ii])
+      MB_steer[f] <- sum(ev$p[jj] * dq_r[jj] - mc[jj] * dq[jj] - net_comm[jj] * dq_B[jj]) -
+        sum(w_basis[ii] * cc_eta[ii])
       MB_ra[f] <- sum(w_basis[ii] * ra_eta[ii])
       MB_fb[f] <- sum(w_basis[ii] * ra_y$feedback[ii])
       MB[f] <- MB_steer[f] + MB_ra[f]

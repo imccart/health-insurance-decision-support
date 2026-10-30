@@ -49,7 +49,7 @@ rm(cand)
 
 # Copy the reference-year household row: income, geography, and the
 # demographics not recomputed from member ages below.
-ref_cols <- c("household_year", "FPL", "household_size", "perc_male",
+ref_cols <- c("household_year", "FPL", "perc_male",
               "perc_white", "perc_black", "perc_hispanic", "perc_asian",
               "perc_other", "english", "spanish", "other_language",
               "zip3", "region")
@@ -81,14 +81,15 @@ mem[, n_mem := .N, by = .(household_id, year)]
 mem <- mem[!(age < 0 & n_mem > 1)]
 mem[, age := pmax(0L, age)]
 
-# Recompute age shares, oldest member, and the year-specific rating factor
-# (2018+ separate curve, ages capped at 64) from the aged members.
+# Recompute household size, age shares, oldest member, and the year-specific
+# rating factor (2018+ separate curve, ages capped at 64) from the aged members.
 mem[, rating_factor_i := fifelse(
   year >= 2018,
   age_rating_factors$Rating_Factor2018[match(pmin(64L, age), age_rating_factors$Age)],
   age_rating_factors$Rating_Factor[match(pmin(64L, age), age_rating_factors$Age)]
 )]
 agg <- mem[, .(
+  household_size = .N,
   oldest_member = max(age),
   rating_factor = sum(rating_factor_i, na.rm = TRUE),
   perc_0to17    = mean(age <= 17),

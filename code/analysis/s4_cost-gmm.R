@@ -316,6 +316,8 @@ SPLIT_KEYS <- comm_lk %>% group_by(insurer_prefix, year) %>%
 # Per-cell unit structure for the commission conditions (theta-independent pieces)
 comm_struct <- lapply(foc_cells, function(fc) {
   if (is.null(fc$comm_D) || is.null(fc$comm_qB)) return(NULL)
+  if (is.null(fc$comm_D_B))
+    stop("s4: cell ", fc$region, " ", fc$year, " lacks comm_D_B -- re-run s3")
   pn <- fc$plan_ids; pref <- sub("_.*", "", pn)
   split_here <- paste(pref, fc$year, sep = "_") %in% SPLIT_KEYS
   if (any(split_here) && (is.null(fc$comm_hmo) || anyNA(fc$comm_hmo[pn][split_here])))
@@ -331,6 +333,7 @@ comm_struct <- lapply(foc_cells, function(fc) {
     w_f <- numeric(length(pn)); w_f[ii] <- fc$comm_vec[ii]
     d <- as.data.frame(fc$demo_shares); m <- match(pn[ii], d$plan_id)
     list(firm = f, ii = ii, jj = jj, dq = as.numeric(fc$comm_D %*% w_f),
+         dq_B = as.numeric(fc$comm_D_B %*% w_f),
          dq_r = as.numeric(fc$comm_D_r %*% w_f),
          MC = sum(fc$comm_qB[ii] * fc$comm_vec[ii]), qB = sum(fc$comm_qB[ii]),
          dem = sum(d$demand[m], na.rm = TRUE))      # predicted enrollment of the unit's plans
@@ -530,9 +533,10 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
   M3_mat[cbind(cp_row, match(cp_py, which(PY_OK)))] <- length(cp_row) * cp_val / ow_py[cp_py]
 
   # Pass C: commission pieces at the current cost parameters. MB_f = sum over the
-  # insurer's plans of the model margin x d qB / d k plus the risk-adjustment
-  # response; MC_f = commission outlay. Each is in the cell's share units, so the
-  # insurer-year sums across cells weight by the cell's members.
+  # insurer's plans of revenue less marginal cost on d q / d k, less the net
+  # commission on d qB / d k (paid on broker enrollees only), plus the
+  # risk-adjustment response; MC_f = commission outlay. Each is in the cell's
+  # share units, so the insurer-year sums across cells weight by the cell's members.
   for (ci in seq_along(foc_cells)) {
     cs <- comm_struct[[ci]]
     if (is.null(cs)) next
@@ -543,11 +547,12 @@ compute_g_bar <- function(theta, return_contributions = FALSE) {
                                   fc$own_mat, gamma[2])
     beta_plan <- BETA_FY[paste(sub("_.*", "", fc$plan_ids), fc$year, sep = "_")]
     beta_plan[is.na(beta_plan)] <- BETA_FY_DEFAULT
-    cost_side <- cell_mc[[ci]] + (1 - unname(beta_plan)) * fc$comm_vec
+    net_comm <- (1 - unname(beta_plan)) * fc$comm_vec
     for (cf_ in cs) {
       key <- paste(cf_$firm, fc$year, sep = "_")
       MBf <- sum(fc$posted_premium[cf_$jj] * cf_$dq_r[cf_$jj] -
-                 cost_side[cf_$jj] * cf_$dq[cf_$jj]) +
+                 cell_mc[[ci]][cf_$jj] * cf_$dq[cf_$jj] -
+                 net_comm[cf_$jj] * cf_$dq_B[cf_$jj]) +
              sum(fc$comm_vec[cf_$ii] * (ra_eta[cf_$ii] - cc_eta[cf_$ii]))
       MB_fy[key] <- (if (is.na(MB_fy[key])) 0 else MB_fy[key]) + fc$N * MBf
       MC_fy[key] <- (if (is.na(MC_fy[key])) 0 else MC_fy[key]) + fc$N * cf_$MC
