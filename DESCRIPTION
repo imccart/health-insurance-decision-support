@@ -1,0 +1,18 @@
+Type: project
+Description: Package dependencies for the data-build and analysis pipelines, read by renv::snapshot().
+Imports:
+    data.table,
+    dplyr,
+    fixest,
+    haven,
+    kableExtra,
+    languageserver,
+    MASS,
+    mlogit,
+    nleqslv,
+    nnet,
+    pacman,
+    readr,
+    readxl,
+    scales,
+    tidyverse
