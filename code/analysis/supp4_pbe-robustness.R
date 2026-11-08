@@ -59,8 +59,8 @@ comp <- data.frame(term = key,
                    full = unname(full[key]),
                    no_PBE = unname(noPBE[key]),
                    diff = unname(noPBE[key] - full[key]))
-comp[, 2:4] <- lapply(comp[, 2:4], round, 4)
-write.csv(comp, "results/pbe_robustness.csv", row.names = FALSE)
+write.csv(comp %>% mutate(across(full:diff, ~ round(.x, 4))),
+          "results/pbe_robustness.csv", row.names = FALSE)
 
 # Bare tabular for the appendix -------------------------------------------
 lab <- c(premium = "Premium",
