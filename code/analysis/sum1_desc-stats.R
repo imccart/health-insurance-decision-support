@@ -266,3 +266,42 @@ tex_lines <- c(
 )
 writeLines(tex_lines, "results/tables/summary_stats.tex")
 
+# Data facts quoted in the text --------------------------------------------
+# Commission schedules over the sample years; rates below 1 are percentages of
+# premium, rates of 1 or more are flat dollars per member per month.
+comm <- read_csv("data/input/Covered California/commission_input.csv", show_col_types = FALSE) %>%
+  pivot_longer(Y2014:Y2019, names_to = "year", values_to = "rate") %>%
+  filter(!is.na(rate))
+
+comm_paying <- comm %>%
+  group_by(Insurer) %>%
+  filter(any(rate > 0)) %>%
+  ungroup()
+
+comm_constant <- comm_paying %>%
+  group_by(Insurer, Network, Type) %>%
+  summarize(one_rate = n_distinct(rate) == 1, .groups = "drop") %>%
+  group_by(Insurer) %>%
+  summarize(constant = all(one_rate), .groups = "drop")
+
+comm_new <- comm_paying %>% filter(Type == "New", rate > 0)
+
+insurers_by_year <- hh_ins %>%
+  filter(!is.na(insurer)) %>%
+  distinct(year, insurer) %>%
+  count(year)
+
+data_facts <- tribble(
+  ~fact,                          ~value,
+  "subsidy_eligible_share",       100 * mean(hh_ins$subsidy_eligible, na.rm = TRUE),
+  "insurers_per_year_min",        min(insurers_by_year$n),
+  "insurers_per_year_max",        max(insurers_by_year$n),
+  "carriers_paying_commission",   n_distinct(comm_paying$Insurer),
+  "carriers_constant_commission", sum(comm_constant$constant),
+  "flat_commission_new_min",      min(comm_new$rate[comm_new$rate >= 1]),
+  "flat_commission_new_max",      max(comm_new$rate[comm_new$rate >= 1]),
+  "pct_commission_new_min",       100 * min(comm_new$rate[comm_new$rate < 1]),
+  "pct_commission_new_max",       100 * max(comm_new$rate[comm_new$rate < 1])
+)
+write_csv(data_facts, "results/data_facts.csv")
+
