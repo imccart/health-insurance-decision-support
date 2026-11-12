@@ -1,0 +1,1486 @@
+% !TeX program = xelatex
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,calc,shadows,decorations.pathreplacing}
+\usepackage{fontawesome5}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{natbib}
+
+\usepackage{theme/beamerthemeResearch}
+
+% Model estimates and counts written by the analysis pipeline
+\input{../results/tables/paper-numbers.tex}
+
+\title[Decision Assistance \& Steering]{Decision Assistance and Steering\\ in Health Insurance}
+\subtitle{Economics brown bag}
+\author{%
+  \begin{tabular}[t]{@{}l@{\hspace{1.5cm}}l@{}}
+    Ian McCarthy & Evan Saltzman \\[2pt]
+    {\usebeamerfont{institute}\usebeamercolor[fg]{institute}Emory University} &
+    {\usebeamerfont{institute}\usebeamercolor[fg]{institute}Florida State University}
+  \end{tabular}}
+\institute{}
+\date{November 12, 2026}
+
+% Overlay reveals in TikZ: a hidden element is drawn transparent, so it keeps
+% its space and the picture does not shift as elements appear.
+\tikzset{
+  invisible/.style={opacity=0,text opacity=0},
+  visible on/.style={alt={#1{}{invisible}}},
+  alt/.code args={<#1>#2#3}{\alt<#1>{\pgfkeysalso{#2}}{\pgfkeysalso{#3}}}
+}
+
+% ── Stat callout: \statbox{width}{big number}{caption} ──
+\newcommand{\statbox}[3]{%
+  \begin{minipage}[t]{#1}
+    \centering
+    {\Huge\bfseries\color{emoryBlue}#2}\\[0.15cm]
+    {\small\color{emoryDark}#3}
+  \end{minipage}%
+}
+
+% ── Equation term that lights up on its overlay ──
+% \eqterm<n>{math}{label}: before slide n the term is faint, on slide n its
+% brace and label are gold, afterwards they are blue. The brace is always
+% typeset, so the equation does not move as terms light up.
+\definecolor{eqFaint}{RGB}{160,166,180}
+\newcommand{\mi}{\char"2212\relax}   % text minus sign, same glyph as the deck font
+\newcommand<>{\eqterm}[2]{%
+  \temporal#3%
+    {{\color{eqFaint}\overbrace{\color{eqFaint}#1}^{\text{\scriptsize #2}}}}%
+    {{\color{emoryGold}\overbrace{\color{emoryDark}#1}^{\text{\scriptsize\bfseries #2}}}}%
+    {{\color{emoryBlue}\overbrace{\color{emoryDark}#1}^{\text{\scriptsize #2}}}}%
+}
+% Same, with the label below the term
+\newcommand<>{\eqtermu}[2]{%
+  \temporal#3%
+    {{\color{eqFaint}\underbrace{\color{eqFaint}#1}_{\text{\scriptsize #2}}}}%
+    {{\color{emoryGold}\underbrace{\color{emoryDark}#1}_{\text{\scriptsize\bfseries #2}}}}%
+    {{\color{emoryBlue}\underbrace{\color{emoryDark}#1}_{\text{\scriptsize #2}}}}%
+}
+
+% ── Card pairing a model term with the data behind it ──
+% \datacard{term name}{what it captures}{where it meets the data}
+\newcommand{\datacard}[3]{%
+  \begin{tikzpicture}
+    \node[fill=emoryLight, draw=emoryRule, rounded corners=5pt,
+          inner xsep=14pt, inner ysep=7pt, text width=0.88\linewidth] (card) {%
+      {\bfseries\color{emoryGold}#1}\par\vspace{3pt}
+      \begin{minipage}[t]{0.40\linewidth}
+        {\scriptsize\bfseries\color{emoryMid}IN THE MODEL}\par\vspace{2pt}
+        {\small\color{emoryDark}\raggedright #2\par}
+      \end{minipage}\hfill
+      {\color{emoryRule}\vrule width 0.6pt}\hfill
+      \begin{minipage}[t]{0.52\linewidth}
+        {\scriptsize\bfseries\color{emoryMid}\faDatabase\ SOURCE}\par\vspace{2pt}
+        {\small\color{emoryDark}\raggedright #3\par}
+      \end{minipage}};
+    \fill[emoryGold] (card.north west) rectangle ([xshift=4pt]card.south west);
+  \end{tikzpicture}%
+}
+
+% Rows for the welfare-measure walkthrough: \mrowhead{name} is the measure
+% under discussion, \mrowdone{name}{math} a finished one collapsed to a row.
+\newcommand{\mrowhead}[1]{%
+  \noindent\begin{tikzpicture}
+    \node[draw=emoryGold, line width=0.8pt, fill=white, rounded corners=4pt,
+          minimum height=0.62cm, text width=\linewidth-14pt, inner xsep=6pt, inner ysep=0pt]
+      {\small\bfseries\color{emoryGold}#1};
+  \end{tikzpicture}\par\vspace{2pt}}
+\newcommand{\mrowdone}[2]{%
+  \noindent\begin{tikzpicture}
+    \node[draw=emoryLightBlue, line width=0.8pt, fill=emoryLightBlue, rounded corners=4pt,
+          minimum height=0.62cm, text width=\linewidth-14pt, inner xsep=6pt, inner ysep=0pt]
+      {\small{\bfseries\color{emoryBlue}#1}\hfill$\color{emoryDark}#2$};
+  \end{tikzpicture}\par\vspace{2pt}}
+% Example box for the welfare walkthrough
+\newcommand{\examplebox}[1]{%
+  \begin{tikzpicture}
+    \node[fill=emoryLight, draw=emoryRule, rounded corners=5pt, inner xsep=12pt, inner ysep=7pt,
+          text width=0.88\linewidth] (ex) {{\scriptsize\bfseries\color{emoryGold}EXAMPLE}\par\vspace{2pt}{\small\color{emoryDark}#1}};
+    \fill[emoryGold] (ex.north west) rectangle ([xshift=4pt]ex.south west);
+  \end{tikzpicture}}
+
+% Button in the lower right corner: \cornerbutton{target label}{text}
+\newcommand{\cornerbutton}[2]{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=east, inner sep=0pt] at ([xshift=-1.0cm, yshift=1.45cm]current page.south east)
+      {\hyperlink{#1}{\beamerbutton{#2}}};
+  \end{tikzpicture}}
+
+% Stage rows for the backward walkthrough of the household's problem.
+% \stagehead{n}{name} is the stage under discussion, and \stagedone{n}{name}{math}
+% is a finished stage collapsed to one row. Both rows have the same height.
+\newcommand{\stagehead}[2]{%
+  \noindent\begin{tikzpicture}
+    \node[draw=emoryGold, line width=0.8pt, fill=white, rounded corners=4pt,
+          minimum height=0.62cm, text width=\linewidth-14pt, inner xsep=6pt, inner ysep=0pt]
+      {\small\bfseries\color{emoryGold}Stage #1\quad{\color{emoryDark}#2}};
+  \end{tikzpicture}\par\vspace{2pt}}
+\newcommand{\stagedone}[3]{%
+  \noindent\begin{tikzpicture}
+    \node[draw=emoryLightBlue, line width=0.8pt, fill=emoryLightBlue, rounded corners=4pt,
+          minimum height=0.62cm, text width=\linewidth-14pt, inner xsep=6pt, inner ysep=0pt]
+      {\small\makebox[1.4cm][l]{\bfseries\color{emoryBlue}Stage #1}\makebox[5.6cm][l]{\color{emoryDark}#2}\hfill$\color{emoryDark}#3$};
+  \end{tikzpicture}\par\vspace{2pt}}
+
+% ── Clickable "Help!" popup ──
+% Usage: \begin{frame}<1>[label=help-x]{Title} ... \helpcard{help-x}{Text.} \end{frame}
+%        and, at the end of the document, \againframe<2>{help-x}
+% \helpcard must be the last thing in the frame so the card is drawn on top.
+\NewDocumentCommand{\helpcard}{O{2} O{1} m +m}{%
+  \alt<#1>{%
+  \setcounter{framenumber}{\csname helpnum#3\endcsname}%
+  \helpcardbody{#3<#2>}{#4}}{%
+  \expandafter\xdef\csname helpnum#3\endcsname{\arabic{framenumber}}%
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=east, inner sep=0pt]
+      at ([xshift=-1.0cm, yshift=1.45cm]current page.south east)
+      {\hyperlink{#3<#1>}{\beamerbutton{detail}}};
+  \end{tikzpicture}}%
+}
+\newcommand{\helpcardbody}[2]{%
+  \begin{tikzpicture}[remember picture, overlay]
+    \fill[white, opacity=0.78] (current page.south west) rectangle (current page.north east);
+    \node[fill=white, rounded corners=6pt, drop shadow={opacity=0.30, shadow xshift=2pt, shadow yshift=-2pt},
+          inner xsep=18pt, inner ysep=16pt]
+      (card) at ([yshift=-0.2cm]current page.center)
+      {\parbox{11.6cm}{\normalsize\color{emoryDark}\raggedright\hyphenpenalty=10000 \exhyphenpenalty=10000
+       #2\par}};
+    \fill[emoryBlue] ([xshift=7pt, yshift=-12pt]card.north west) rectangle ([xshift=10pt, yshift=12pt]card.south west);
+    \node[circle, fill=emoryBlue, text=white, font=\scriptsize\bfseries, inner sep=0pt,
+          minimum size=0.5cm] at (card.north east)
+      {\hyperlink{#1}{\makebox[0.5cm]{\rule[-4pt]{0pt}{14pt}$\times$}}};
+  \end{tikzpicture}%
+}
+
+% ── Newspaper-clipping text pieces for the intermediaries slide ──
+\newcommand{\clipheadline}[1]{{\rmfamily\bfseries #1}}
+\newcommand{\clipsource}[1]{{\tiny\color{emoryMid}#1}}
+
+\begin{document}
+
+\begin{frame}[plain,noframenumbering]
+  \titlepage
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════
+\section{Motivation}
+\sectionframe
+
+\begin{frame}[t]{Intermediaries and potential conflicts of interest}
+  \begin{center}
+  \begin{tikzpicture}[
+    bigicon/.style={text=emoryBlue,font=\fontsize{52}{52}\selectfont},
+    dock/.style={align=center,font=\small,text=emoryDark},
+    dockicon/.style={text=emoryBlue,font=\fontsize{22}{22}\selectfont},
+    clip/.style={fill=white,draw=emoryRule,drop shadow={opacity=0.25},
+      text width=7.4cm,align=left,inner sep=9pt,text=emoryDark,font=\small,
+      execute at begin node={\raggedright\hyphenpenalty=10000 \exhyphenpenalty=10000 }},
+  ]
+    \useasboundingbox (-0.2,-1.0) rectangle (13.2,1.1);
+
+    \node[visible on=<2->,dockicon] at (2.2,0.65) {\faHome};
+    \node[visible on=<2->,dock] at (2.2,-0.3) {Housing\\{\scriptsize\color{emoryMid}realtors}};
+    \node[visible on=<3->,dockicon] at (6.5,0.65) {\faMoneyBillWave};
+    \node[visible on=<3->,dock] at (6.5,-0.3) {Investing\\{\scriptsize\color{emoryMid}financial advisers}};
+    \node[visible on=<4->,dockicon] at (10.8,0.65) {\faBriefcaseMedical};
+    \node[visible on=<4->,dock] at (10.8,-0.3) {Insurance\\{\scriptsize\color{emoryMid}agents}};
+
+    \node<1>[bigicon] at (2.2,-2.55) {\faHome};
+    \node<1>[clip,rotate=1.5] at (8.4,-2.55) {%
+      \clipheadline{88\% of home buyers purchased through an agent or broker}\\[4pt]
+      NAR paid \$418 million to settle home sellers' claims over broker commissions. Offers of buyer-broker compensation can no longer be posted on the MLS.\\[4pt]
+      \clipsource{NAR 2025 Profile of Home Buyers and Sellers; NAR settlement, approved Nov.\ 2024}};
+
+    \node<2>[bigicon] at (2.2,-2.55) {\faMoneyBillWave};
+    \node<2>[clip,rotate=-1.2] at (8.4,-2.55) {%
+      \clipheadline{60\% of non-retirement investors use financial advisers}\\[4pt]
+      7\% of financial advisers have misconduct records ($>$ 15\% at some of the largest firms), with relatively minor labor market consequences.\\[4pt]
+      \clipsource{Egan, Matvos, and Seru, \emph{JPE} 2019; \emph{JEP} 2024}};
+
+    \node<3>[bigicon] at (2.2,-2.55) {\faBriefcaseMedical};
+    \node<3>[clip,rotate=1] at (8.4,-2.55) {%
+      \clipheadline{43.7\% of new Medicare Advantage enrollees used an agent in 2022}\\[4pt]
+      \$10.1 billion in agent commissions that year. In the ACA exchanges, 78\% of active enrollments were agent-facilitated in 2024.\\[4pt]
+      \clipsource{Meyers et al., \emph{JAMA Internal Medicine} 2026; G\"urel, \emph{Risk Management and Insurance Review} 2024}};
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.4cm}
+  \begin{center}
+  \begin{tikzpicture}[
+    side/.style={rounded corners=6pt,minimum width=5.6cm,minimum height=1.1cm,
+      text width=5.2cm,align=center,font=\small\bfseries,text=white,
+      execute at begin node={\hyphenpenalty=10000 }}]
+    \node[visible on=<4->,side,fill=emoryBlue] (a) at (0,0) {help consumers choose a product};
+    \node[visible on=<4->,font=\small,text=emoryMid] at (3.35,0) {or};
+    \node[visible on=<4->,side,fill=emoryGold] (b) at (6.7,0) {steer them toward products that pay more};
+    \node[visible on=<5->,font=\small\bfseries,text=emoryBlue,text width=12.3cm,align=center,anchor=north] at (3.35,-0.8) {Our Research Question: What are the welfare effects of assistance and steering in health insurance?};
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Our Setting: Covered California ACA Exchanges}
+  \begin{center}
+  {\scriptsize\color{emoryMid} Share of Covered California enrollments, 2014--2019}
+  \begin{tikzpicture}[x=12cm,y=1cm,
+    lab/.style={anchor=north,align=center,font=\small,text=emoryDark},
+    pct/.style={font=\large\bfseries}]
+    % segment widths are the channel shares in results/tables/assistance_channels.tex
+    \useasboundingbox (0,-1.1) rectangle (1,1.3);
+    \fill[emoryGold] (0,0)     rectangle (0.452,1.3);
+    \fill[emoryBlue] (0.452,0) rectangle (0.640,1.3);
+    \fill[emoryRule] (0.640,0) rectangle (1,1.3);
+    \node[pct,text=white]     at (0.226,0.65) {45\%};
+    \node[pct,text=white]     at (0.546,0.65) {19\%};
+    \node[pct,text=emoryDark] at (0.820,0.65) {36\%};
+    \node[lab] at (0.226,-0.1) {Private agent\\{\scriptsize\color{emoryMid}paid a commission by the insurer}};
+    \node[lab] at (0.546,-0.1) {Public navigator\\{\scriptsize\color{emoryMid}no plan-specific pay}};
+    \node[lab] at (0.820,-0.1) {No assistance};
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.6cm}
+  \onslide<2->{In all cases, households in a given market and year see the same plans.\par}
+\end{frame}
+
+\begin{frame}{Main elements of the paper}
+  \vspace{0.2cm}
+  \begin{center}
+  \begin{tikzpicture}[
+    flowbox/.style={draw=emoryBlue,thick,rounded corners=6pt,fill=emoryLightBlue,
+      minimum width=3.9cm,minimum height=3.1cm,text width=3.5cm,align=center,font=\small,
+      execute at begin node={\hyphenpenalty=10000 }},
+    num/.style={circle,fill=emoryBlue,text=white,font=\small\bfseries,minimum size=0.6cm,inner sep=0pt},
+    arr/.style={-{Stealth[length=2.5mm]},very thick,emoryMid}]
+    \node[visible on=<1->,flowbox] (a) at (0,0) {Design-based effect of assistance on plan choice\\[3pt]{\scriptsize\color{emoryMid}silver plans, dominated plans}};
+    \node[visible on=<2->,flowbox] (b) at (4.6,0) {Structural model of household choice, insurer pricing, and commissions};
+    \node[visible on=<3->,flowbox] (c) at (9.2,0) {Counterfactuals\\[3pt]{\scriptsize\color{emoryMid}\begin{minipage}{3.3cm}\raggedright
+      \textbullet\ ban commissions, with or without navigators\\[1pt]
+      \textbullet\ change the commission schedule\\[1pt]
+      \textbullet\ defund or expand navigators\end{minipage}}};
+    \node[visible on=<1->,num] at (a.north west) {1};
+    \node[visible on=<2->,num] at (b.north west) {2};
+    \node[visible on=<3->,num] at (c.north west) {3};
+    \draw[visible on=<2->,arr] (a) -- (b);
+    \draw[visible on=<3->,arr] (b) -- (c);
+  \end{tikzpicture}
+  \end{center}
+
+\end{frame}
+
+\begin{frame}{Takeaways}
+  \vspace{0.3cm}
+  \begin{enumerate}\setlength{\itemsep}{18pt}
+    \item Restrictions on agent commissions should be evaluated together with what replaces agent assistance. Without a replacement, coverage falls. With navigator assistance in its place, coverage is about unchanged and premiums fall.
+    \item Changes to how agents are paid have small effects on coverage and household welfare compared with changes in access to assistance.
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{Contribution}
+  \vspace{0.1cm}
+  \begin{itemize}\setlength{\itemsep}{12pt}
+    \item<1-> \textbf{Decision assistance and expert advice:} commissioned agents and public navigators compared in the same market\par
+      {\footnotesize\color{emoryMid} Schotter (2003) AER; Bettinger et al.\ (2012) QJE; Kling et al.\ (2012) QJE; Finkelstein and Notowidigdo (2019) QJE; Bundorf et al.\ (2024) MS; Aizawa and Kim (2025) AEJ:Pol; Aizawa et al.\ (WP); Li et al.\ (WP)\par}
+    \item<2-> \textbf{Poor choices in health insurance:} assistance reduces dominated plan choices, separately from the steering created by commissions\par
+      {\footnotesize\color{emoryMid} Abaluck and Gruber (2011) AER; Sinaiko and Hirth (2011) JHE; Ketcham et al.\ (2012) AER; Bhargava et al.\ (2017) QJE; Liu and Sydnor (2021) AEJ:Pol\par}
+    \item<3-> \textbf{Insurer pricing in the exchanges:} decision assistance and agent commissions added to structural models of exchange pricing\par
+      {\footnotesize\color{emoryMid} Starc (2014) RAND; Saltzman (2021) RAND; Saltzman (2025) REStat; Tebaldi (2025) ReStud; Egan et al.\ (2019) JPE\par}
+  \end{itemize}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════
+\section{Setting and Data}
+\sectionframe
+
+\begin{frame}[t,label=setting]{Covered California, 2014--2019}
+  \vspace{0.3cm}
+  \begin{itemize}
+    \item California's ACA marketplace: about one million enrolled households a year, 10--12 insurers, 19 rating regions
+    \item Four metal tiers with standardized cost sharing 
+    \item Premiums vary only by age and region, with subsidies up to 400\% of FPL (set by the second-cheapest silver plan)
+    \item Cost-sharing subsidies for households below 250\% of FPL (available only for silver plans)
+    \item Average net premium of around \$130 per member per month
+  \end{itemize}
+
+  \vfill
+  \hfill\hyperlink{premiums}{\beamerbutton{premiums and subsidies}}
+\end{frame}
+
+\begin{frame}[t]{Types of Assistance}
+  \vspace{0.3cm}
+  \textbf{\color{emoryGold}Agents and brokers}
+  \begin{itemize}
+    \item Licensed and certified by the exchange
+    \item Paid by insurers, as a flat amount per member or a share of premium, about \$\meanCommission{} per member per month on average
+  \end{itemize}
+
+  \vspace{0.2cm}
+  \onslide<2->{\textbf{\color{emoryBlue}Navigators}
+  \begin{itemize}
+    \item Certified enrollment counselors and service-center staff
+    \item Funded by the exchange and paid regardless of plan choices
+  \end{itemize}}
+\end{frame}
+
+\begin{frame}{Variation in Commissions}
+  % New-enrollee rates from data/input/Covered California/commission_input.csv
+  \begin{center}
+  \begin{tikzpicture}[
+    yr/.style={font=\scriptsize,text=emoryMid,anchor=north},
+    tk/.style={font=\scriptsize,text=emoryMid,anchor=east},
+    flat/.style={emoryRule,line width=1.4pt},
+    lab/.style={font=\scriptsize,anchor=west,text=emoryMid},
+    hl/.style={line width=2.2pt},
+    pttl/.style={font=\small\bfseries,text=emoryDark,anchor=south west}]
+    % Flat panel: x 2014..2019 -> 0..5 (x=1.0cm), y $0..24 (y=0.17cm)
+    \begin{scope}[x=0.85cm,y=0.17cm]
+      \node[pttl] at (-0.3,24.5) {Flat, \$ per member per month};
+      \draw[emoryRule] (0,0) -- (5,0);
+      \foreach \v in {0,10,20} {\node[tk] at (-0.1,\v) {\v};}
+      \foreach \x/\y in {0/2014,1/2015,2/2016,3/2017,4/2018,5/2019} {\node[yr] at (\x,-0.4) {\y};}
+      \draw[flat] (0,22) -- (5,22);
+      \draw[flat] (0,20) -- (5,20);
+      \draw[flat] (0,19) -- (5,19);
+      \node[lab,align=left] at (5.1,20.5) {Western, L.A. Care,\\CCHP, Molina};
+      \draw[flat] (2,15) -- (5,15);    \node[lab] at (5.1,15.8) {Oscar};
+      \draw[flat] (0,8.33) -- (5,8.33); \node[lab] at (5.1,7.3) {Kaiser, Valley};
+      \draw[hl,emoryGold] (0,18) -- (1,18) -- (2,16) -- (3,12) -- (4,9) -- (5,9);
+      \node[lab,text=emoryGold,font=\scriptsize\bfseries] at (5.1,10.4) {Anthem};
+      \draw[visible on=<2->,hl,emoryMid,dashed] (4,14) -- (5,14);
+      \node[visible on=<2->,lab,text=emoryMid,font=\scriptsize\bfseries] at (5.1,13.2) {Health Net};
+    \end{scope}
+    % Percent panel, shifted right
+    \begin{scope}[xshift=8.0cm,x=0.65cm,y=0.68cm]
+      \node[visible on=<2->,pttl] at (-0.3,6.1) {Percent of premium};
+      \draw[visible on=<2->,emoryRule] (0,0) -- (5,0);
+      \foreach \v in {0,2,4} {\node[visible on=<2->,tk] at (-0.1,\v) {\v\%};}
+      \foreach \x/\y in {0/2014,1/2015,2/2016,3/2017,4/2018,5/2019} {\node[visible on=<2->,yr] at (\x,-0.1) {\y};}
+      \draw[visible on=<2->,flat] (0,5) -- (5,5);  \node[visible on=<2->,lab] at (5.1,5) {Sharp};
+      \draw[visible on=<2->,hl,emoryBlue] (0,4) -- (1,4) -- (2,3.6) -- (3,2.5) -- (4,1.4) -- (5,1.3);
+      \node[visible on=<2->,lab,text=emoryBlue,font=\scriptsize\bfseries] at (5.1,1.3) {Blue Shield};
+      \draw[visible on=<2->,hl,emoryMid] (0,5) -- (1,2) -- (2,2) -- (3,2);
+      \node[visible on=<2->,lab,text=emoryMid,font=\scriptsize\bfseries,anchor=north] at (2,1.85) {Health Net};
+    \end{scope}
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.2cm}
+  \onslide<3->{\small Only Anthem, Blue Shield, and Health Net change commissions over time.\par}
+\end{frame}
+
+\begin{frame}[t]{Measuring the uninsured}
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item<1-> We observe a household's exchange enrollment in every year it is enrolled
+    \item<2-> Assumed uninsured otherwise, provided it is still eligible for the individual market (following Saltzman 2025, \emph{REStat})
+    \item<3-> Eligibility is estimated based on data from the SIPP (employer coverage, moving, Medicare at 65, Medicaid) using age, income, gender, race, and household size
+  \end{itemize}
+
+  \begin{center}
+  \begin{tikzpicture}[
+    yr/.style={minimum width=1.75cm,minimum height=0.9cm,rounded corners=4pt,font=\small\bfseries},
+    enr/.style={yr,fill=emoryBlue,text=white},
+    uni/.style={yr,draw=emoryGold,very thick,fill=emoryLight,text=emoryDark},
+    gone/.style={yr,draw=emoryRule,fill=white,text=emoryRule},
+    ylab/.style={font=\scriptsize,text=emoryMid,anchor=north,text width=1.9cm,align=center}]
+    \foreach \x/\y in {0/2014,1/2015,2/2016,3/2017,4/2018,5/2019} {
+      \node[font=\scriptsize,text=emoryMid] at (2*\x,0.75) {\y};
+    }
+    \node[enr] at (2,0) {enrolled};
+    \node[enr] at (4,0) {enrolled};
+    \node[visible on=<2->,uni] at (0,0) {uninsured};
+    \node[visible on=<2->,uni] at (6,0) {uninsured};
+    \node[visible on=<2->,uni] at (8,0) {uninsured};
+    \node[visible on=<3->,gone] at (10,0) {left market};
+    \node[visible on=<3->,ylab] at (10,-0.55) {predicted exit, dropped};
+  \end{tikzpicture}
+  \end{center}
+
+\end{frame}
+
+\begin{frame}[t]{Estimation sample}
+  \vspace{0.1cm}
+  \begin{columns}[t,onlytextwidth]
+    \column{0.49\textwidth}
+      \small
+      \textbf{\color{emoryBlue}Observed:} \nHHins{} enrolled household-years
+      \begin{itemize}
+        \item Plan, ages, income, region, and assistance channel
+        \item Plan menus, premiums, and commission schedules
+        \item Rate filings and MLR filings
+      \end{itemize}
+      \vspace{0.2cm}
+      \textbf{\color{emoryGold}With constructed uninsured years:}\\ \nHHfull{} household-years
+    \column{0.47\textwidth}
+      \onslide<2->{%
+      \centering
+      {\small\bfseries Enrolled household-years}\\[0.2cm]
+      \footnotesize
+      \begin{tabular}{lrr}
+        \toprule
+         & Assisted & Unassisted \\
+        \midrule
+        Household-years & 3.48M & 1.92M \\
+        Income (\% of FPL) & 222 & 238 \\
+        Age 18--34 & 26\% & 37\% \\
+        Age 55--64 & 33\% & 24\% \\
+        Dominated choice & 2.2\% & 3.9\% \\
+        \bottomrule
+      \end{tabular}}
+  \end{columns}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════
+\section{Does Assistance Improve Choices?}
+\sectionframe
+
+\begin{frame}{Reduced-form design}
+  \vspace{0.1cm}
+  \begin{enumerate}
+    \item<1-> Propensity of assistance from household characteristics
+    \item<2-> Choice model fit on unassisted households, reweighted by $\hat p/(1-\hat p)$
+    \item<3-> Predict assisted households' choices without assistance
+  \end{enumerate}
+
+  \vspace{0.4cm}
+  \onslide<4->{%
+  $$
+  \text{ATT}_j = \eqterm<5>{\Pr[Y^1_{ij} \mid \text{assisted}]}{observed}
+  \;-\; \eqterm<6>{\widehat{\Pr}[Y^0_{ij} \mid \text{assisted}]}{predicted from unassisted choices}
+  $$}
+
+  \vspace{0.2cm}
+  \onslide<7->{\small\color{emoryMid} Outcomes are metal tier, insurer, and dominated-plan choice, with standard errors bootstrapped within region-year cells.\par}
+\end{frame}
+
+\begin{frame}{Effects of assistance on plan choice}
+  % Shares from results/choice_att_metal.csv and choice_att_insurer.csv.
+  % e_y0 (predicted without assistance) and e_y1 (observed), assisted households
+  \begin{center}
+  \begin{tikzpicture}[
+    rl/.style={anchor=east,font=\small,text=emoryDark},
+    pred/.style={circle,draw=emoryMid,fill=white,line width=1pt,minimum size=7pt,inner sep=0pt},
+    obs/.style={circle,fill=emoryBlue,minimum size=8pt,inner sep=0pt},
+    gap/.style={-{Stealth[length=2mm]},line width=1.6pt,emoryBlue!55},
+    tk/.style={font=\scriptsize,text=emoryMid,anchor=north},
+    pttl/.style={font=\small\bfseries,text=emoryDark,anchor=south west}]
+    % Metal panel, where x = share, 0..75% -> 0..5.6cm
+    \begin{scope}[x=0.07cm,y=0.62cm]
+      \node[pttl] at (-22,0.6) {Metal tier};
+      \foreach \v in {0,25,50,75} {\draw[emoryRule] (\v,0.2) -- (\v,-4.3); \node[tk] at (\v,-4.35) {\v\%};}
+      \foreach \y/\n/\p/\o in {-0.5/Silver/57.3/69.0, -1.5/Bronze/31.7/22.9, -2.5/Gold/8.6/5.4, -3.5/Platinum/2.4/2.7} {
+        \node[rl] at (-3,\y) {\n};
+        \node[pred] (p) at (\p,\y) {};
+        \draw[visible on=<2->,gap] (p) -- (\o,\y);
+        \node[visible on=<2->,obs] at (\o,\y) {};
+      }
+    \end{scope}
+    % Insurer panel
+    \begin{scope}[xshift=8.4cm,x=0.08cm,y=0.62cm]
+      \onslide<3->{\node[pttl] at (-22,0.6) {Insurer};}
+      \foreach \v in {0,20,40} {\draw[visible on=<3->,emoryRule] (\v,0.2) -- (\v,-4.8); \node[visible on=<3->,tk] at (\v,-4.85) {\v\%};}
+      \foreach \y/\n/\p/\o in {-0.5/Kaiser/34.5/23.1, -1.5/Blue Shield/23.9/29.2, -2.5/Anthem/17.2/17.7, -3.5/Health Net/12.8/15.8, -4.5/Regional/11.5/14.1} {
+        \node[visible on=<3->,rl] at (-3,\y) {\n};
+        \node[visible on=<3->,pred] (q) at (\p,\y) {};
+        \draw[visible on=<3->,gap] (q) -- (\o,\y);
+        \node[visible on=<3->,obs] at (\o,\y) {};
+      }
+    \end{scope}
+    \node[anchor=west,font=\scriptsize,text=emoryMid] at (0,-3.6) {\tikz\node[pred]{}; predicted without help \quad \tikz\node[obs]{}; chosen with help};
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.1cm}
+  \onslide<4->{\small Kaiser pays the lowest commission of the large insurers, a flat \$6.25 per member per month.\par}
+\end{frame}
+
+\begin{frame}{Dominated plans}
+  \begin{center}
+  \begin{tikzpicture}[x=26cm,y=1cm,
+    tier/.style={circle,minimum size=9pt,inner sep=0pt},
+    tlab/.style={anchor=south,font=\small,text=emoryDark},
+    vlab/.style={anchor=north,font=\scriptsize,text=emoryMid}]
+    % actuarial values from results/tables/cost_sharing_schedule.tex
+    \useasboundingbox (0.50,-1.5) rectangle (0.985,1.3);
+    \draw[emoryRule,very thick] (0.57,0) -- (0.97,0);
+    \node[anchor=east,font=\scriptsize,text=emoryMid,align=right] at (0.565,0) {Actuarial\\value};
+    \foreach \av/\name in {0.60/Bronze, 0.80/Gold, 0.90/Platinum} {
+      \node[tier,fill=emoryMid] at (\av,0) {};
+      \node[tlab] at (\av,0.2) {\name};
+      \node[vlab] at (\av,-0.2) {\av};
+    }
+    \node[visible on=<1>,tier,fill=emoryBlue] at (0.70,0) {};
+    \node[visible on=<1>,tlab,text=emoryBlue,font=\small\bfseries] at (0.70,0.2) {Silver};
+    \node[visible on=<1>,vlab] at (0.70,-0.2) {0.70};
+    \node[visible on=<2->,tier,draw=emoryBlue,fill=white] at (0.70,0) {};
+    \node[visible on=<2->,vlab] at (0.70,-0.2) {0.70};
+    \node[visible on=<2>,tier,fill=emoryBlue] at (0.87,0) {};
+    \node[visible on=<2>,tlab,text=emoryBlue,font=\small\bfseries,align=center] at (0.87,0.55) {Silver\\[-2pt]{\scriptsize 150--200\% FPL}};
+    \node[visible on=<2>,vlab] at (0.87,-0.2) {0.87};
+    \node[visible on=<3->,tier,fill=emoryBlue] at (0.94,0) {};
+    \node[visible on=<3->,tlab,text=emoryBlue,font=\small\bfseries,align=center] at (0.94,0.55) {Silver\\[-2pt]{\scriptsize 100--150\% FPL}};
+    \node[visible on=<3->,vlab] at (0.94,-0.2) {0.94};
+    \draw[visible on=<2>,-{Stealth},emoryBlue,thick] (0.71,-0.6) to[bend right=20] (0.86,-0.6);
+    \draw[visible on=<3->,-{Stealth},emoryBlue,thick] (0.71,-0.6) to[bend right=20] (0.93,-0.6);
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.4cm}
+  \onslide<2->{Silver-tier plans are both more generous and cheaper.\par}
+
+  \vspace{0.25cm}
+  \onslide<4->{\textbf{\color{emoryBlue}Gold and platinum plans are strictly dominated by silver.}\par}
+\end{frame}
+
+\begin{frame}{Effects of assistance on dominated choices}
+  % Rates from results/dominated_att.csv (predicted without assistance vs observed)
+  \begin{center}
+  \begin{tikzpicture}[x=2.2cm,y=1.15cm,
+    rl/.style={anchor=east,font=\normalsize\bfseries},
+    pred/.style={circle,draw=emoryMid,fill=white,line width=1pt,minimum size=9pt,inner sep=0pt},
+    obs/.style={circle,minimum size=11pt,inner sep=0pt},
+    tk/.style={font=\scriptsize,text=emoryMid,anchor=north},
+    pct/.style={font=\small\bfseries,anchor=west}]
+    \foreach \v in {0,1,2,3,4} {\draw[emoryRule] (\v,0.4) -- (\v,-2.5); \node[tk] at (\v,-2.55) {\v\%};}
+    \node[font=\scriptsize,text=emoryMid] at (2,-3.0) {share choosing a dominated plan};
+    \foreach \y/\n/\c/\p/\o/\r/\s in {
+        0/Agent/emoryGold/3.81/1.98/48\%/2,
+        -1/Any assistance/emoryDark/3.73/2.17/42\%/3,
+        -2/Navigator/emoryBlue/3.52/2.63/25\%/4} {
+      \node[visible on=<\s->,rl,text=\c] at (-0.15,\y) {\n};
+      \node[visible on=<\s->,pred] (p) at (\p,\y) {};
+      \draw[visible on=<\s->,-{Stealth[length=2.4mm]},line width=2pt,\c!60] (p) -- (\o+0.08,\y);
+      \node[visible on=<\s->,obs,fill=\c] at (\o,\y) {};
+      \node[visible on=<\s->,pct,text=\c] at (4.15,\y) {\mi\r};
+    }
+  \end{tikzpicture}
+  \end{center}
+
+  \onslide<5->{\small Slightly larger effects among new enrollees (2.3pp)}
+\end{frame}
+
+% ══════════════════════════════════════════════════════════════
+\section{A Model of Choice, Pricing, and Commissions}
+\sectionframe
+
+\begin{frame}[t]{Basic Setup}
+  \vspace{-0.3cm}
+  \begin{center}
+  \begin{tikzpicture}[
+    hh/.style={draw=emoryBlue,thick,rounded corners=5pt,fill=emoryLightBlue,
+      minimum width=4.9cm,minimum height=1.35cm,text width=4.5cm,align=left,font=\small,
+      execute at begin node={\hyphenpenalty=10000 }},
+    ins/.style={draw=emoryGold,thick,rounded corners=5pt,fill=emoryLight,
+      minimum width=4.9cm,minimum height=1.35cm,text width=4.5cm,align=left,font=\small,
+      execute at begin node={\hyphenpenalty=10000 }},
+    head/.style={font=\bfseries,text=emoryDark},
+    sub/.style={font=\scriptsize,text=emoryMid},
+    arr/.style={-{Stealth[length=2.2mm]},thick,emoryMid},
+    flow/.style={-{Stealth[length=2.5mm]},very thick},
+    lab/.style={font=\scriptsize,text=emoryDark,text width=3.4cm,align=center,execute at begin node={\hyphenpenalty=10000 }}]
+    % Households
+    \node[visible on=<1->,head] at (0,0.95) {Households};
+    \node[visible on=<1->,hh] (h1) at (0,0) {\textbf{1. Enroll}\\ {\scriptsize\color{emoryMid}insured or uninsured}};
+    \node[visible on=<1->,hh] (h2) at (0,-1.7) {\textbf{2. Assistance channel}\\ {\scriptsize\color{emoryMid}unassisted, navigator, or agent}};
+    \node[visible on=<1->,hh] (h3) at (0,-3.4) {\textbf{3. Plan choice}\\ {\scriptsize\color{emoryMid}choose plans based on plan characteristics and assistance}};
+    \draw[visible on=<1->,arr] (h1) -- (h2);
+    \draw[visible on=<1->,arr] (h2) -- (h3);
+    % Insurers
+    \node[visible on=<2->,head] at (8.6,0.95) {Insurers};
+    \node[visible on=<2->,ins] (i1) at (8.6,0) {\textbf{Premiums}\\ {\scriptsize\color{emoryMid}a base premium for each plan, age-rated and subsidized}};
+    \node[visible on=<2->,ins] (i2) at (8.6,-1.7) {\textbf{Commissions}\\ {\scriptsize\color{emoryMid}paid to agents per member per month, by carrier}};
+    \node[visible on=<2->,ins] (i3) at (8.6,-3.4) {\textbf{Costs}\\ {\scriptsize\color{emoryMid}claims rise with enrollee risk, offset by risk adjustment}};
+    % Each side as a whole acts on the other
+    \draw[visible on=<3->,emoryBlue,very thick,decorate,decoration={brace,amplitude=8pt}]
+      ([xshift=6pt]h1.north east) -- ([xshift=6pt]h3.south east);
+    \draw[visible on=<3->,emoryBlue,line width=2pt,-{Stealth[length=3.5mm]}]
+      ([xshift=24pt,yshift=0.3cm]h2.east) -- ([xshift=-24pt,yshift=0.3cm]i2.west);
+    \draw[visible on=<4->,emoryGold,very thick,decorate,decoration={brace,amplitude=8pt}]
+      ([xshift=-6pt]i3.south west) -- ([xshift=-6pt]i1.north west);
+    \draw[visible on=<4->,emoryGold,line width=2pt,-{Stealth[length=3.5mm]}]
+      ([xshift=-24pt,yshift=-0.3cm]i2.west) -- ([xshift=24pt,yshift=-0.3cm]h2.east);
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{-0.2cm}
+  \onslide<5->{Insurers set premiums and commissions in a Bertrand-Nash equilibrium.\par}
+\end{frame}
+
+\begin{frame}[t]{Estimation sequence}
+  \vspace{-0.1cm}
+  \begin{center}
+  \begin{tikzpicture}[
+    main/.style={draw=emoryBlue,thick,rounded corners=6pt,fill=emoryLightBlue,
+      minimum width=4.4cm,minimum height=2.3cm,text width=4.0cm,align=center,font=\small,
+      execute at begin node={\hyphenpenalty=10000 }},
+    side/.style={draw=emoryGold,thick,dashed,rounded corners=6pt,fill=white,
+      minimum width=3.9cm,minimum height=1.75cm,text width=3.6cm,align=center,font=\small,
+      execute at begin node={\hyphenpenalty=10000 }},
+    arr/.style={-{Stealth[length=2.5mm]},very thick,emoryMid}]
+    % Main estimation steps
+    \node[visible on=<1->,main] (dem) at (0,0) {\textbf{Demand}\\[3pt] maximum likelihood, two-part nested logit};
+    \node[visible on=<1->,main] (sup) at (9.2,0) {\textbf{Supply}\\[3pt] two-step GMM on claims, pricing conditions, and commission conditions};
+    \draw[visible on=<1->,arr] (dem) -- (sup);
+    % Estimated separately and held fixed
+    \node[visible on=<2->,side] (pi) at (0,-2.9) {\textbf{Channel probabilities}\\ multinomial logit};
+    \node[visible on=<2->,side] (rs) at (4.6,-2.9) {\textbf{Risk scores}\\ regression on predicted enrollee shares};
+    \node[visible on=<2->,side] (be) at (9.2,-2.9) {\textbf{Admin saving $\beta_f$}\\ medical loss ratio filings};
+    \draw[visible on=<2->,arr] (pi) -- (dem);
+    \draw[visible on=<2->,arr] (dem.south east) -- (rs.north west);
+    \draw[visible on=<2->,arr] (rs.north east) -- (sup.south west);
+    \draw[visible on=<2->,arr] (be) -- (sup);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+% ── Household problem: each stage collapses to a row at the top ──
+\begin{frame}[t]{Household Choice}
+  \vspace{-0.3cm}
+  % Stage 3: plan choice given the channel
+  \only<1-10>{%
+    \stagehead{3}{Plan choice given the assistance channel}
+    \vspace{-0.95cm}
+    \only<1-8>{%
+    \begin{align*}
+    U^{A}_{ijt} = {} &
+    \eqterm<2>{\delta_0 + \delta' w_{it}}{coverage}
+    + \eqterm<3>{\alpha_{it}\, p_{ijt}(\mathbf{p})}{net premium}
+    + \eqterm<4>{\beta^{AV}_{it} AV_{ij}}{generosity}
+    + \eqterm<5>{x_j'\beta^x}{insurer} \\[1pt]
+    & + \eqterm<6>{\beta^{A} AV_{ij} + \phi^{A} p_{ijt}}{channel}
+    + \eqterm<7>{\beta^y_1 y_{jt} + \beta^y_2 y_{jt}^2}{commission}
+    + \eta_{it} + \varepsilon_{ijt}
+    \end{align*}}%
+    \only<9-10>{%
+    \par\vspace{0.95cm}
+    $$U^{c}_{ijt} = \delta_0 + \delta' w_{it} + \eqterm<9>{V^{c}_{ijt}}{varies by plan} + \eqterm<9>{\eta_{it} + \varepsilon_{ijt}}{shocks}$$
+    \par\vspace{0.9cm}}
+    \normalsize
+    \vspace{-0.95cm}
+    \only<2>{\datacard{Insured vs uninsured}
+      {Household-specific intercept for every exchange plan}
+      {Household size, ages, gender, income, and race and ethnicity from the enrollment records (imputed for uninsured years)}}
+    \only<3>{\datacard{Premium paid}
+      {Age-rated premium less the subsidy (based on income and benchmark silver plan)}
+      {Base premiums from Covered California's plan data, the ACA age rating curve, IRS contribution percentages, and HHS poverty guidelines}}
+    \only<4>{\datacard{Plan generosity}
+      {Actuarial value, adjusted for the household's cost-sharing reduction}
+      {Metal tier from the plan data, and household income from the enrollment records (forms cost-sharing subsidy for silver plans)}}
+    \only<5>{\datacard{Insurer and network}
+      {HMO indicator and brand indicators for the four largest insurers}
+      {Insurer and network type from Covered California's plan data}}
+    \only<6>{\datacard{Assistance}
+      {Assistance changes household responsivness to generosity and premiums}
+      {Assistance channel recorded for each enrollment record in the Covered California data}}
+    \only<7>{\datacard{Commission steering}
+      {Agents influence choice directly via commissions, with diminishing returns}
+      {Commission schedules published by Covered California for each insurer and year, converted to dollars per member per month}}
+    \only<8>{%
+      \vspace{0.2cm}
+      \par\vspace{0.35cm}The other two channels have the following utility.\par
+      \begin{itemize}
+        \item Unassisted ($U^0_{ijt}$) utility includes the coverage, premium, generosity, and insurer terms only
+        \item Navigator ($U^N_{ijt}$) utility adds its own channel terms, $\beta^N AV_{ij} + \phi^N p_{ijt}$, and no commission terms
+      \end{itemize}}
+    \only<9>{%
+      \vspace{0.2cm}
+      \begin{itemize}
+        \item $\eta_{it}$ is unobserved (to econometrician) taste for insurance coverage
+        \item $\varepsilon_{ijt}$ is a plan shock, type I extreme value with scale $\lambda$, drawn when the household compares plans
+      \end{itemize}}
+    \only<10>{%
+      $$\text{Pr}(j \mid c) = \frac{e^{V^c_{ijt}/\lambda}}{\sum_{k} e^{V^c_{ikt}/\lambda}}$$
+      \begin{itemize}
+        \item $\eta_{it}$ and the coverage term $\delta_0 + \delta' w_{it}$ cancel since they are the same for every plan
+      \end{itemize}}}%
+  % Stage 2: expected value of the menu across channels
+  \only<11-12>{%
+    \stagedone{3}{Plan choice given the channel}{e^{V^c_{ijt}/\lambda} \big/ \textstyle\sum_k e^{V^c_{ikt}/\lambda}}
+    \stagehead{2}{Average expected value of plans across assistance channels}
+    \vspace{-0.85cm}
+    \begin{align*}
+    \text{E}\big[\textstyle\max_k U^c_{ikt} \mid c, \eta_{it}\big] &= \delta_0 + \delta' w_{it} + \eta_{it} + \lambda I^c_{it}, \qquad I^c_{it} = \ln \textstyle\sum_k e^{V^c_{ikt}/\lambda} \\[8pt]
+    \bar{I}_{it} &= \textstyle\sum_c \eqterm<12>{\pi_{ict}}{\makebox[0pt]{channel probability}}\, I^c_{it}
+    \end{align*}
+    \vspace{-0.4cm}
+    \only<11>{%
+      \begin{itemize}
+        \item The household can anticipate the expected value of plans for each assistance channel, but not yet how or if it will receive assistance
+      \end{itemize}}
+    \only<12>{\par\vspace{0.1cm}\datacard{Assistance channel probabilities}
+      {Multinomial logit on demographics, agent density, and year effects}
+      {Enrollment records, Covered California agent counts by region, and Census population}}}%
+  % Stage 1: insured or uninsured
+  \only<13-16>{%
+    \stagedone{3}{Plan choice given the channel}{e^{V^c_{ijt}/\lambda} \big/ \textstyle\sum_k e^{V^c_{ikt}/\lambda}}
+    \stagedone{2}{Expected value across channels}{\bar{I}_{it} = \textstyle\sum_c \pi_{ict} I^c_{it}}
+    \stagehead{1}{Insured or uninsured}
+    \vspace{-0.5cm}
+    $$\text{enroll if } \quad \eqterm<14>{\delta_0 + \delta' w_{it} + \lambda \bar{I}_{it}}{value of enrolling $V^E_{it}$} + \eta_{it} \;\geq\; \eqterm<15>{\alpha_{it}\, \rho_{it}}{outside option $V_{i0t}$} + \varepsilon_{i0t}$$
+    \vspace{-0.4cm}
+    \only<13>{%
+      \begin{itemize}
+        \item The household knows $\eta_{it}$ but not yet its channel or its plan shocks
+      \end{itemize}}
+    \only<14>{%
+      \begin{itemize}
+        \item The expected maximum value of plan options, averaged over channels, plus the coverage term
+      \end{itemize}}
+    \only<15>{\datacard{Mandate penalty}
+      {Utility of going uninsured, the premium coefficient times the penalty $\rho_{it}$}
+      {IRS penalty schedule, zero in 2019, applied to income and household size from the enrollment records}}
+    \only<16>{%
+      $$\text{Pr}(\text{enroll}) = \frac{e^{V^E_{it}}}{e^{V^E_{it}} + e^{V_{i0t}}}$$
+      \begin{itemize}
+        \item $\eta_{it}$ and $\varepsilon_{i0t}$ are independent type I extreme value, so the enrollment decision is a binary logit
+      \end{itemize}}}%
+  % All three stages together
+  \only<17>{%
+    \stagedone{3}{Plan choice given the channel}{e^{V^c_{ijt}/\lambda} \big/ \textstyle\sum_k e^{V^c_{ikt}/\lambda}}
+    \stagedone{2}{Expected value across channels}{\bar{I}_{it} = \textstyle\sum_c \pi_{ict} I^c_{it}}
+    \stagedone{1}{Insured or uninsured}{e^{V^E_{it}} \big/ \big(e^{V^E_{it}} + e^{V_{i0t}}\big)}
+    \vspace{0.1cm}
+    $$q_{ijt} = \underbrace{\frac{e^{V_{ijt}/\lambda}}{\sum_{k} e^{V_{ikt}/\lambda}}}_{\text{plan, at the realized channel}} \times \underbrace{\frac{e^{V^E_{it}}}{e^{V^E_{it}} + e^{V_{i0t}}}}_{\text{enrollment}}$$
+    \begin{itemize}
+      \item With a single channel, this is the standard nested logit with nesting parameter $\lambda$
+    \end{itemize}}
+\end{frame}
+
+\begin{frame}[t,label=estimation]{Estimating demand}
+  \vspace{0.2cm}
+  \begin{enumerate}
+    \item<1-> Channel probabilities $\pi_{ict}$: multinomial logit on enrolled households, with demographics, licensed agents per 10,000 residents, and year effects
+    \item<2-> Maximum likelihood on $q_{ijt}$, taking $\pi_{ict}$ as given, with plan choices from enrolled household-years and the enrollment decision from enrolled and constructed uninsured household-years
+    \item<3-> A 20\% random sample of households within each rating region and year (\nDemandHH{} household-years), weighted by household size
+  \end{enumerate}
+
+  \vspace{0.3cm}
+  \onslide<4->{\nDemandParams{} parameters, including $\lambda$, with robust standard errors\par}
+
+  \vfill
+  \hfill\hyperlink{ident}{\beamerbutton{identification}}\quad\hyperlink{nest3}{\beamerbutton{three-level nest}}\quad\hyperlink{pbe}{\beamerbutton{plan-based enrollers}}\quad\hyperlink{gatekeeper}{\beamerbutton{gatekeeper simulation}}
+\end{frame}
+
+\begin{frame}{Results for demand estimation}
+  % Plan-level effects from results/demand_marginal_effects.csv (columns prem_pct,
+  % av_pct / 10, comm_pct), enrolled households at their realized channel
+  \begin{center}
+  \begin{tikzpicture}[x=0.24cm,y=0.9cm,
+    rl/.style={anchor=east,font=\small,text=emoryDark,align=right},
+    tk/.style={font=\scriptsize,text=emoryMid,anchor=north},
+    val/.style={font=\scriptsize\bfseries},
+    leg/.style={font=\scriptsize,anchor=west}]
+    % Grid and axis
+    \foreach \v/\l in {-20/\mi20\%,-10/\mi10\%,10/10\%} {\draw[emoryRule] (\v,0.55) -- (\v,-3.3); \node[tk] at (\v,-3.35) {\l};}
+    \draw[emoryDark,line width=0.6pt] (0,0.55) -- (0,-3.3); \node[tk] at (0,-3.35) {0};
+    % Legend
+    \foreach \c/\n/\xx in {emoryMid/Unassisted/-25, emoryBlue/Navigator/-12, emoryGold/Agent/1} {
+      \fill[\c] (\xx,1.0) circle (3.5pt); \node[leg,text=\c] at (\xx+0.8,1.0) {\n};}
+    % Row labels
+    \node[visible on=<1->,rl] at (-27,0) {Premium\\+\$10};
+    \node[visible on=<2->,rl] at (-27,-1.4) {Actuarial value\\+1 point};
+    \node[visible on=<3->,rl] at (-27,-2.8) {Commission\\+\$1};
+    % Effects: y, value, color, label, label side, click
+    \foreach \y/\v/\c/\l/\side/\s in {
+        0.3/-16.7/emoryMid/\mi16.7\%/east/1,
+        0/-20.2/emoryBlue/\mi20.2\%/east/1,
+        -0.3/-17.6/emoryGold/\mi17.6\%/east/1,
+        -1.1/8.5/emoryMid/8.5\%/west/2,
+        -1.4/12.9/emoryBlue/12.9\%/west/2,
+        -1.7/11.2/emoryGold/11.2\%/west/2,
+        -2.8/2.3/emoryGold/2.3\%/west/3} {
+      \draw[visible on=<\s->,\c,line width=2.4pt] (0,\y) -- (\v,\y);
+      \fill[visible on=<\s->,\c] (\v,\y) circle (3.5pt);
+      \node[visible on=<\s->,val,text=\c,anchor=\side,inner sep=5pt] at (\v,\y) {\l};
+    }
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{-0.2cm}
+  \parbox{11.2cm}{\scriptsize\color{emoryMid} Each bar is the percent change in a plan's choice probability when that plan's premium, actuarial value, or commission changes by the stated amount. Premiums and commissions are per member per month.}
+\end{frame}
+
+% ── Supply side ──
+\begin{frame}[t]{Insurer profits}
+  \vspace{-0.3cm}
+  \Large
+  $$
+  \pi_{f} =
+  \eqterm<2>{R_f}{premiums}
+  - \eqterm<3>{C_f}{claims}
+  + \eqterm<4>{RA_f}{risk adjustment}
+  + \eqterm<5>{RI_f}{reinsurance}
+  - \eqterm<6>{Y_f}{commissions}
+  - \eqterm<6>{VC_f}{admin costs}
+  $$
+  \normalsize
+  \begin{overlayarea}{\textwidth}{0.55\textheight}
+  \only<2>{\datacard{Premium revenue}
+    {Base premium times age rating factor, summed over predicted enrollment}
+    {Base premiums from Covered California's plan data and the ACA age rating curve}}
+  \only<3>{\datacard{Claims}
+    {Average claims rise with predicted enrollee risk, so a lower premium that draws in sicker members raises cost}
+    {Plan-year claims from the CMS rate filings (URRT), 2014--2018}}
+  \only<4>{\datacard{Risk adjustment}
+    {Redistributes revenue from plans with healthier enrollees to those with sicker enrollees ("sicker" or "healthier" relative to age of enrollees)}
+    {Plan-year risk scores and transfers from the rate filings (SRRT), and the CMS transfer formula}}
+  \only<5>{\datacard{Reinsurance}
+    {Federal payments covering part of the claims of very high-cost enrollees}
+    {Reinsurance recoveries reported in the rate filings, 2014--2016}}
+  \only<6>{\datacard{Commissions}
+    {Paying an agent replaces in-house enrollment and servicing, so a commission dollar costs $1-\beta_f$}
+    {Commission schedules from Covered California, and commissions and other administrative expense from the medical loss ratio filings}}
+  \end{overlayarea}
+\end{frame}
+
+\begin{frame}[t]{Costs of Enrollees}
+  \vspace{-0.5cm}
+  \begin{align*}
+  \ln r_{jt} &= \eqterm<2>{\gamma^{\,f \times m}}{insurer $\times$ metal}
+  + \sum_{d} \gamma^{d}\, \eqterm<3>{s_{djt}(\mathbf p, \mathbf y)}{enrollee mix from demand} \\[-2pt]
+  \ln c_{jt} &= \eqterm<4>{\mu^r \ln \hat r_{jt}}{risk pass-through}
+  + x_j'\mu^x + \mu^l l_t
+  \end{align*}
+  \vspace{-0.4cm}
+  \begin{overlayarea}{\textwidth}{0.45\textheight}
+  \only<1>{%
+    \vspace{0.3cm}
+    We observe risk scores $r$ (by insurer, metal, region, and year) and average claims $c$ (by plan-year, 2014--2018) in the rate filings. Claims depend on the fitted risk score $\hat r$, which depends on enrollments.\par}
+  \only<2>{\datacard{Risk level by insurer and metal}
+    {A baseline risk level for each insurer's plans in each metal tier}
+    {Risk scores from the rate filings (SRRT), by insurer, metal, region, and year}}
+  \only<3>{\datacard{Enrollee mix}
+    {Shares of members aged 0--34, male, in family households, and non-white, from the enrollment the demand model predicts}
+    {Household demographics from the enrollment records}}
+  \only<4->{\datacard{Claims pass-through: 1.31}
+    {Claims rise about 13\% when the fitted risk score rises 10\%}
+    {Plan-year claims from the rate filings (URRT), 2014--2018, estimated jointly with the pricing and commission conditions}}
+  \end{overlayarea}
+\end{frame}
+
+\begin{frame}[t,label=pricingfoc]{Pricing FOC}
+  \vspace{-0.3cm}
+  $$
+  \eqtermu<2>{\frac{\partial R_f}{\partial p_j} + \frac{\partial RA_f}{\partial p_j} + \frac{\partial RI_f}{\partial p_j}}{marginal revenue, with transfers}
+  \;=\;
+  \eqtermu<3>{\frac{\partial C_f}{\partial p_j}}{selection}
+  + \eqtermu<4>{\frac{\partial Y_f}{\partial p_j} + \frac{\partial VC_f}{\partial p_j}}{commissions and admin costs}
+  $$
+  \vspace{-0.3cm}
+  \begin{overlayarea}{\textwidth}{0.45\textheight}
+  \only<2>{\vspace{0.3cm}
+    Revenue from charging current enrollees more, less the revenue lost from enrollees who leave, plus the change in risk adjustment and reinsurance\par}
+  \only<3>{\vspace{0.3cm}
+    Healthier enrollees are the first to leave when a premium rises, which raises average claims among those who stay.\par}
+  \only<4>{\vspace{0.3cm}
+    A higher premium loses some enrollees, which lowers the commissions and administrative costs paid by the insurer.\par}
+  \end{overlayarea}
+  \cornerbutton{fitmc}{model fit}
+\end{frame}
+
+\begin{frame}[t,label=commfoc]{Commission FOC}
+  \vspace{-0.3cm}
+  $$
+  \eqtermu<2>{\sum_k (p_k - \eqterm<2>{mc_k}{\makebox[0pt]{marginal cost}})\,\frac{\partial q_k}{\partial y_j}}{marginal profit from steering}
+  \;=\;
+  \eqtermu<3>{\big[(1-\beta_f) + \delta_f\big]}{net cost per dollar}
+  \;\times\;
+  \frac{\partial Y_f}{\partial y_j}
+  $$
+  \vspace{-0.3cm}
+  \begin{overlayarea}{\textwidth}{0.45\textheight}
+  \only<1>{%
+    \vspace{0.3cm}
+    {One condition per carrier-year, or carrier-network where HMO and PPO rates differ\par}}
+  \only<2>{\vspace{0.3cm}
+    Profit on enrollees gained or lost from a change in commission, with marginal cost net of risk adjustment\par}
+  \only<3>{\vspace{0.2cm}
+    \begin{itemize}
+      \item $\beta_f$ is the in-house enrollment and servicing cost saved per commission dollar, estimated from the medical loss ratio filings
+      \item $\delta_f$ is the part of a commission dollar's cost to carrier $f$ that steering and administrative savings do not explain, estimated for each carrier
+      \item $\delta_f > 0$ when a carrier pays less than steering alone would justify, largest for Kaiser, which pays the lowest commission
+    \end{itemize}}
+  \end{overlayarea}
+  \cornerbutton{fitcomm}{model fit}
+\end{frame}
+
+\begin{frame}[t,label=supplyres]{Markups}
+  % results/supply_markups_by_group.csv (sum2_results.R), plan-cell means at the GMM marginal cost
+  \vspace{-0.1cm}
+  \begin{center}
+  \begin{tikzpicture}[x=0.013cm,y=0.62cm,
+    rl/.style={anchor=east,font=\small,text=emoryDark},
+    val/.style={anchor=west,font=\scriptsize,text=emoryDark,inner sep=4pt},
+    pttl/.style={font=\small\bfseries,text=emoryDark,anchor=south west},
+    bar/.style={fill=emoryBlue,draw=none}]
+    % Insurer panel
+    \node[visible on=<1->,pttl] at (-120,0.4) {Insurer};
+    \node[visible on=<1->,rl] at (-5,-5.7) {All plans};
+    \fill[visible on=<1->,emoryMid] (0,-6.0) rectangle (146.5,-5.4);
+    \node[visible on=<1->,val] at (146.5,-5.7) {\$147 (0.24)};
+    \foreach \y/\n/\m/\l in {-0.5/Blue Shield/241.7/\$242 (0.36), -1.5/Anthem/174.1/\$174 (0.31),
+        -2.5/Health Net/113.5/\$114 (0.18), -3.5/Regional/77.4/\$77 (0.14), -4.5/Kaiser/73.0/\$73 (0.14)} {
+      \node[visible on=<1->,rl] at (-5,\y) {\n};
+      \fill[visible on=<1->,bar] (0,\y-0.3) rectangle (\m,\y+0.3);
+      \node[visible on=<1->,val] at (\m,\y) {\l};
+    }
+    % Metal panel
+    \begin{scope}[xshift=7.0cm]
+      \node[visible on=<2->,pttl] at (-120,0.4) {Metal tier};
+      \node[visible on=<2->,rl] at (-5,-5.7) {All plans};
+      \fill[visible on=<2->,emoryMid] (0,-6.0) rectangle (146.5,-5.4);
+      \node[visible on=<2->,val] at (146.5,-5.7) {\$147 (0.24)};
+      \foreach \y/\n/\m/\l in {-0.5/Platinum/242.7/\$243 (0.33), -1.5/Gold/173.8/\$174 (0.28),
+          -2.5/Silver/140.0/\$140 (0.26), -3.5/Bronze/58.7/\$59 (0.14)} {
+        \node[visible on=<2->,rl] at (-5,\y) {\n};
+        \fill[visible on=<2->,bar] (0,\y-0.3) rectangle (\m,\y+0.3);
+        \node[visible on=<2->,val] at (\m,\y) {\l};
+      }
+    \end{scope}
+  \end{tikzpicture}
+  \end{center}
+
+  \vfill
+  \parbox{\textwidth}{\scriptsize\color{emoryMid} Markup is the premium less marginal cost (claims net of risk adjustment and reinsurance, plus administrative cost), in dollars per member per month, with the Lerner index in parentheses. Values are means across plans and region-years, 2014--2018.}\par\vspace{3pt}
+  \hfill\hyperlink{openq}{\beamerbutton{open questions}}
+\end{frame}
+
+
+% ══════════════════════════════════════════════════════════════
+\section{Welfare Effects of Agents}
+\sectionframe
+
+\begin{frame}[t]{Welfare Measures}
+  \vspace{-0.3cm}
+  % Consumer surplus
+  \only<1-2>{%
+    \mrowhead{Consumer Surplus}
+    $$CS_i = \frac{1}{\alpha_i}\, \mathbb{E}\Big[\max_j U_{ij}\Big] = \frac{1}{\alpha_i} \ln\Big(\eqterm<1>{e^{V_{i0}}}{uninsured} + \eqterm<1>{e^{V^E_i}}{enrolling}\Big)$$
+    \vspace{-0.2cm}
+    \begin{itemize}
+      \item<1-> Standard consumer surplus, with commission terms set to zero
+      \item<2-> Problematic with steering, since the agent channel's weights on premiums and generosity count as household preferences
+    \end{itemize}}%
+  % Navigator valuation
+  \only<3>{%
+    \mrowdone{Consumer Surplus}{CS_i = \tfrac{1}{\alpha_i} \ln\big(e^{V_{i0}} + e^{V^E_i}\big)}
+    \mrowhead{Consumer Surplus with Navigator Assistance}
+    $$V^{nav}_i = \frac{1}{\alpha^{nav}_i} \sum_{j} q_{ijt}\, V^{nav}_{ij}$$
+    \vspace{-0.2cm}
+    \begin{itemize}
+      \item Same choices $q_{ijt}$, valued with a navigator client's utility
+      \item Systematic part only, with no agent or commission terms
+    \end{itemize}}%
+  % Expected costs
+  \only<4-5>{%
+    \mrowdone{Consumer Surplus}{CS_i = \tfrac{1}{\alpha_i} \ln\big(e^{V_{i0}} + e^{V^E_i}\big)}
+    \mrowdone{Consumer Surplus with Navigator Assistance}{V^{nav}_i = \tfrac{1}{\alpha^{nav}_i} \textstyle\sum_j q_{ijt} V^{nav}_{ij}}
+    \mrowhead{Expected Costs}
+    \vspace{-0.3cm}
+    \only<4>{%
+      $$V^{obj}_i = \sum_j q_{ijt}\, V^{obj}_{ij}, \qquad V^{obj}_{ij} = -\Big(\eqterm<4>{\text{premium}_{ij}}{premium} + \eqterm<4>{\mathbb{E}[OOP_{ij}]}{expected out-of-pocket} + \eqterm<4>{\tfrac{\rho}{2}\text{Var}[OOP_{ij}]}{variance charge}\Big)$$
+      \vspace{-0.3cm}
+      \begin{itemize}
+        \item Same choices $q_{ijt}$, valued at expected cost in dollars
+        \item Out-of-pocket spending from each plan's deductible, coinsurance, and out-of-pocket maximum, applied to 2018 MEPS spending by age and income
+      \end{itemize}}%
+    \only<5>{%
+      $$\text{uninsured:}\quad V^{obj}_{i0} = -\Big(\eqterm<5>{OOP^{u}_{i}}{out-of-pocket} + \eqterm<5>{RP + \Delta m_i\, VSL + D_i}{risk protection, mortality, distress}\Big)$$
+      \vspace{-0.3cm}
+      \begin{itemize}
+        \item The out-of-pocket amount uninsured households actually pay (2018 MEPS), less than their full medical bill
+        \item Plus three costs of lacking coverage: lost risk protection, a mortality cost (VSL \$13M), and financial distress above 40\% of income
+      \end{itemize}}}%
+  % Producer surplus
+  \only<6>{%
+    \mrowdone{Consumer Surplus}{CS_i = \tfrac{1}{\alpha_i} \ln\big(e^{V_{i0}} + e^{V^E_i}\big)}
+    \mrowdone{Consumer Surplus with Navigator Assistance}{V^{nav}_i = \tfrac{1}{\alpha^{nav}_i} \textstyle\sum_j q_{ijt} V^{nav}_{ij}}
+    \mrowdone{Expected Costs}{V^{obj}_i = \textstyle\sum_j q_{ijt} V^{obj}_{ij}}
+    \mrowhead{Producer Surplus}
+    $$PS = \sum_f \Big[\sum_{j \in f} (p_j - mc_j)\, q_j - (1-\beta_f)\, Y_f\Big]$$
+    \vspace{-0.2cm}
+    \begin{itemize}
+      \item Premium revenue less marginal cost (claims net of risk adjustment and reinsurance, plus admin costs)
+      \item Less the net cost of commissions
+    \end{itemize}}%
+  % Government budget
+  \only<7>{%
+    \mrowdone{Consumer Surplus}{CS_i = \tfrac{1}{\alpha_i} \ln\big(e^{V_{i0}} + e^{V^E_i}\big)}
+    \mrowdone{Consumer Surplus with Navigator Assistance}{V^{nav}_i = \tfrac{1}{\alpha^{nav}_i} \textstyle\sum_j q_{ijt} V^{nav}_{ij}}
+    \mrowdone{Expected Costs}{V^{obj}_i = \textstyle\sum_j q_{ijt} V^{obj}_{ij}}
+    \mrowdone{Producer Surplus}{PS = \textstyle\sum_f \big[\sum_{j \in f} (p_j - mc_j)\, q_j - (1-\beta_f) Y_f\big]}
+    \mrowhead{Government Budget}
+    $$G = -\big(\text{tax credits} + \text{CSR payments} + \text{uncompensated care} - \text{penalties}\big)$$
+    \vspace{-0.2cm}
+    \begin{itemize}
+      \item Tax credits and cost-sharing reduction payments for enrollees
+      \item Uncompensated care: \$2,025 per uninsured person in 2013 (Coughlin et al., 2014), adjusted by year and for the risk of the uninsured pool
+    \end{itemize}}%
+  % All five
+  \only<8>{%
+    \mrowdone{Consumer Surplus}{CS_i = \tfrac{1}{\alpha_i} \ln\big(e^{V_{i0}} + e^{V^E_i}\big)}
+    \mrowdone{Consumer Surplus with Navigator Assistance}{V^{nav}_i = \tfrac{1}{\alpha^{nav}_i} \textstyle\sum_j q_{ijt} V^{nav}_{ij}}
+    \mrowdone{Expected Costs}{V^{obj}_i = \textstyle\sum_j q_{ijt} V^{obj}_{ij}}
+    \mrowdone{Producer Surplus}{PS = \textstyle\sum_f \big[\sum_{j \in f} (p_j - mc_j)\, q_j - (1-\beta_f) Y_f\big]}
+    \mrowdone{Government Budget}{G = -(\text{tax credits} + \text{CSR} + \text{uncomp.\ care} - \text{penalties})}}
+\end{frame}
+
+\begin{frame}{Counterfactual 1: Banning Commissions}
+  % results/tables/counterfactual_results.tex: zero-commission rows; V^obj OOP only from scratch/vobj_parts.py
+  \begin{center}
+  \begin{tikzpicture}[x=0.0185cm,y=0.68cm,
+    lab/.style={anchor=east,font=\small,text=emoryDark}]
+    \draw[emoryRule] (-400,0.75) -- (-400,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-400,-3.7499999999999996) {\mi 400};
+    \draw[emoryRule] (-200,0.75) -- (-200,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-200,-3.7499999999999996) {\mi 200};
+    \draw[emoryRule] (200,0.75) -- (200,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (200,-3.7499999999999996) {200};
+    \draw[emoryDark,line width=0.6pt] (0,0.75) -- (0,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (0,-3.7499999999999996) {0};
+    \node[font=\scriptsize,text=emoryMid] at (-100.0,-4.949999999999999) {change in household welfare, \$ per member per year};
+    \node[font=\scriptsize] at (-100.0,1.3) {\textcolor{emoryBlue}{\rule{6pt}{6pt}}~Consumer Surplus \quad \textcolor{emoryMid}{\rule{6pt}{6pt}}~$V^{nav}$ \quad \textcolor{emoryGold!45!white}{\rule{6pt}{6pt}}~$V^{obj}$, OOP only \quad \textcolor{emoryGold}{\rule{6pt}{6pt}}~$V^{obj}$, full};
+    \node[visible on=<1->,lab] at (-432.0,0.0) {$\tau = 0$};
+    \fill[visible on=<1->,emoryBlue] (0,0.29) rectangle (-386,0.49);
+    \fill[visible on=<1->,emoryMid] (0,0.03) rectangle (-59,0.23);
+    \fill[visible on=<1->,emoryGold!45!white] (0,-0.23) rectangle (136.9,-0.03);
+    \fill[visible on=<1->,emoryGold] (0,-0.49) rectangle (-412,-0.29);
+    \node[visible on=<2->,lab] at (-432.0,-1.4) {$\tau = 50\%$};
+    \fill[visible on=<2->,emoryBlue] (0,-1.11) rectangle (-105,-0.91);
+    \fill[visible on=<2->,emoryMid] (0,-1.37) rectangle (-18,-1.17);
+    \fill[visible on=<2->,emoryGold!45!white] (0,-1.63) rectangle (72.4,-1.43);
+    \fill[visible on=<2->,emoryGold] (0,-1.89) rectangle (-177,-1.69);
+    \node[visible on=<3->,lab] at (-432.0,-2.8) {$\tau = 100\%$};
+    \fill[visible on=<3->,emoryBlue] (0,-2.51) rectangle (184,-2.31);
+    \fill[visible on=<3->,emoryMid] (0,-2.77) rectangle (19,-2.57);
+    \fill[visible on=<3->,emoryGold!45!white] (0,-3.03) rectangle (17.4,-2.83);
+    \fill[visible on=<3->,emoryGold] (0,-3.29) rectangle (34,-3.09);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Counterfactual 1: Banning Commissions}
+  % counterfactual_results.tex (V^obj, uninsured, premiums) and counterfactual_fiscal.tex (insurers, government)
+  \begin{center}
+  \begin{tikzpicture}[x=0.0185cm,y=0.68cm,
+    lab/.style={anchor=east,font=\small,text=emoryDark}]
+    \draw[emoryRule] (-400,0.75) -- (-400,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-400,-3.7499999999999996) {\mi 400};
+    \draw[emoryRule] (-200,0.75) -- (-200,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-200,-3.7499999999999996) {\mi 200};
+    \draw[emoryRule] (200,0.75) -- (200,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (200,-3.7499999999999996) {200};
+    \draw[emoryDark,line width=0.6pt] (0,0.75) -- (0,-3.6999999999999997); \node[font=\scriptsize,text=emoryMid,anchor=north] at (0,-3.7499999999999996) {0};
+    \node[font=\scriptsize,text=emoryMid] at (-100.0,-4.949999999999999) {change, \$ per member per year};
+    \node[font=\scriptsize] at (-100.0,1.3) {\textcolor{emoryGold!45!white}{\rule{6pt}{6pt}}~Households ($V^{obj}$, OOP only) \quad \textcolor{emoryGold}{\rule{6pt}{6pt}}~Households ($V^{obj}$, full) \quad \textcolor{emoryDark}{\rule{6pt}{6pt}}~Insurers \quad \textcolor{emoryLightBlue!70!emoryBlue}{\rule{6pt}{6pt}}~Government budget};
+    \node[visible on=<1->,lab] at (-432.0,0.0) {$\tau = 0$};
+    \fill[visible on=<1->,emoryGold!45!white] (0,0.29) rectangle (136.9,0.49);
+    \fill[visible on=<1->,emoryGold] (0,0.03) rectangle (-412,0.23);
+    \fill[visible on=<1->,emoryDark] (0,-0.23) rectangle (-51,-0.03);
+    \fill[visible on=<1->,emoryLightBlue!70!emoryBlue] (0,-0.49) rectangle (100,-0.29);
+    \node[visible on=<2->,lab] at (-432.0,-1.4) {$\tau = 50\%$};
+    \fill[visible on=<2->,emoryGold!45!white] (0,-1.11) rectangle (72.4,-0.91);
+    \fill[visible on=<2->,emoryGold] (0,-1.37) rectangle (-177,-1.17);
+    \fill[visible on=<2->,emoryDark] (0,-1.63) rectangle (-30,-1.43);
+    \fill[visible on=<2->,emoryLightBlue!70!emoryBlue] (0,-1.89) rectangle (66,-1.69);
+    \node[visible on=<3->,lab] at (-432.0,-2.8) {$\tau = 100\%$};
+    \fill[visible on=<3->,emoryGold!45!white] (0,-2.51) rectangle (17.4,-2.31);
+    \fill[visible on=<3->,emoryGold] (0,-2.77) rectangle (34,-2.57);
+    \fill[visible on=<3->,emoryDark] (0,-3.03) rectangle (-24,-2.83);
+    \fill[visible on=<3->,emoryLightBlue!70!emoryBlue] (0,-3.29) rectangle (40,-3.09);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Counterfactual 2: Changes to Commission Schedule}
+  % results/tables/counterfactual_results.tex: uniform, scaled 50%, flat-fee, aligned rows; V^obj parts from scratch/vobj_parts.py
+  \begin{center}
+  \begin{tikzpicture}[x=0.16cm,y=0.68cm,
+    lab/.style={anchor=east,font=\small,text=emoryDark}]
+    \draw[emoryRule] (-40,0.75) -- (-40,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-40,-5.1499999999999995) {\mi 40};
+    \draw[emoryRule] (-20,0.75) -- (-20,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-20,-5.1499999999999995) {\mi 20};
+    \draw[emoryRule] (20,0.75) -- (20,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (20,-5.1499999999999995) {20};
+    \draw[emoryDark,line width=0.6pt] (0,0.75) -- (0,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (0,-5.1499999999999995) {0};
+    \node[font=\scriptsize,text=emoryMid] at (-10.0,-6.35) {change in household welfare, \$ per member per year};
+    \node[font=\scriptsize] at (-10.0,1.3) {\textcolor{emoryBlue}{\rule{6pt}{6pt}}~Consumer Surplus \quad \textcolor{emoryMid}{\rule{6pt}{6pt}}~$V^{nav}$ \quad \textcolor{emoryGold!45!white}{\rule{6pt}{6pt}}~$V^{obj}$, OOP only \quad \textcolor{emoryGold}{\rule{6pt}{6pt}}~$V^{obj}$, full};
+    \node[visible on=<1->,lab] at (-45.0,0.0) {Uniform};
+    \fill[visible on=<1->,emoryBlue] (0,0.29) rectangle (-2.8,0.49);
+    \fill[visible on=<1->,emoryMid] (0,0.03) rectangle (-6,0.23);
+    \fill[visible on=<1->,emoryGold!45!white] (0,-0.23) rectangle (12.9,-0.03);
+    \fill[visible on=<1->,emoryGold] (0,-0.49) rectangle (-43,-0.29);
+    \node[visible on=<2->,lab] at (-45.0,-1.4) {Halved};
+    \fill[visible on=<2->,emoryBlue] (0,-1.11) rectangle (-0.6,-0.91);
+    \fill[visible on=<2->,emoryMid] (0,-1.37) rectangle (-6,-1.17);
+    \fill[visible on=<2->,emoryGold!45!white] (0,-1.63) rectangle (17.2,-1.43);
+    \fill[visible on=<2->,emoryGold] (0,-1.89) rectangle (-41,-1.69);
+    \node[visible on=<3->,lab] at (-45.0,-2.8) {Flat fee};
+    \fill[visible on=<3->,emoryBlue] (0,-2.51) rectangle (-0.6,-2.31);
+    \fill[visible on=<3->,emoryMid] (0,-2.77) rectangle (0,-2.57);
+    \fill[visible on=<3->,emoryGold!45!white] (0,-3.03) rectangle (1.6,-2.83);
+    \fill[visible on=<3->,emoryGold] (0,-3.29) rectangle (-14,-3.09);
+    \node[visible on=<4->,lab] at (-45.0,-4.199999999999999) {Aligned};
+    \fill[visible on=<4->,emoryBlue] (0,-3.91) rectangle (6.0,-3.71);
+    \fill[visible on=<4->,emoryMid] (0,-4.17) rectangle (11,-3.97);
+    \fill[visible on=<4->,emoryGold!45!white] (0,-4.43) rectangle (10.3,-4.23);
+    \fill[visible on=<4->,emoryGold] (0,-4.69) rectangle (7,-4.49);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Counterfactual 2: Changes to Commission Schedule}
+  % counterfactual_results.tex (V^obj) and counterfactual_fiscal.tex (insurers, government)
+  \begin{center}
+  \begin{tikzpicture}[x=0.16cm,y=0.68cm,
+    lab/.style={anchor=east,font=\small,text=emoryDark}]
+    \draw[emoryRule] (-40,0.75) -- (-40,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-40,-5.1499999999999995) {\mi 40};
+    \draw[emoryRule] (-20,0.75) -- (-20,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-20,-5.1499999999999995) {\mi 20};
+    \draw[emoryRule] (20,0.75) -- (20,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (20,-5.1499999999999995) {20};
+    \draw[emoryDark,line width=0.6pt] (0,0.75) -- (0,-5.1); \node[font=\scriptsize,text=emoryMid,anchor=north] at (0,-5.1499999999999995) {0};
+    \node[font=\scriptsize,text=emoryMid] at (-10.0,-6.35) {change, \$ per member per year};
+    \node[font=\scriptsize] at (-10.0,1.3) {\textcolor{emoryGold!45!white}{\rule{6pt}{6pt}}~Households ($V^{obj}$, OOP only) \quad \textcolor{emoryGold}{\rule{6pt}{6pt}}~Households ($V^{obj}$, full) \quad \textcolor{emoryDark}{\rule{6pt}{6pt}}~Insurers \quad \textcolor{emoryLightBlue!70!emoryBlue}{\rule{6pt}{6pt}}~Government budget};
+    \node[visible on=<1->,lab] at (-45.0,0.0) {Uniform};
+    \fill[visible on=<1->,emoryGold!45!white] (0,0.29) rectangle (12.9,0.49);
+    \fill[visible on=<1->,emoryGold] (0,0.03) rectangle (-43,0.23);
+    \fill[visible on=<1->,emoryDark] (0,-0.23) rectangle (-8,-0.03);
+    \fill[visible on=<1->,emoryLightBlue!70!emoryBlue] (0,-0.49) rectangle (25,-0.29);
+    \node[visible on=<2->,lab] at (-45.0,-1.4) {Halved};
+    \fill[visible on=<2->,emoryGold!45!white] (0,-1.11) rectangle (17.2,-0.91);
+    \fill[visible on=<2->,emoryGold] (0,-1.37) rectangle (-41,-1.17);
+    \fill[visible on=<2->,emoryDark] (0,-1.63) rectangle (-3,-1.43);
+    \fill[visible on=<2->,emoryLightBlue!70!emoryBlue] (0,-1.89) rectangle (17,-1.69);
+    \node[visible on=<3->,lab] at (-45.0,-2.8) {Flat fee};
+    \fill[visible on=<3->,emoryGold!45!white] (0,-2.51) rectangle (1.6,-2.31);
+    \fill[visible on=<3->,emoryGold] (0,-2.77) rectangle (-14,-2.57);
+    \fill[visible on=<3->,emoryDark] (0,-3.03) rectangle (2,-2.83);
+    \fill[visible on=<3->,emoryLightBlue!70!emoryBlue] (0,-3.29) rectangle (6,-3.09);
+    \node[visible on=<4->,lab] at (-45.0,-4.199999999999999) {Aligned};
+    \fill[visible on=<4->,emoryGold!45!white] (0,-3.91) rectangle (10.3,-3.71);
+    \fill[visible on=<4->,emoryGold] (0,-4.17) rectangle (7,-3.97);
+    \fill[visible on=<4->,emoryDark] (0,-4.43) rectangle (1,-4.23);
+    \fill[visible on=<4->,emoryLightBlue!70!emoryBlue] (0,-4.69) rectangle (-4,-4.49);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Counterfactual 3: Defunding or Expanding Navigators}
+  % results/tables/counterfactual_results.tex: navigator defunding and expansion rows; V^obj parts from scratch/vobj_parts.py
+  \begin{center}
+  \begin{tikzpicture}[x=0.055cm,y=0.68cm,
+    lab/.style={anchor=east,font=\small,text=emoryDark}]
+    \draw[emoryRule] (-50,0.75) -- (-50,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-50,-2.3499999999999996) {\mi 50};
+    \draw[emoryRule] (50,0.75) -- (50,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (50,-2.3499999999999996) {50};
+    \draw[emoryRule] (100,0.75) -- (100,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (100,-2.3499999999999996) {100};
+    \draw[emoryDark,line width=0.6pt] (0,0.75) -- (0,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (0,-2.3499999999999996) {0};
+    \node[font=\scriptsize,text=emoryMid] at (25.0,-3.55) {change in household welfare, \$ per member per year};
+    \node[font=\scriptsize] at (25.0,1.3) {\textcolor{emoryBlue}{\rule{6pt}{6pt}}~Consumer Surplus \quad \textcolor{emoryMid}{\rule{6pt}{6pt}}~$V^{nav}$ \quad \textcolor{emoryGold!45!white}{\rule{6pt}{6pt}}~$V^{obj}$, OOP only \quad \textcolor{emoryGold}{\rule{6pt}{6pt}}~$V^{obj}$, full};
+    \node[visible on=<1->,lab] at (-55.0,0.0) {Defund};
+    \fill[visible on=<1->,emoryBlue] (0,0.29) rectangle (-43.6,0.49);
+    \fill[visible on=<1->,emoryMid] (0,0.03) rectangle (-7,0.23);
+    \fill[visible on=<1->,emoryGold!45!white] (0,-0.23) rectangle (-5.9,-0.03);
+    \fill[visible on=<1->,emoryGold] (0,-0.49) rectangle (-16,-0.29);
+    \node[visible on=<2->,lab] at (-55.0,-1.4) {Expand};
+    \fill[visible on=<2->,emoryBlue] (0,-1.11) rectangle (90.5,-0.91);
+    \fill[visible on=<2->,emoryMid] (0,-1.37) rectangle (7,-1.17);
+    \fill[visible on=<2->,emoryGold!45!white] (0,-1.63) rectangle (6.9,-1.43);
+    \fill[visible on=<2->,emoryGold] (0,-1.89) rectangle (14,-1.69);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Counterfactual 3: Defunding or Expanding Navigators}
+  % counterfactual_results.tex (V^obj) and counterfactual_fiscal.tex (insurers, government)
+  \begin{center}
+  \begin{tikzpicture}[x=0.27cm,y=0.68cm,
+    lab/.style={anchor=east,font=\small,text=emoryDark}]
+    \draw[emoryRule] (-20,0.75) -- (-20,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-20,-2.3499999999999996) {\mi 20};
+    \draw[emoryRule] (-10,0.75) -- (-10,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (-10,-2.3499999999999996) {\mi 10};
+    \draw[emoryRule] (10,0.75) -- (10,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (10,-2.3499999999999996) {10};
+    \draw[emoryRule] (20,0.75) -- (20,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (20,-2.3499999999999996) {20};
+    \draw[emoryDark,line width=0.6pt] (0,0.75) -- (0,-2.3); \node[font=\scriptsize,text=emoryMid,anchor=north] at (0,-2.3499999999999996) {0};
+    \node[font=\scriptsize,text=emoryMid] at (0.0,-3.55) {change, \$ per member per year};
+    \node[font=\scriptsize] at (0.0,1.3) {\textcolor{emoryGold!45!white}{\rule{6pt}{6pt}}~Households ($V^{obj}$, OOP only) \quad \textcolor{emoryGold}{\rule{6pt}{6pt}}~Households ($V^{obj}$, full) \quad \textcolor{emoryDark}{\rule{6pt}{6pt}}~Insurers \quad \textcolor{emoryLightBlue!70!emoryBlue}{\rule{6pt}{6pt}}~Government budget};
+    \node[visible on=<1->,lab] at (-21.333333333333332,0.0) {Defund};
+    \fill[visible on=<1->,emoryGold!45!white] (0,0.29) rectangle (-5.9,0.49);
+    \fill[visible on=<1->,emoryGold] (0,0.03) rectangle (-16,0.23);
+    \fill[visible on=<1->,emoryDark] (0,-0.23) rectangle (2,-0.03);
+    \fill[visible on=<1->,emoryLightBlue!70!emoryBlue] (0,-0.49) rectangle (-2,-0.29);
+    \node[visible on=<2->,lab] at (-21.333333333333332,-1.4) {Expand};
+    \fill[visible on=<2->,emoryGold!45!white] (0,-1.11) rectangle (6.9,-0.91);
+    \fill[visible on=<2->,emoryGold] (0,-1.37) rectangle (14,-1.17);
+    \fill[visible on=<2->,emoryDark] (0,-1.63) rectangle (-10,-1.43);
+    \fill[visible on=<2->,emoryLightBlue!70!emoryBlue] (0,-1.89) rectangle (16,-1.69);
+  \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+\begin{frame}<1-3>[label=summary]{Summary of Counterfactuals}
+  % From results/tables/counterfactual_results.tex (V^obj) and counterfactual_fiscal.tex
+  \begin{center}
+  \small
+  \renewcommand{\arraystretch}{1.15}
+  \begin{tabular}{lrrr}
+    \toprule
+     & \shortstack[r]{Households\\($V^{obj}$)} & Insurers~\hyperlink{summary<4>}{\textcolor{emoryMid}{\scriptsize\faInfoCircle}} & \shortstack[r]{Government\\budget~\hyperlink{summary<5>}{\textcolor{emoryMid}{\scriptsize\faInfoCircle}}} \\
+    \midrule
+    \onslide<1->{Ban commissions ($\tau = 0$)} & \onslide<1->{\mi\$412} & \onslide<1->{\mi\$51} & \onslide<1->{+\$100} \\
+    \onslide<1->{Ban commissions ($\tau = 100\%$)} & \onslide<1->{+\$34} & \onslide<1->{\mi\$24} & \onslide<1->{+\$40} \\
+    \midrule
+    \onslide<2->{Uniform commission} & \onslide<2->{\mi\$43} & \onslide<2->{\mi\$8} & \onslide<2->{+\$25} \\
+    \onslide<2->{Halved commissions} & \onslide<2->{\mi\$41} & \onslide<2->{\mi\$3} & \onslide<2->{+\$17} \\
+    \onslide<2->{Aligned commissions} & \onslide<2->{+\$7} & \onslide<2->{+\$1} & \onslide<2->{\mi\$4} \\
+    \onslide<2->{Flat fee} & \onslide<2->{\mi\$14} & \onslide<2->{+\$2} & \onslide<2->{+\$6} \\
+    \midrule
+    \onslide<3->{Defund navigators} & \onslide<3->{\mi\$16} & \onslide<3->{+\$2} & \onslide<3->{\mi\$2} \\
+    \onslide<3->{Expand navigators} & \onslide<3->{+\$14} & \onslide<3->{\mi\$10} & \onslide<3->{+\$16} \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \only<1-3>{\expandafter\xdef\csname helpnumsummary\endcsname{\arabic{framenumber}}}%
+  \only<4-5>{\setcounter{framenumber}{\csname helpnumsummary\endcsname}}%
+  \only<4>{\helpcardbody{summary<3>}{{\bfseries Insurers}\par\vspace{6pt}
+  {\color{emoryBlue}$\uparrow$} lower commission payments\par\vspace{3pt}
+  {\color{emoryGold}$\downarrow$} less steering toward higher-commission plans\par
+  {\color{emoryGold}$\downarrow$} fewer enrollees\par
+  {\color{emoryGold}$\downarrow$} lower risk adjustment as the remaining pool gets riskier\par
+  {\color{emoryGold}$\downarrow$} lower premiums}}
+  \only<5>{\helpcardbody{summary<3>}{{\bfseries Government budget}\par\vspace{6pt}
+  {\color{emoryBlue}$\uparrow$} fewer enrollees receiving tax credits\par
+  {\color{emoryBlue}$\uparrow$} lower benchmark premiums, so smaller tax credits\par
+  {\color{emoryBlue}$\uparrow$} more penalty revenue from the uninsured\par\vspace{3pt}
+  {\color{emoryGold}$\downarrow$} more uncompensated care for the uninsured}}
+\end{frame}
+
+\section{Conclusion}
+\sectionframe
+
+\begin{frame}{Conclusion}
+  \begin{itemize}\setlength{\itemsep}{10pt}
+    \item<1-> Decision assistance reduces dominated plan choices by 42\%, and agent-assisted households respond to a \$1 commission as they would to a \$\commPremRatio{} reduction in net premium.
+    \item<2-> Banning commissions raises the uninsured share by 6.1pp if agent clients receive no other assistance. If navigators replace agents, the uninsured share is about unchanged and premiums fall.
+    \item<3-> Changes to the commission schedule change the uninsured share by at most 0.7pp. Aligning commissions with household value is the only change that raises all household welfare measures.
+    \item<4-> Expanding navigator assistance raises household welfare and lowers subsidy spending, not counting the cost of the additional navigators.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Final Takeaways}
+  \vspace{0.3cm}
+  \begin{enumerate}\setlength{\itemsep}{18pt}
+    \item<1-> Restrictions on agent commissions should be evaluated together with what replaces agent assistance. Without a replacement, coverage falls. With navigator assistance in its place, coverage is about unchanged and premiums fall.
+    \item<2-> Changes to how agents are paid have small effects on coverage and household welfare compared with changes in access to assistance.
+  \end{enumerate}
+\end{frame}
+
+\closingframe{Ian McCarthy}{%
+  Department of Economics, Emory University\\[0.15cm]
+  \href{mailto:ian.mccarthy@emory.edu}{ian.mccarthy@emory.edu}\\[0.1cm]
+  \href{https://ianmccarthyecon.com}{ianmccarthyecon.com}%
+}
+
+% ══════════════════════════════════════════════════════════════
+\appendix
+\section{Appendix}
+
+\begin{frame}[label=pbe]{Robustness: excluding plan-based enrollers}
+  % results/pbe_robustness.csv and results/pbe_share.csv
+  \vspace{0.2cm}
+  Plan-based enrollers work for a single insurer, so their clients can only buy that insurer's plans. They account for 1.3\% of household-years.
+
+  \vspace{0.1cm}
+  \begin{center}
+  \renewcommand{\arraystretch}{1.1}
+  \begin{tabular}{lrr}
+    \toprule
+     & All households & Excluding plan-based enrollers \\
+    \midrule
+    Commission (agent clients) & 0.027 & 0.030 \\
+    Commission$^2$/100 (agent clients) & \mi 0.066 & \mi 0.070 \\
+    Premium (per \$100) & \mi 0.418 & \mi 0.420 \\
+    Actuarial value & 4.43 & 4.44 \\
+    Nesting parameter $\lambda$ & 0.377 & 0.378 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  \cornerbutton{estimation}{back to estimation}
+\end{frame}
+
+\begin{frame}[label=gatekeeper]{Gatekeeper simulation}
+  \vspace{0.1cm}
+  \small
+  \begin{itemize}\setlength{\itemsep}{6pt}
+    \item Agents may steer by showing clients only some plans, rather than by changing how clients value plans
+    \item We simulate choices from a gatekeeper who shows a menu tilted toward high-commission plans, with no commission in utility, and fit our model to those choices
+    \item Our model reproduces the gatekeeper's plan shares, with a largest gap of 1.1pp (1.7pp when the menu also depends on unobserved household or agent types) and a correlation above 0.997
+    \item With commission in utility, the model predicts how choices change when commissions change. A gatekeeper model would also need to model which insurers agents contract with as commissions change\par
+      {\footnotesize\color{emoryMid} Li et al.\ (WP) model how brokers contract with insurers based on commissions, in New York's small-group market\par}
+  \end{itemize}
+  \cornerbutton{estimation}{back to estimation}
+\end{frame}
+
+\begin{frame}[label=nest3]{Three-level nested logit}
+  \begin{itemize}
+    \item Households choose a channel on the value of each channel's menu ($\lambda_C$ of 0.21 and 0.29)
+    \item Removing agents raises the uninsured share 2.4--2.9pp, matching the scenario in which roughly half of agent clients switch to navigators
+    \item But zero commissions would cut agent use 13--16 points, which the data across and within regions do not show
+  \end{itemize}
+  \cornerbutton{estimation}{back to estimation}
+\end{frame}
+
+\begin{frame}[label=fitcomm]{Model fit: commissions}
+  % eta_obs and eta_base by carrier(-network)-year, results/cf_baseline_commissions.csv
+  \begin{columns}[c,onlytextwidth]
+  \column{0.52\textwidth}
+  \centering
+  \begin{tikzpicture}[x=0.14cm,y=0.14cm,
+    tk/.style={font=\scriptsize,text=emoryMid},
+    pt/.style={circle,fill=emoryBlue,fill opacity=0.75,minimum size=5pt,inner sep=0pt},
+    lab/.style={font=\scriptsize,text=emoryMid,anchor=west}]
+    \draw[emoryRule] (0,0) rectangle (40,40);
+    \draw[emoryGold,thick,dashed] (0,0) -- (40,40);
+    \foreach \v in {0,10,20,30,40} {
+      \node[tk,anchor=north] at (\v,-0.6) {\v};
+      \node[tk,anchor=east] at (-0.6,\v) {\v};
+    }
+    \node[tk] at (20,-5.5) {observed commission, \$ per member per month};
+    \node[tk,rotate=90] at (-6.5,20) {model baseline commission};
+    \foreach \o/\m in {16.5/15.4, 14.7/13.1, 19.8/13.9, 6.2/7.1, 16.5/14.8, 16.0/13.2, 17.8/12.1, 10.5/12.7, 6.3/6.6, 18.6/20.1, 14.0/14.7, 13.9/11.7, 19.8/11.0, 10.9/12.3, 6.2/7.6, 25.3/23.8, 24.9/20.0, 10.5/14.4, 10.9/11.4, 21.7/11.3, 12.7/12.7, 6.3/9.0, 34.1/23.6, 21.3/20.1, 12.5/11.8, 9.0/16.0, 11.7/10.4, 6.6/11.8, 11.8/14.8, 6.3/10.7, 36.2/23.5, 20.5/20.1, 12.5/13.7}
+      {\node[pt] at (\o,\m) {};}
+    \node[lab] at (24,10.5) {Health Net HMO};
+    \node[lab,anchor=north] at (35,22) {L.A. Care};
+    \node[lab,anchor=east] at (8.5,17) {Anthem 2018};
+  \end{tikzpicture}
+  \column{0.44\textwidth}
+  {\small Model and observed commissions have a correlation of 0.82 across 33 carrier-years, with a mean absolute difference of \$3.32 on a mean commission of \$15.\par}
+  \vspace{0.3cm}
+  {\small Model commissions are low for Health Net HMO (2015--17) and L.A. Care (2017--18), and high for Anthem and Blue Shield PPO in 2018.\par}
+  \cornerbutton{commfoc}{back to commission FOC}
+  \end{columns}
+\end{frame}
+
+\begin{frame}[label=fitmc]{Model fit: marginal cost}
+  \vspace{0.3cm}
+  Marginal cost implied by inverting the pricing conditions has a correlation of \mcFitCorr{} across plan-years with marginal cost from the claims equation, net of risk adjustment and reinsurance.
+  \cornerbutton{pricingfoc}{back to pricing FOC}
+\end{frame}
+
+\begin{frame}[t,label=premiums]{Premiums and subsidies}
+  \vspace{-0.4cm}
+  \large
+  $$
+  p_{ijt} = \max\Big\{
+  \eqterm<2>{\sigma_{it}\, p_{jmt}}{full premium}
+  \;-\; \eqterm<3>{\max\{\sigma_{it}\, p_{bmt} - \zeta_{it},\, 0\}}{subsidy}
+  ,\; \eqterm<4>{0}{floor}
+  \Big\}
+  $$
+  \normalsize
+  \vspace{-0.4cm}
+  \begin{overlayarea}{\textwidth}{0.5\textheight}
+  \only<1>{%
+    \vspace{0.3cm}
+    {The net premium household $i$ pays for plan $j$ in rating region $m$, year $t$}}
+  \only<2>{%
+    \begin{itemize}
+      \item $p_{jmt}$ is the plan's base premium in the household's rating region
+      \item $\sigma_{it}$ is the household's age rating factor (a 64-year-old pays up to three times what a 21-year-old pays)
+    \end{itemize}}
+  \only<3>{%
+    \begin{itemize}
+      \item Available for incomes of 100--400\% of FPL
+      \item $p_{bmt}$ is the base premium of the benchmark plan, the second-cheapest silver plan in the region
+      \item $\zeta_{it}$ is the household's contribution cap, from 2\% of income at 100\% of FPL to 9.5\% at 400\% (2014)
+      \item The same dollar subsidy applies to any plan
+    \end{itemize}}
+  \only<4>{%
+    \begin{itemize}
+      \item When the subsidy exceeds a plan's full premium, the household pays nothing
+      \item Some bronze plans are free to low-income households
+    \end{itemize}}
+  \only<5>{%
+    \begin{itemize}
+      \item Raising the benchmark premium raises every household's subsidy
+      \item The benchmark's own net price is unchanged for subsidized households
+      \item Every rival plan's net price falls
+    \end{itemize}}
+  \end{overlayarea}
+
+  \cornerbutton{setting}{back to setting}
+\end{frame}
+
+\begin{frame}[t]{Premiums and subsidies: an example}
+  % Region 16 (Los Angeles), 2016. Base premiums are for age 40 (plan_choice.csv);
+  % rating factor 2.714/1.278 for age 60; poverty line $11,770; cap 6.41% at 200% FPL.
+  \vspace{0.1cm}
+  A single 60-year-old at 200\% of FPL in Los Angeles, 2016
+
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item<1-> Age rating factor $\sigma = 2.714 / 1.278 = 2.12$ relative to age 40
+    \item<2-> Contribution cap: 6.41\% of \$23,540, or \$126 a month
+    \item<3-> Benchmark (Health Net silver) at age 60: \$541, so the subsidy is \$415
+  \end{itemize}
+
+  \onslide<4->{%
+  \begin{center}
+  \small
+  \renewcommand{\arraystretch}{1.0}
+  \begin{tabular}{lrrr}
+    \toprule
+     & Base (age 40) & Full (age 60) & Net premium \\
+    \midrule
+    Molina bronze & \$191 & \$405 & \textbf{\$0} \\
+    Health Net silver (benchmark) & \$255 & \$541 & \$126 \\
+    Kaiser silver & \$312 & \$663 & \$247 \\
+    Molina gold & \$265 & \$562 & \$146 \\
+    Blue Shield gold & \$402 & \$853 & \$438 \\
+    \bottomrule
+  \end{tabular}
+  \end{center}}
+
+  \vfill
+  \hfill\hyperlink{setting}{\beamerbutton{back to setting}}
+\end{frame}
+
+\begin{frame}[t,label=ident]{Identification of key parameters}
+  \vspace{0.2cm}
+  \begin{itemize}
+    \item \textbf{Premium:} variation across plans, the mandate penalty phasing in (2014--2016) and ending (2019), and kinks in the subsidy formula that make some plans free
+    \item \textbf{Assistance terms:} assisted and unassisted households selecting different plans from the same menu within a region and year
+    \item \textbf{Commission terms:} commissions differ across insurers at a given actuarial value and change over time within some insurers
+    \item \textbf{Insurer effects:} brand indicators absorb networks and other unobserved features, so commission effects come from within-insurer variation
+  \end{itemize}
+
+  \vfill
+  \hfill\hyperlink{estimation}{\beamerbutton{back to estimation}}
+\end{frame}
+
+
+\begin{frame}[t,label=openq]{Open questions}
+  \vspace{-0.2cm}
+  \footnotesize
+  \onslide<1->{{\bfseries\color{emoryBlue}Do households choose their assistance channel?}
+  \begin{itemize}\setlength{\itemsep}{0pt}
+    \item \textbf{Data limitation:} we only observe the channel for enrolled households, so we cannot estimate a model of channel choice for uninsured households
+    \item A three-level nest allowing for channel choice assumes that higher commissions also raise agent use
+    \item Across regions, agent use is not strongly correlated with commissions or with number of plans available, so it's not clear that households are making much of a ``choice'' here
+  \end{itemize}}
+
+  \vspace{0cm}
+  \onslide<2->{{\bfseries\color{emoryBlue}How do insurers set commissions?}
+  \begin{itemize}\setlength{\itemsep}{0pt}
+    \item We assume each carrier sets commissions to maximize profit, weighing the profit from steered enrollment against the net cost of the commission
+    \item The commission this implies is very sensitive to estimated margins, since a \$10 change in margins changes it by about as much as the average commission (\$13)
+    \item So the condition fits observed commissions only with carrier constants $\delta_f$, which absorb much of the variation across carriers 
+    \item ...but most commission variation is across carriers and constant over time anyway
+  \end{itemize}}
+
+  \begin{tikzpicture}[remember picture, overlay]
+    \node[anchor=east, inner sep=0pt] at ([xshift=-1.0cm, yshift=1.45cm]current page.south east)
+      {\hyperlink{supplyres}{\beamerbutton{back to model}}};
+  \end{tikzpicture}
+\end{frame}
+
+\againframe<4>{summary}
+\againframe<5>{summary}
+
+\end{document}

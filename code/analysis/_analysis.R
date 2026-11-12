@@ -64,6 +64,7 @@ source("code/analysis/cf3_se.R")             # demand-parameter bootstrap (froze
 source("code/analysis/sum1_desc-stats.R")    # reads hh_full.csv from disk
 source("code/analysis/sum2_results.R")
 source("code/analysis/sum3_retention.R")     # channel persistence + retention by channel
+source("code/analysis/sum4_marginal-effects.R")  # plan- and insurer-level marginal effects on plan choice
 
 # supp: supplemental appendix ---------------------------------------------
 source("code/analysis/supp1_demand-specs.R")          # demand-spec build-up (writes demand_spec_fits.csv)

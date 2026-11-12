@@ -916,6 +916,24 @@ if (nrow(supply_results) > 0) {
   add_num("nPlanCellsFOC", sum(sr$share >= 0.005, na.rm = TRUE), 0)
   add_num("mcFitCorr", cor(sr$mc_foc, sr$mc_gmm_net, use = "complete.obs"), 2)
   add_num("nNegMC", sum(sr$mc_gmm_net < 0, na.rm = TRUE), 0)
+
+  # Markups and Lerner indices by insurer and by metal tier (plan-cell means)
+  bind_rows(
+    sr %>%
+      mutate(group = if_else(issuer %in% c("Anthem", "Blue_Shield", "Kaiser", "Health_Net"),
+                             issuer, "Regional")) %>%
+      group_by(group) %>%
+      summarize(markup = mean(markup, na.rm = TRUE), lerner = mean(lerner_index, na.rm = TRUE),
+                n_plan_cells = n(), .groups = "drop") %>%
+      mutate(dimension = "insurer"),
+    sr %>%
+      group_by(group = metal) %>%
+      summarize(markup = mean(markup, na.rm = TRUE), lerner = mean(lerner_index, na.rm = TRUE),
+                n_plan_cells = n(), .groups = "drop") %>%
+      mutate(dimension = "metal")
+  ) %>%
+    select(dimension, group, markup, lerner, n_plan_cells) %>%
+    write_csv("results/supply_markups_by_group.csv")
 }
 
 # Counterfactual headline
