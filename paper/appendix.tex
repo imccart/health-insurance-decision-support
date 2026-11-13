@@ -26,17 +26,19 @@
 \date{\monthyear}
 \maketitle
 
-\renewcommand{\thetable}{A\arabic{table}}
-\renewcommand{\thefigure}{A\arabic{figure}}
+%%% A. DATA AND SETTING
 
-\section{Constructing the Outside Option}
+\section{Data and Setting}
+\label{app:data}
+
+\subsection{Constructing the Outside Option}
 \label{app:outside_option}
 
 We construct the outside option from six years (2014--2019) of longitudinal Covered California data, treating a household as uninsured in the years in which it has no exchange coverage but remains eligible for the exchange market. For example, a household with exchange coverage in 2015 and 2016 is treated as uninsured, the outside option, in 2014, 2017, and 2018, provided it remained eligible for the exchange market in those years. A household may lose exchange-market eligibility if it gains access to employer-sponsored insurance or to public coverage such as Medicaid or Medicare. Our data do not record when a household loses eligibility, so we impute it from the Survey of Income and Program Participation (SIPP).
 
 To impute consumer exchange market eligibility, we use data from the SIPP. The SIPP is well-suited for the imputation because (1) it asks the insurance status of respondents for every month over a three-year period (2013-2015) and (2) it includes detailed information on the chief reasons for consumers' coverage status, such as whether the respondent obtained or lost an offer of employer-sponsored insurance, moved in or out of California, or became eligible or ineligible for Medicare or Medicaid. For SIPP respondents who newly obtained or gave up individual market coverage, we construct a \textit{transitioned} variable that indicates whether the respondent gained or lost eligibility for the individual market. The transitioned variable takes value 1 if the respondent (1) belongs to a household that obtained or lost an offer of employer-sponsored insurance; (2) moved out of or into California; (3) turned 65 and qualified for Medicare; and (4) became eligible for Medicaid following a drop in income. We estimate a logit regression of the \textit{transitioned} variable on the demographic variables available in both the SIPP and the Covered California data, including age, income, gender, race, and household size. We use the estimated logit to predict whether Covered California consumers observed for only some years of our study timeframe transitioned into or out of the exchange market. Consumers transitioning into or out of the exchange market are removed from our study population during years when they are not enrolled in an exchange plan.
 
-\section{Assistance Channels}
+\subsection{Assistance Channels}
 \label{app:channels}
 
 The main text groups formal decision assistance into two categories, agents and navigators. Covered California's enrollment records distinguish a finer set of service channels, which we map into those categories. Table~\ref{tab:app-channels} lists the underlying codes, a short description of each, the category we group it into, and its share of enrollment records over 2014--2019.
@@ -47,23 +49,7 @@ The navigator category pools the three non-commissioned channels, none of which 
 
 We use the two-category grouping throughout the paper, because the commission mechanism we model operates at the level of whether a household was assisted by a commissioned agent rather than at the level of the specific channel. The one channel whose distinction bears on our interpretation is the plan-based enroller, since its influence on insurer choice reflects a single-insurer affiliation rather than a commission on competing plans. It is a small share of enrollments and is grouped with the certified agents in the agent channel used in estimation.
 
-\subsection{Excluding Plan-Based Enrollers}
-\label{app:pbe}
-
-Plan-based enrollers are the one assistance channel that can place a consumer with only a single insurer, so their influence on insurer choice works through a menu restriction, not a commission response. We assess their effect on the demand estimates directly. After merging the raw service-channel code onto the estimation sample by household and year, we find that plan-based enrollers account for 1.3 percent of the household-years in the 20 percent structural sample. Table~\ref{tab:app-pbe} re-estimates the main-text demand specification with these households excluded, alongside the full-sample estimates. Dropping them leaves the price, actuarial value, channel, and nesting parameters essentially unchanged, with no change above 2 percent. The commission-by-agent coefficients, which carry the steering mechanism, move from 0.027 and $-0.066$ in the full sample to 0.030 and $-0.070$ without plan-based enrollers, so the steering is slightly stronger once they are excluded. The single-insurer channel does not drive the estimated steering.
-
-\subsection{Commission Utility and Menu Restriction}
-\label{app:menu-sim}
-
-The certified insurance agents present the full menu but may still steer a household within it, short of the plan-based enroller's single-insurer restriction. We represent that steering through the commission coefficient in utility. To check that this does not distort the plan choices the model predicts, we simulate a gatekeeper process and confirm that our specification reproduces its choices.
-
-The simulation draws a market of six insurers whose commissions vary, and generates choices from a process with no commission term in utility. Unassisted households choose their preferred plan from the full menu. Agent-assisted households instead face a restricted menu, in which each insurer appears with a probability that rises in its commission, and choose their preferred plan from what is presented. This produces the steering the commissions are meant to induce, with agent-assisted households moving away from the low-commission insurers and toward the high-commission ones, through availability alone and not through preference.
-
-We then fit our commission-in-utility model to these choices, with the full menu available to every household and the commission entering utility for agent-assisted households. Table~\ref{tab:app-menu-sim} reports the resulting shares. The fitted model recovers a positive commission coefficient and reproduces the gatekeeper agent shares to within 1.1 percentage points, with a correlation of 0.999. A menu restriction and a commission in utility are observationally equivalent for the plan choices the model predicts, and our specification loads the restriction onto the commission coefficient without distorting those predictions.
-
-The baseline simulation lets the menu depend only on commissions. In practice, which plans an agent presents may be correlated with the agent or with the households the agent serves, so the menu restriction could be selected on characteristics that also shape plan choice. We extend the simulation to allow this. Menu availability now depends on an unobserved household type that also shifts utility, capturing either the agent a household is matched to or the way households sort across agents, and we vary the strength of that selection. Table~\ref{tab:app-gatekeeper-selection} reports the fit as the selection strengthens, both when the selection is aligned with commissions, the realistic case in which agents who restrict menus also favor high-commission insurers, and when it is orthogonal to commissions, an adversarial case. Across the range the commission-in-utility model continues to reproduce the gatekeeper agent shares to within 1.7 percentage points, with correlations above 0.997. The equivalence is not an artifact of random menus. It survives selection of the menu on agent and household characteristics, because the plan fixed effects absorb the average tilt while the commission coefficient absorbs the part that covaries with commissions.
-
-The equivalence concerns the positive predictions and the demand fit. It does not carry over to the counterfactuals. A menu restriction fixed by an agent's appointments does not respond to a change in commissions, while a commission term in utility does, so the two models diverge once we alter commissions. In the counterfactuals we therefore attribute the steering to the commission margin, as the main text describes. For the demand estimates, the exercise shows that representing the restriction through the commission coefficient does not distort the plan choices the model predicts.
+%%% B. DESIGN-BASED RESULTS
 
 \section{Additional Design-Based Results}
 \label{app:reduced_form}
@@ -87,6 +73,8 @@ Two features of this model differ from the dominated-choice table. First, there 
 Second, assistance interacts only with silver and bronze. Catastrophic plans are excluded from the sample, so the four metal tiers exhaust the alternatives and a full set of four assistance-by-metal interactions sums to a household constant, which is differenced out. Gold and platinum share the omitted category, matching the base specification.
 
 The steering pattern, toward silver with agents steering more strongly than navigators, is stable across both columns.
+
+%%% C. MODEL
 
 \section{Model Formulas}\label{app:formulas}
 
@@ -330,12 +318,17 @@ The partial derivative of firm revenue with respect to the commission is
 		\frac{\partial \widetilde{h}_{kmt}({\bf p},{\bf y})}{\partial y_{jt}} &=& \mathrm{AV}_k \mathrm{IDF}_k\mathrm{GCF}_{mt} \frac{\sum_{i \in I} \left(\mathbb{I}_{i,m,t} \right) a_{it} \frac{ \partial q_{ikt}({\bf p},{\bf y})}{\partial y_{jt}} - a_{kmt}({\bf p},{\bf y}) \frac{\partial q_{kmt}({\bf p},{\bf y})}{\partial y_{jt}}}{q_{kmt}({\bf p},{\bf y})}
 	\end{eqnarray*}
 
-\section{Demand and Cost Estimates}
+%%% D. ESTIMATION
+
+\section{Estimation}
+\label{app:estimation}
+
+\subsection{Demand and Cost Estimates}
 \label{app:estimates}
 
 Table~\ref{tab:app-demand} reports the full set of demand coefficients, which the main text summarizes as changes in choice probabilities by assistance channel. Panel A reports the plan and enrollment terms and the nesting parameter, panel B the interactions of each assistance channel with plan characteristics and commissions, and panel C the household characteristics, each of which shifts the premium coefficient, the valuation of actuarial value, and the value of enrolling. Table~\ref{tab:app-cost} reports the cost estimates, namely the risk score equation, the claims equation, and the carrier constants in the commission first-order conditions.
 
-\section{Demand Specification Sensitivity}
+\subsection{Demand Specification Sensitivity}
 \label{app:demand-spec}
 
 The main text reports a single demand specification, the nested logit whose estimates appear in Table~\ref{tab:app-demand}. Here we report how those estimates change as we add terms to the utility function and how they respond to the premium control function. Table~\ref{tab:app-demand-spec} reports four specifications, each estimated on the same 20\% sample and the same 114 rating-region-by-year cells as the main-text model. Column (1) is a nested logit with plan attributes and a single premium coefficient. Column (2) adds the demographic heterogeneity in the price coefficient and in the actuarial value coefficient, along with demographic shifters of the value of enrolling. Column (3) adds the assistance and commission steering terms and is the specification used in the main text, reproducing those demand estimates exactly. Column (4) adds the premium control function.
@@ -346,14 +339,32 @@ We likewise report the assistance results as marginal effects on plan choice rat
 
 Columns (3) and (4) differ only in the premium control function. Adding it leaves the nesting parameter, both assistance effects, and the commission coefficients nearly unchanged, and moves the own-price elasticity from $-1.14$ to $-1.26$. \citet{saltzman2019} similarly finds that this correction leaves the nesting parameter essentially unchanged, with only a small downward bias in premium sensitivity when it is omitted.
 
-\section{Inertia}
+\subsection{Excluding Plan-Based Enrollers}
+\label{app:pbe}
+
+Plan-based enrollers are the one assistance channel that can place a consumer with only a single insurer, so their influence on insurer choice works through a menu restriction, not a commission response. We assess their effect on the demand estimates directly. After merging the raw service-channel code onto the estimation sample by household and year, we find that plan-based enrollers account for 1.3 percent of the household-years in the 20 percent structural sample. Table~\ref{tab:app-pbe} re-estimates the main-text demand specification with these households excluded, alongside the full-sample estimates. Dropping them leaves the price, actuarial value, channel, and nesting parameters essentially unchanged, with no change above 2 percent. The commission-by-agent coefficients, which carry the steering mechanism, move from 0.027 and $-0.066$ in the full sample to 0.030 and $-0.070$ without plan-based enrollers, so the steering is slightly stronger once they are excluded. The single-insurer channel does not drive the estimated steering.
+
+\subsection{Commission Utility and Menu Restriction}
+\label{app:menu-sim}
+
+The certified insurance agents present the full menu but may still steer a household within it, short of the plan-based enroller's single-insurer restriction. We represent that steering through the commission coefficient in utility. To check that this does not distort the plan choices the model predicts, we simulate a gatekeeper process and confirm that our specification reproduces its choices.
+
+The simulation draws a market of six insurers whose commissions vary, and generates choices from a process with no commission term in utility. Unassisted households choose their preferred plan from the full menu. Agent-assisted households instead face a restricted menu, in which each insurer appears with a probability that rises in its commission, and choose their preferred plan from what is presented. This produces the steering the commissions are meant to induce, with agent-assisted households moving away from the low-commission insurers and toward the high-commission ones, through availability alone and not through preference.
+
+We then fit our commission-in-utility model to these choices, with the full menu available to every household and the commission entering utility for agent-assisted households. Table~\ref{tab:app-menu-sim} reports the resulting shares. The fitted model recovers a positive commission coefficient and reproduces the gatekeeper agent shares to within 1.1 percentage points, with a correlation of 0.999. A menu restriction and a commission in utility are observationally equivalent for the plan choices the model predicts, and our specification loads the restriction onto the commission coefficient without distorting those predictions.
+
+The baseline simulation lets the menu depend only on commissions. In practice, which plans an agent presents may be correlated with the agent or with the households the agent serves, so the menu restriction could be selected on characteristics that also shape plan choice. We extend the simulation to allow this. Menu availability now depends on an unobserved household type that also shifts utility, capturing either the agent a household is matched to or the way households sort across agents, and we vary the strength of that selection. Table~\ref{tab:app-gatekeeper-selection} reports the fit as the selection strengthens, both when the selection is aligned with commissions, the realistic case in which agents who restrict menus also favor high-commission insurers, and when it is orthogonal to commissions, an adversarial case. Across the range the commission-in-utility model continues to reproduce the gatekeeper agent shares to within 1.7 percentage points, with correlations above 0.997. The equivalence is not an artifact of random menus. It survives selection of the menu on agent and household characteristics, because the plan fixed effects absorb the average tilt while the commission coefficient absorbs the part that covaries with commissions.
+
+The equivalence concerns the positive predictions and the demand fit. It does not carry over to the counterfactuals. A menu restriction fixed by an agent's appointments does not respond to a change in commissions, while a commission term in utility does, so the two models diverge once we alter commissions. In the counterfactuals we therefore attribute the steering to the commission margin, as the main text describes. For the demand estimates, the exercise shows that representing the restriction through the commission coefficient does not distort the plan choices the model predicts.
+
+\subsection{Inertia}
 \label{app:inertia}
 
 Inertia is a well-documented feature of health insurance plan choice, in employer coverage \citep{handel2013}, in Medicare Part D \citep{polyakova2016}, and in the ACA exchanges we study \citep{saltzman2025}. However, as discussed in the main text, it is not clear how inertia should be treated in a model of commissions and potential steering. For example, a household steered into a plan in year $t$ will tend to stay in that plan in year $t+1$, so that the effect of commissions persists across future years. Including an indicator for prior-year plan, as is often used to capture inertia, would therefore remove the persistence of any steering effects.
 
 Nonetheless, the exclusion of inertia does not appear to meaningfully affect our main estimates. First, in the design-based analysis, the effects of assistance on dominated-plan choice for new enrollees alone (Table~\ref{tab:app-dominated-sample}), for whom inertia is irrelevant, are at least as large as in the full sample for every channel. Second, Table~\ref{tab:app-inertia-lag} re-estimates the primary demand specification with an indicator for the household's prior-year plan, which enters plan utility and therefore the enrollment decision. We estimate a large switching cost of about \$4,200 per enrollee per year. However, the commission coefficients scaled by the nesting parameter are largely unchanged from the main-text estimates. Given the dynamic complexity of inertia in a model of potential steering, and the insensitivity of our main estimates to the inclusion or exclusion of lagged plan indicators, we do not incorporate inertia separately into our estimates.
 
-\section{Alternative Nesting Structure}
+\subsection{Alternative Nesting Structure}
 \label{app:alt-nest}
 
 In the main text, the household decides whether to enroll knowing the menu it would face under each channel, but its channel is drawn from the first-stage channel probabilities $\pi_{ict}$. The menus therefore affect enrollment and plan choice within a channel, but not which channel the household uses. We adopt this structure in part because the data suggest that channel use does not respond strongly to the menu of plans available. Across regions, the share of enrolled households using an agent ranges from 27 to 67 percent but is essentially uncorrelated with the number of carriers or plans, the spread in silver premiums, or the average commission. Region 13, for example, has the highest agent use (67 percent) with fewer carriers and plans than Region 4, which has the lowest (27 percent), while the two have the same spread in silver premiums and similar commissions. Within regions, agent use rises steadily over time even as menus change. In Region 1, the number of carriers rose from three to five and fell back to three, and the spread in silver premiums increased fivefold, while agent use grew smoothly from 39 to 51 percent. We view this as suggestive rather than conclusive, and the alternative nests below relax this assumption.
@@ -380,6 +391,8 @@ The nests also differ from our model in their response to commissions. Setting c
 
 Taken together, the alternative nests do not change our conclusions. Both predict coverage effects of removing agents within the range we report, and coverage effects of commissions similar to ours. They differ from our model mainly in that channel use responds to the menu, and their estimates imply a larger response than the evidence above suggests. Therefore, while our preferred model treats channel use as determined outside the model for the reasons discussed above, our conclusions about coverage are robust to allowing channel use to respond to the menu.
 
+%%% E. WELFARE
+
 \section{Cost Sharing and the Objective Welfare Measure}
 \label{app:welfare}
 
@@ -403,201 +416,225 @@ with $P$ the annual premium and $\rho$ the coefficient of absolute risk aversion
 
 The mean $\bar{s}$ is household-specific, set from Medical Expenditure Panel Survey total-expenditure cell means by age composition and income bracket, so that expected spending follows the household rather than the plan and the measure carries no moral-hazard response. The coefficient of variation $\kappa$ and the risk-aversion coefficient $\rho$ are the two calibrated inputs, set to 2.5 and $2.3\times10^{-4}$ per dollar as described in the main text, the latter the marketplace benchmark in \citet{handel2013}. The uninsured option is valued separately, since it carries no plan cost-sharing, using the realized out-of-pocket and social-cost construction described in the main text.
 
-\clearpage
+%%% BIBLIOGRAPHY
 
+\pagebreak
 \bibliographystyle{aer}
 \bibliography{BibTeX_Library}
 
+%%% TABLES AND FIGURES
+
 \clearpage
+\section*{Tables and Figures}
 
-
+\clearpage
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Covered California Assistance Channels}\footnote{Service-channel codes recorded in the Covered California enrollment data, 2014--2019, with each code's description, the higher-level category we group it into, and its share of individual enrollment records. Shares are of all individual enrollment records, assisted and unassisted. The channel shares in the main text are computed over household-years and therefore differ slightly.}}
+\caption[Covered California Assistance Channels]{\textbf{Covered California Assistance Channels}\footnote{Service-channel codes recorded in the Covered California enrollment data, 2014--2019, with each code's description, the higher-level category we group it into, and its share of individual enrollment records. Shares are of all individual enrollment records, assisted and unassisted. The channel shares in the main text are computed over household-years and therefore differ slightly.}}
 \label{tab:app-channels}
 \centerline{\input{results/tables/assistance_channels.tex}}
+\centerline{%
+\input{results/tables/assistance_channels.tex}
+}
+\label{tab:app-channels}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Demand Estimates Excluding Plan-Based Enrollers}\footnote{Main-text demand specification re-estimated on the 20\% structural sample with plan-based-enroller households excluded, alongside the full-sample estimates. Plan-based enrollers are identified by merging the raw Covered California service-channel code onto the estimation households by household and year, and account for 1.3\% of household-years in the sample. Premiums are net of subsidy and measured in hundreds of dollars.}}
-\label{tab:app-pbe}
-\centerline{\input{results/tables/pbe_robustness.tex}}
-\end{minipage}
-\end{table}
-
-
-\clearpage
-
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Menu Restriction and the Commission Coefficient}\footnote{Simulated plan-choice shares. Choices are generated by a gatekeeper process in which agent-assisted households face a menu that includes each insurer with probability rising in its commission, with no commission term in utility. The commission-in-utility model is then fit on the full menu. Columns report the unassisted shares, the gatekeeper agent shares, and the agent shares predicted by the fitted commission model. The fitted commission coefficient is positive, and the fitted agent shares match the gatekeeper shares to within 1.1 percentage points, with a correlation of 0.999.}}
-\label{tab:app-menu-sim}
-\centerline{\input{results/tables/menu_simulation.tex}}
-\end{minipage}
-\end{table}
-
-
-\clearpage
-
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Menu Restriction with Agent and Household Selection}\footnote{Simulated plan choices under a gatekeeper process in which the menu is selected on an unobserved household type that also shifts utility. Selection strength zero is the random-gatekeeper baseline of Table~\ref{tab:app-menu-sim}. Aligned selection targets high-commission insurers. Orthogonal selection targets a dimension uncorrelated with commissions. Each row fits the commission-in-utility model and reports the fitted commission coefficient, the maximum absolute difference between the gatekeeper and fitted agent shares, and their correlation.}}
-\label{tab:app-gatekeeper-selection}
-\centerline{\input{results/tables/gatekeeper_selection.tex}}
-\end{minipage}
-\end{table}
-
-
-\clearpage
-
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Dominated Choices, Pooled Specifications}\footnote{Linear probability models of an indicator for selecting a dominated plan, on the sample of households with at least one dominated plan in the choice set. All specifications are weighted by inverse propensity weights, with standard errors clustered by rating region. Demographics include age composition, gender, race and ethnicity, and household size. $^{***}p<0.01$, $^{**}p<0.05$, $^{*}p<0.10$.}}
+\caption[Dominated Choices, Pooled Specifications]{\textbf{Dominated Choices, Pooled Specifications}\footnote{Linear probability models of an indicator for selecting a dominated plan, on the sample of households with at least one dominated plan in the choice set. All specifications are weighted by inverse propensity weights, with standard errors clustered by rating region. Demographics include age composition, gender, race and ethnicity, and household size. $^{***}p<0.01$, $^{**}p<0.05$, $^{*}p<0.10$.}}
 \label{tab:app-dominated}
 \centerline{\input{results/tables/dominated_choice_regression.tex}}
+\centerline{%
+\input{results/tables/dominated_choice_regression.tex}
+}
+\label{tab:app-dominated}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Dominated Choice ATT, All Enrollees Versus New Enrollees}\footnote{Prediction-based ATT of decision assistance on the probability of selecting a dominated plan, weighted by inverse propensity weights. The all-enrollee column is the main-text estimate. The new-enrollee column re-runs the same estimator on households that were not enrolled in the prior year.}}
+\caption[Dominated Choice ATT, All Enrollees Versus New Enrollees]{\textbf{Dominated Choice ATT, All Enrollees Versus New Enrollees}\footnote{Prediction-based ATT of decision assistance on the probability of selecting a dominated plan, weighted by inverse propensity weights. The all-enrollee column is the main-text estimate. The new-enrollee column re-runs the same estimator on households that were not enrolled in the prior year.}}
 \label{tab:app-dominated-sample}
 \centerline{\input{results/tables/dominated_new_vs_all.tex}}
+\centerline{%
+\input{results/tables/dominated_new_vs_all.tex}
+}
+\label{tab:app-dominated-sample}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Plan Choice, Pooled Specifications}\footnote{Conditional logit over the plans in each household's choice set, pooled across assisted and unassisted households and weighted by inverse propensity weights. Premiums are net of subsidy and measured in hundreds of dollars. Plan attributes are metal tier, network type, health savings account eligibility, and insurer indicators. Standard errors in parentheses.}}
+\caption[Plan Choice, Pooled Specifications]{\textbf{Plan Choice, Pooled Specifications}\footnote{Conditional logit over the plans in each household's choice set, pooled across assisted and unassisted households and weighted by inverse propensity weights. Premiums are net of subsidy and measured in hundreds of dollars. Plan attributes are metal tier, network type, health savings account eligibility, and insurer indicators. Standard errors in parentheses.}}
 \label{tab:app-choice}
 \centerline{\input{results/tables/choice_appendix_pooled.tex}}
+\centerline{%
+\input{results/tables/choice_appendix_pooled.tex}
+}
+\label{tab:app-choice}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Demand Estimates}\footnote{Estimated by maximum likelihood on the 20 percent sample of households, weighted by household size, with robust sandwich standard errors in parentheses. Premiums are net of subsidy and measured in hundreds of dollars of monthly premium, and commissions are in dollars per member per month. Panel A reports the plan and enrollment terms, with $\lambda$ the nesting parameter. Panel B reports the interactions of each assistance channel with plan characteristics, with the commission terms entering only for agent-assisted households. Panel C reports the household characteristics, which interact with premium and actuarial value in plan utility and shift the value of enrolling. Household characteristics are shares of household members, except household size and the income indicators.}}
+\caption[Demand Estimates]{\textbf{Demand Estimates}\footnote{Estimated by maximum likelihood on the 20 percent sample of households, weighted by household size, with robust sandwich standard errors in parentheses. Premiums are net of subsidy and measured in hundreds of dollars of monthly premium, and commissions are in dollars per member per month. Panel A reports the plan and enrollment terms, with $\lambda$ the nesting parameter. Panel B reports the interactions of each assistance channel with plan characteristics, with the commission terms entering only for agent-assisted households. Panel C reports the household characteristics, which interact with premium and actuarial value in plan utility and shift the value of enrolling. Household characteristics are shares of household members, except household size and the income indicators.}}
 \label{tab:app-demand}
 \centerline{\input{results/tables/demand_estimates.tex}}
+\centerline{%
+\input{results/tables/demand_estimates.tex}
+}
+\label{tab:app-demand}
 \end{minipage}
 \end{table}
 
 \clearpage
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Cost Estimates}\footnote{Panel A is the risk score equation of the main text, estimated by weighted least squares and held fixed, with insurer-by-metal effects (Kaiser silver omitted). Panel B is the claims equation, estimated by two-step generalized method of moments jointly with the pricing and commission first-order conditions, with the second-step weight equal to the inverse of the estimated moment covariance. Panel C reports the carrier constants $\delta_f$ in the commission first-order conditions. Demographic shares are predicted from the estimated choice model. Sandwich standard errors.}}
+\caption[Cost Estimates]{\textbf{Cost Estimates}\footnote{Panel A is the risk score equation of the main text, estimated by weighted least squares and held fixed, with insurer-by-metal effects (Kaiser silver omitted). Panel B is the claims equation, estimated by two-step generalized method of moments jointly with the pricing and commission first-order conditions, with the second-step weight equal to the inverse of the estimated moment covariance. Panel C reports the carrier constants $\delta_f$ in the commission first-order conditions. Demographic shares are predicted from the estimated choice model. Sandwich standard errors.}}
 \label{tab:app-cost}
 \centerline{\input{results/tables/cost_estimates.tex}}
+\centerline{%
+\input{results/tables/cost_estimates.tex}
+}
+\label{tab:app-cost}
 \end{minipage}
 \end{table}
 
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Demand Specification Sensitivity}\footnote{Four nested-logit demand specifications, each estimated on the 20\% sample and the 114 rating-region-by-year cells used in the main text. Column (1) is a nested logit with plan attributes and a single premium coefficient. Column (2) adds demographic heterogeneity in the price coefficient and in the valuation of actuarial value, and demographic shifters of the value of enrolling. Column (3) adds the assistance and commission steering terms and reproduces the main-text demand estimates. Column (4) adds the premium control function. The mean own-price elasticity is the enrollment-weighted average with respect to the net premium. The navigator and agent effects are the average marginal effect of assistance on the probability of choosing a silver plan, in percentage points. Empty cells denote terms not included in that specification.}}
+\caption[Demand Specification Sensitivity]{\textbf{Demand Specification Sensitivity}\footnote{Four nested-logit demand specifications, each estimated on the 20\% sample and the 114 rating-region-by-year cells used in the main text. Column (1) is a nested logit with plan attributes and a single premium coefficient. Column (2) adds demographic heterogeneity in the price coefficient and in the valuation of actuarial value, and demographic shifters of the value of enrolling. Column (3) adds the assistance and commission steering terms and reproduces the main-text demand estimates. Column (4) adds the premium control function. The mean own-price elasticity is the enrollment-weighted average with respect to the net premium. The navigator and agent effects are the average marginal effect of assistance on the probability of choosing a silver plan, in percentage points. Empty cells denote terms not included in that specification.}}
 \label{tab:app-demand-spec}
 \centerline{\input{results/tables/demand_spec_sensitivity.tex}}
+\centerline{%
+\input{results/tables/demand_spec_sensitivity.tex}
+}
+\label{tab:app-demand-spec}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Demand Estimates with the Prior-Year Plan}\footnote{Main-text demand specification estimated on the 20\% structural sample, with and without an indicator for the household's plan in the prior year. The indicator is zero in 2014 and for households without a prior-year exchange plan. Premiums are net of subsidy and measured in hundreds of dollars.}}
+\caption[Demand Estimates Excluding Plan-Based Enrollers]{\textbf{Demand Estimates Excluding Plan-Based Enrollers}\footnote{Main-text demand specification re-estimated on the 20\% structural sample with plan-based-enroller households excluded, alongside the full-sample estimates. Plan-based enrollers are identified by merging the raw Covered California service-channel code onto the estimation households by household and year, and account for 1.3\% of household-years in the sample. Premiums are net of subsidy and measured in hundreds of dollars.}}
+\label{tab:app-pbe}
+\centerline{\input{results/tables/pbe_robustness.tex}}
+\centerline{%
+\input{results/tables/pbe_robustness.tex}
+}
+\label{tab:app-pbe}
+\end{minipage}
+\end{table}
+
+\clearpage
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[Menu Restriction and the Commission Coefficient]{\textbf{Menu Restriction and the Commission Coefficient}\footnote{Simulated plan-choice shares. Choices are generated by a gatekeeper process in which agent-assisted households face a menu that includes each insurer with probability rising in its commission, with no commission term in utility. The commission-in-utility model is then fit on the full menu. Columns report the unassisted shares, the gatekeeper agent shares, and the agent shares predicted by the fitted commission model. The fitted commission coefficient is positive, and the fitted agent shares match the gatekeeper shares to within 1.1 percentage points, with a correlation of 0.999.}}
+\label{tab:app-menu-sim}
+\centerline{\input{results/tables/menu_simulation.tex}}
+\centerline{%
+\input{results/tables/menu_simulation.tex}
+}
+\label{tab:app-menu-sim}
+\end{minipage}
+\end{table}
+
+\clearpage
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[Menu Restriction with Agent and Household Selection]{\textbf{Menu Restriction with Agent and Household Selection}\footnote{Simulated plan choices under a gatekeeper process in which the menu is selected on an unobserved household type that also shifts utility. Selection strength zero is the random-gatekeeper baseline of Table~\ref{tab:app-menu-sim}. Aligned selection targets high-commission insurers. Orthogonal selection targets a dimension uncorrelated with commissions. Each row fits the commission-in-utility model and reports the fitted commission coefficient, the maximum absolute difference between the gatekeeper and fitted agent shares, and their correlation.}}
+\label{tab:app-gatekeeper-selection}
+\centerline{\input{results/tables/gatekeeper_selection.tex}}
+\centerline{%
+\input{results/tables/gatekeeper_selection.tex}
+}
+\label{tab:app-gatekeeper-selection}
+\end{minipage}
+\end{table}
+
+\clearpage
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[Demand Estimates with the Prior-Year Plan]{\textbf{Demand Estimates with the Prior-Year Plan}\footnote{Main-text demand specification estimated on the 20\% structural sample, with and without an indicator for the household's plan in the prior year. The indicator is zero in 2014 and for households without a prior-year exchange plan. Premiums are net of subsidy and measured in hundreds of dollars.}}
 \label{tab:app-inertia-lag}
 \centerline{\input{results/tables/inertia_lag.tex}}
+\centerline{%
+\input{results/tables/inertia_lag.tex}
+}
+\label{tab:app-inertia-lag}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Demand Estimates under Alternative Nesting Structures}\footnote{Demand estimates from our two-part model and from two three-level nests in which households choose a channel on its menu value, all estimated on the same 5\% sample of households. Nest (A) is a standard three-level nest with agent density and year effects in the utility of every exchange plan. Nest (B) uses the enrollment equation of our model. Premiums are net of subsidy and measured in hundreds of dollars. The channel-utility coefficients of the nests are not shown. The two-part log-likelihood excludes the choice of channel and is not comparable to those of the nests.}}
+\caption[Demand Estimates under Alternative Nesting Structures]{\textbf{Demand Estimates under Alternative Nesting Structures}\footnote{Demand estimates from our two-part model and from two three-level nests in which households choose a channel on its menu value, all estimated on the same 5\% sample of households. Nest (A) is a standard three-level nest with agent density and year effects in the utility of every exchange plan. Nest (B) uses the enrollment equation of our model. Premiums are net of subsidy and measured in hundreds of dollars. The channel-utility coefficients of the nests are not shown. The two-part log-likelihood excludes the choice of channel and is not comparable to those of the nests.}}
 \label{tab:app-alt-nest-coef}
 \centerline{\input{results/tables/alt_nest_coefficients.tex}}
+\centerline{%
+\input{results/tables/alt_nest_coefficients.tex}
+}
+\label{tab:app-alt-nest-coef}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Coverage and Channel Use under Alternative Nesting Structures}\footnote{Changes in member-weighted shares, in percentage points, relative to each model's baseline, at observed premiums, for the households in Table~\ref{tab:app-alt-nest-coef}. In our two-part model, channel use is fixed, and the no-agent scenario moves a share $\tau$ of each household's agent probability to navigators and the remainder to shopping alone.}}
+\caption[Coverage and Channel Use under Alternative Nesting Structures]{\textbf{Coverage and Channel Use under Alternative Nesting Structures}\footnote{Changes in member-weighted shares, in percentage points, relative to each model's baseline, at observed premiums, for the households in Table~\ref{tab:app-alt-nest-coef}. In our two-part model, channel use is fixed, and the no-agent scenario moves a share $\tau$ of each household's agent probability to navigators and the remainder to shopping alone.}}
 \label{tab:app-alt-nest-scen}
 \centerline{\input{results/tables/alt_nest_scenarios.tex}}
+\centerline{%
+\input{results/tables/alt_nest_scenarios.tex}
+}
+\label{tab:app-alt-nest-scen}
 \end{minipage}
 \end{table}
 
-
 \clearpage
-
-
 \begin{table}[!h]
 \centering
 \footnotesize
 \begin{minipage}[h]{6in}
-\caption[]{\textbf{Covered California Standardized Cost Sharing, 2019}\footnote{Standardized patient-centered benefit designs for the 2019 plan year. AV is the statutory actuarial value. The deductible and maximum out-of-pocket (MOOP) are annual individual amounts, and coinsurance is the enrollee share of spending above the deductible. CSR denotes the cost-sharing-reduction silver variants available to enrollees below 250\% of the federal poverty level, and the bronze health-savings-account variant is shown separately. The full 2014--2019 schedule follows the same tier structure and is used in the welfare computation.}}
+\caption[Covered California Standardized Cost Sharing, 2019]{\textbf{Covered California Standardized Cost Sharing, 2019}\footnote{Standardized patient-centered benefit designs for the 2019 plan year. AV is the statutory actuarial value. The deductible and maximum out-of-pocket (MOOP) are annual individual amounts, and coinsurance is the enrollee share of spending above the deductible. CSR denotes the cost-sharing-reduction silver variants available to enrollees below 250\% of the federal poverty level, and the bronze health-savings-account variant is shown separately. The full 2014--2019 schedule follows the same tier structure and is used in the welfare computation.}}
 \label{tab:app-cost-sharing}
 \centerline{\input{results/tables/cost_sharing_schedule.tex}}
+\centerline{%
+\input{results/tables/cost_sharing_schedule.tex}
+}
+\label{tab:app-cost-sharing}
 \end{minipage}
 \end{table}
-
 
 \end{document}
