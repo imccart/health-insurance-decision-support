@@ -137,7 +137,7 @@ lab <- c(premium              = "Premium",
          commission_broker_sq = "Commission$^2$/100 $\\times$ agent",
          lambda               = "$\\lambda$ (plans within channel)",
          lambda_C             = "$\\lambda_C$ (channels within enrollment)")
-fmt <- function(x) ifelse(is.na(x), "", sprintf("%.4f", x))
+fmt <- function(x) ifelse(is.na(x), "", sprintf("%.3f", x))
 cf <- function(nm, t) { x <- coefs$estimate[coefs$model == nm & coefs$term == t]; if (length(x)) x else NA }
 tl <- c("\\begin{tabular}{lccc}", "\\hline\\hline",
         " & Two-part & Nest (A) & Nest (B) \\\\", "\\hline")

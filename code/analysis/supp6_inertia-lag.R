@@ -88,9 +88,9 @@ lab <- c(premium              = "Premium",
          commission_broker_sq = "Commission$^2$/100 $\\times$ agent",
          previous_choice      = "Prior-year plan",
          lambda               = "$\\lambda$ (nesting parameter)")
-fmt <- function(x) ifelse(is.na(x), "", sprintf("%.4f", x))
+fmt <- function(x) ifelse(is.na(x), "", sprintf("%.3f", x))
 tl <- c("\\begin{tabular}{lcc}", "\\hline\\hline",
-        " & Body & With prior-year plan \\\\", "\\hline")
+        " & Main text & With prior-year plan \\\\", "\\hline")
 for (t in key)
   tl <- c(tl, sprintf("%s & %s & %s \\\\", lab[[t]],
                       fmt(comp$body[comp$term == t]), fmt(comp$with_lag[comp$term == t])))

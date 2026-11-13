@@ -14,6 +14,7 @@ rm(hh_all); gc(verbose = FALSE)
 
 plan_choice       <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()
 commission_lookup <- fread("data/output/commission_lookup.csv")    %>% as_tibble()
+zip3_avail        <- fread("data/output/zip3_plan_availability.csv")
 
 set.seed(MASTER_SEED)
 cell_seeds <- sample.int(1e7, nrow(cells))

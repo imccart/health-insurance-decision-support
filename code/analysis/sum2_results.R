@@ -227,125 +227,53 @@ ggsave("results/figures/perc_comm.pdf", p_pct, width = 6, height = 4)
 
 
 if (nrow(coefs_structural) > 0) {
-  # Clean term names for display
-  label_map <- c(
-    "inside"             = "Insured (constant)",
-    "premium"            = "Premium",
-    "penalty_own"        = "Penalty (outside option)",
-    "premium_sq"         = "Premium$^2$",
-    "silver"             = "Silver",
-    "bronze"             = "Bronze",
-    "av"                 = "Actuarial value (AV)",
-    "hh_size_av"         = "HH size $\\times$ AV",
-    "perc_0to17_av"      = "Age 0--17 $\\times$ AV",
-    "perc_18to34_av"     = "Age 18--34 $\\times$ AV",
-    "perc_35to54_av"     = "Age 35--54 $\\times$ AV",
-    "perc_male_av"       = "Male $\\times$ AV",
-    "perc_black_av"      = "Black $\\times$ AV",
-    "perc_hispanic_av"   = "Hispanic $\\times$ AV",
-    "perc_asian_av"      = "Asian $\\times$ AV",
-    "perc_other_av"      = "Other race $\\times$ AV",
-    "FPL_250to400_av"    = "FPL 250--400\\% $\\times$ AV",
-    "FPL_400plus_av"     = "FPL 400+\\% $\\times$ AV",
-    "assisted_av"        = "Navigator $\\times$ AV",
-    "broker_av"          = "Agent $\\times$ AV",
-    "perc_0to17_bronze"  = "Age 0--17 $\\times$ Bronze",
-    "perc_18to34_bronze" = "Age 18--34 $\\times$ Bronze",
-    "perc_35to54_bronze" = "Age 35--54 $\\times$ Bronze",
-    "perc_0to17_silver"  = "Age 0--17 $\\times$ Silver",
-    "perc_18to34_silver" = "Age 18--34 $\\times$ Silver",
-    "perc_35to54_silver" = "Age 35--54 $\\times$ Silver",
-    "perc_male_silver"   = "Male $\\times$ Silver",
-    "perc_male_bronze"   = "Male $\\times$ Bronze",
-    "hh_size_prem"       = "HH size $\\times$ premium",
-    "any_0to17_prem"     = "Children $\\times$ premium",
-    "perc_0to17_prem"    = "Age 0--17 $\\times$ premium",
-    "perc_18to34_prem"   = "Age 18--34 $\\times$ premium",
-    "perc_35to54_prem"   = "Age 35--54 $\\times$ premium",
-    "perc_male_prem"     = "Male $\\times$ premium",
-    "FPL_250to400_prem"  = "FPL 250--400\\% $\\times$ premium",
-    "FPL_400plus_prem"   = "FPL 400+\\% $\\times$ premium",
-    "any_black_prem"     = "Black $\\times$ premium",
-    "any_hispanic_prem"  = "Hispanic $\\times$ premium",
-    "perc_black_prem"    = "Black $\\times$ premium",
-    "perc_hispanic_prem" = "Hispanic $\\times$ premium",
-    "perc_asian_prem"    = "Asian $\\times$ premium",
-    "perc_other_prem"    = "Other race $\\times$ premium",
-    "hmo"                = "HMO",
-    "hsa"                = "HSA",
-    "Anthem"             = "Anthem",
-    "Blue_Shield"        = "Blue Shield",
-    "Kaiser"             = "Kaiser",
-    "Health_Net"         = "Health Net",
-    "Anthem_silver"      = "Anthem $\\times$ Silver",
-    "BS_silver"          = "Blue Shield $\\times$ Silver",
-    "Kaiser_silver"      = "Kaiser $\\times$ Silver",
-    "HN_silver"          = "Health Net $\\times$ Silver",
-    "Anthem_bronze"      = "Anthem $\\times$ Bronze",
-    "BS_bronze"          = "Blue Shield $\\times$ Bronze",
-    "Kaiser_bronze"      = "Kaiser $\\times$ Bronze",
-    "HN_bronze"          = "Health Net $\\times$ Bronze",
-    "assisted_silver"    = "Navigator $\\times$ Silver",
-    "assisted_bronze"    = "Navigator $\\times$ Bronze",
-    "broker_silver"      = "Agent $\\times$ Silver",
-    "broker_bronze"      = "Agent $\\times$ Bronze",
-    "assisted_premium"   = "Navigator $\\times$ premium",
-    "broker_premium"     = "Agent $\\times$ premium",
-    "commission_broker"  = "Commission $\\times$ agent",
-    "commission_broker_sq" = "Commission$^2$/100 $\\times$ agent",
-    "hh_size_insured"       = "Enrolled $\\times$ HH size",
-    "perc_0to17_insured"    = "Enrolled $\\times$ share 0--17",
-    "perc_18to34_insured"   = "Enrolled $\\times$ share 18--34",
-    "perc_35to54_insured"   = "Enrolled $\\times$ share 35--54",
-    "perc_male_insured"     = "Enrolled $\\times$ share male",
-    "perc_black_insured"    = "Enrolled $\\times$ share Black",
-    "perc_hispanic_insured" = "Enrolled $\\times$ share Hispanic",
-    "perc_asian_insured"    = "Enrolled $\\times$ share Asian",
-    "perc_other_insured"    = "Enrolled $\\times$ share other race",
-    "FPL_250to400_insured"  = "Enrolled $\\times$ FPL 250--400\\%",
-    "FPL_400plus_insured"   = "Enrolled $\\times$ FPL $>$400\\%",
-    "lambda"             = "$\\lambda$ (nesting parameter)"
-  )
-
-  coefs_display <- coefs_structural %>%
-    mutate(
-      # Unmapped terms fall back to the raw name, so escape underscores rather
-      # than emitting math-mode subscripts that break the LaTeX compile.
-      label = ifelse(term %in% names(label_map), label_map[term],
-                     gsub("_", "\\\\_", term)),
-      est_str = formatC(estimate, format = "f", digits = 4),
-      se_str  = if ("std_error" %in% names(.))
-                  formatC(std_error, format = "f", digits = 4)
-                else ""
-    )
-
-  # One row per coefficient with the standard error in its own column. The old
-  # two-row-per-coefficient layout ran to 77 rows and overflowed the page inside
-  # the table float ("Float too large"); a single ~38-row 3-column tabular fits.
-  has_se <- any(coefs_display$se_str != "")
-  tab_lines <- if (has_se) c(
-    "\\begin{tabular}{lrr}",
-    "\\hline\\hline",
-    "Variable & Estimate & Std. Error \\\\",
-    "\\hline"
-  ) else c(
-    "\\begin{tabular}{lr}",
-    "\\hline\\hline",
-    "Variable & Estimate \\\\",
-    "\\hline"
-  )
-
-  for (i in seq_len(nrow(coefs_display))) {
-    if (has_se) {
-      tab_lines <- c(tab_lines,
-        sprintf("%s & %s & %s \\\\", coefs_display$label[i],
-                coefs_display$est_str[i], coefs_display$se_str[i]))
-    } else {
-      tab_lines <- c(tab_lines,
-        sprintf("%s & %s \\\\", coefs_display$label[i], coefs_display$est_str[i]))
-    }
+  # Supplemental-appendix table. Each cell is the estimate with its standard
+  # error in parentheses. Panel A holds the plan and enrollment terms, panel B
+  # the channel interactions, and panel C the household characteristics, one
+  # row per characteristic with its premium, actuarial value, and enrollment
+  # terms side by side.
+  cs_est <- setNames(coefs_structural$estimate, coefs_structural$term)
+  cs_se  <- if ("std_error" %in% names(coefs_structural))
+              setNames(coefs_structural$std_error, coefs_structural$term)
+            else setNames(rep(NA_real_, nrow(coefs_structural)), coefs_structural$term)
+  cell <- function(tm) {
+    if (!tm %in% names(cs_est)) return("")
+    se <- cs_se[[tm]]
+    se_str <- if (is.na(se)) "" else if (se < 0.0005) " ($<$0.001)" else
+      sprintf(" (%s)", formatC(se, format = "f", digits = 3))
+    paste0(formatC(cs_est[[tm]], format = "f", digits = 3), se_str)
   }
 
+  panel_a <- c(premium = "Premium", av = "Actuarial value", hmo = "HMO",
+               Anthem = "Anthem", Blue_Shield = "Blue Shield", Kaiser = "Kaiser",
+               Health_Net = "Health Net", inside = "Enrolled (constant)",
+               lambda = "$\\lambda$ (nesting parameter)")
+  demo_labels <- c(hh_size = "Household size", perc_0to17 = "Share age 0--17",
+                   perc_18to34 = "Share age 18--34", perc_35to54 = "Share age 35--54",
+                   perc_male = "Share male", perc_black = "Share Black",
+                   perc_hispanic = "Share Hispanic", perc_asian = "Share Asian",
+                   perc_other = "Share other race", FPL_250to400 = "FPL 250--400\\%",
+                   FPL_400plus = "FPL above 400\\%")
+
+  tab_lines <- c("\\begin{tabular}{lrrrr}", "\\hline\\hline",
+                 "\\multicolumn{5}{l}{\\emph{A. Plan and enrollment terms}} \\\\",
+                 " & Coefficient & & & \\\\", "\\hline")
+  for (tm in names(panel_a))
+    tab_lines <- c(tab_lines, sprintf("%s & %s & & & \\\\", panel_a[[tm]], cell(tm)))
+  tab_lines <- c(tab_lines, "\\hline",
+                 "\\multicolumn{5}{l}{\\emph{B. Assistance channel}} \\\\",
+                 " & $\\times$ Premium & $\\times$ AV & $\\times$ Commission & $\\times$ Commission$^2$/100 \\\\",
+                 "\\hline",
+                 sprintf("Navigator & %s & %s & & \\\\", cell("assisted_premium"), cell("assisted_av")),
+                 sprintf("Agent & %s & %s & %s & %s \\\\", cell("broker_premium"), cell("broker_av"),
+                         cell("commission_broker"), cell("commission_broker_sq")),
+                 "\\hline",
+                 "\\multicolumn{5}{l}{\\emph{C. Household characteristics}} \\\\",
+                 " & $\\times$ Premium & $\\times$ AV & $\\times$ Enrolled & \\\\", "\\hline")
+  for (dm in names(demo_labels))
+    tab_lines <- c(tab_lines, sprintf("%s & %s & %s & %s & \\\\", demo_labels[[dm]],
+                                      cell(paste0(dm, "_prem")), cell(paste0(dm, "_av")),
+                                      cell(paste0(dm, "_insured"))))
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/demand_estimates.tex")
 }
@@ -362,43 +290,28 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
 
   cost_labels <- c(
     "(Intercept)"       = "Constant",
-    "AV"                = "Actuarial value",
-    "share_18to34"      = "Share age 18--34",
-    "share_35to54"      = "Share age 35--54",
-    "share_250to400"    = "Share FPL 250--400\\%",
-    "share_400plus"     = "Share FPL above 400\\%",
     "share_male"        = "Share male",
     "share_family"      = "Share family households",
     "share_0to34"       = "Share age 0--34",
     "share_minority"    = "Share minority",
-    "share_asian"       = "Share Asian",
-    "share_black"       = "Share Black",
-    "share_hispanic"    = "Share Hispanic",
-    "share_other"       = "Share other race",
-    "Silver"            = "Silver",
-    "Gold"              = "Gold",
-    "Platinum"          = "Platinum",
-    "Kaiser"            = "Kaiser",
-    "Anthem"            = "Anthem",
-    "Blue_Shield"       = "Blue Shield",
-    "Health_Net"        = "Health Net",
-    "Molina"            = "Molina",
-    "LA_Care"           = "L.A. Care",
-    "SHARP"             = "Sharp",
-    "Chinese_Community" = "Chinese Community",
-    "Oscar"             = "Oscar",
-    "Western"           = "Western",
-    "Valley"            = "Valley",
     "log_risk_score"    = "Log predicted risk score",
     "HMO"               = "HMO",
     "year_2015"         = "Year 2015",
     "year_2016"         = "Year 2016",
     "year_2017"         = "Year 2017",
     "year_2018"         = "Year 2018",
-    "year_2019"         = "Year 2019",
     "Kaiser"            = "Kaiser",
-    "log_size"          = "Log insurer enrollment"
+    "Anthem"            = "Anthem",
+    "Blue_Shield"       = "Blue Shield",
+    "Health_Net"        = "Health Net"
   )
+  carrier_names <- c(ANT = "Anthem", BS = "Blue Shield", CC = "Chinese Community",
+                     HN = "Health Net", KA = "Kaiser", LA = "L.A. Care", MOL = "Molina",
+                     OSC = "Oscar", SH = "Sharp", VAL = "Valley", WEST = "Western")
+  lab_of <- function(p, map) ifelse(p %in% names(map), map[p], gsub("_", "\\\\_", p))
+  row_of <- function(lab, est, se)
+    sprintf("%s & %s & %s \\\\", lab, formatC(est, format = "f", digits = 3),
+            formatC(se, format = "f", digits = 3))
 
   # Risk score equation: the weighted OLS s4 holds fixed; the insurer-by-metal
   # effects are summarized in one row
@@ -407,41 +320,27 @@ if (file.exists("results/cost_coefficients_gmm_se.csv")) {
     rename(param = term)
   cl <- cost_coefs %>% filter(equation == "claims", !str_detect(param, "^share_ra"))
   has_region <- any(cost_coefs$equation == "claims" & str_detect(cost_coefs$param, "^share_ra"))
+  sv <- cost_coefs %>% filter(equation == "commission", grepl("^wedge_", param)) %>%
+    mutate(carrier = sub("^wedge_", "", param)) %>%
+    arrange(lab_of(carrier, carrier_names))
 
-  tab_lines <- c("\\begin{tabular}{lr}", "\\hline\\hline",
-                 "Variable & Estimate \\\\", "\\hline",
-                 "\\emph{Risk score equation} & \\\\")
-  for (i in seq_len(nrow(rs))) {
-    lab <- ifelse(rs$param[i] %in% names(cost_labels), cost_labels[rs$param[i]],
-                  gsub("_", "\\\\_", rs$param[i]))
-    tab_lines <- c(tab_lines,
-      sprintf("%s & %s \\\\", lab, formatC(rs$estimate[i], format = "f", digits = 4)),
-      sprintf(" & (%s) \\\\", formatC(rs$se[i], format = "f", digits = 4)))
-  }
-  tab_lines <- c(tab_lines, "Insurer-by-metal effects & Yes \\\\",
-                 "\\hline", "\\emph{Claims equation} & \\\\")
-  for (i in seq_len(nrow(cl))) {
-    lab <- ifelse(cl$param[i] %in% names(cost_labels), cost_labels[cl$param[i]],
-                  gsub("_", "\\\\_", cl$param[i]))
-    tab_lines <- c(tab_lines,
-      sprintf("%s & %s \\\\", lab, formatC(cl$estimate[i], format = "f", digits = 4)),
-      sprintf(" & (%s) \\\\", formatC(cl$se[i], format = "f", digits = 4)))
-  }
-  if (has_region) tab_lines <- c(tab_lines, "Rating-area shares & Yes \\\\")
-  sv <- cost_coefs %>% filter(equation == "commission")
+  tab_lines <- c("\\begin{tabular}{lrr}", "\\hline\\hline",
+                 " & Estimate & Std.\\ error \\\\", "\\hline",
+                 "\\multicolumn{3}{l}{\\emph{A. Risk score equation}} \\\\")
+  for (i in seq_len(nrow(rs)))
+    tab_lines <- c(tab_lines, row_of(paste0("\\quad ", lab_of(rs$param[i], cost_labels)),
+                                     rs$estimate[i], rs$se[i]))
+  tab_lines <- c(tab_lines, "\\quad Insurer-by-metal effects & \\multicolumn{2}{c}{Yes} \\\\",
+                 "\\multicolumn{3}{l}{\\emph{B. Claims equation}} \\\\")
+  for (i in seq_len(nrow(cl)))
+    tab_lines <- c(tab_lines, row_of(paste0("\\quad ", lab_of(cl$param[i], cost_labels)),
+                                     cl$estimate[i], cl$se[i]))
+  if (has_region) tab_lines <- c(tab_lines, "\\quad Rating-area shares & \\multicolumn{2}{c}{Yes} \\\\")
   if (nrow(sv) > 0) {
-    tab_lines <- c(tab_lines, "\\hline", "\\emph{Commission condition} & \\\\")
-    comm_labels <- c(beta_admin = "Administrative saving per commission dollar ($\\beta$)")
-    for (i in seq_len(nrow(sv))) {
-      lab <- ifelse(sv$param[i] %in% names(comm_labels), comm_labels[sv$param[i]],
-             ifelse(grepl("^wedge_", sv$param[i]),
-                    sprintf("Carrier constant, %s ($\\delta_{f}$)",
-                            gsub("_", "\\\\_", sub("^wedge_", "", sv$param[i]))),
-                    gsub("_", "\\\\_", sv$param[i])))
-      tab_lines <- c(tab_lines,
-        sprintf("%s & %s \\\\", lab, formatC(sv$estimate[i], format = "f", digits = 3)),
-        sprintf(" & (%s) \\\\", formatC(sv$se[i], format = "f", digits = 3)))
-    }
+    tab_lines <- c(tab_lines, "\\multicolumn{3}{l}{\\emph{C. Commission condition, carrier constant $\\delta_f$}} \\\\")
+    for (i in seq_len(nrow(sv)))
+      tab_lines <- c(tab_lines, row_of(paste0("\\quad ", lab_of(sv$carrier[i], carrier_names)),
+                                       sv$estimate[i], sv$se[i]))
   }
   tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/cost_estimates.tex")
@@ -484,23 +383,26 @@ if (nrow(supply_results) > 0) {
     ) %>%
     arrange(factor(metal, levels = c("Bronze", "Silver", "Gold", "Platinum")))
 
-  fmt <- function(x, d = 2) formatC(x, format = "f", digits = d)
+  fmt <- function(x, d = 0) formatC(x, format = "f", digits = d, big.mark = ",")
 
+  # Premium, marginal cost, and markup read left to right (markup = premium
+  # less the estimated marginal cost); the cost implied by the pricing
+  # condition sits beside the commission as the comparison
   tab_lines <- c(
     "\\begin{tabular}{lrrrrrrr}",
     "\\hline\\hline",
-    "Metal & N & Premium & Markup & MC (FOC) & MC (Structural) & Lerner & Commission \\\\",
+    " & Plan- & & Marginal & & Lerner & Implied & \\\\",
+    "Metal tier & cells & Premium & cost & Markup & index & marginal cost & Commission \\\\",
     "\\hline"
   )
 
   for (i in seq_len(nrow(supply_by_metal))) {
     r <- supply_by_metal[i, ]
     tab_lines <- c(tab_lines, sprintf(
-      "%s & %d & %s & %s & %s & %s & %s & %s \\\\",
-      r$metal, r$n_plan_years,
-      fmt(r$med_premium), fmt(r$med_markup),
-      fmt(r$med_mc_foc), fmt(r$med_mc_str),
-      fmt(r$med_lerner, 3), fmt(r$med_comm)
+      "%s & %s & %s & %s & %s & %s & %s & %s \\\\",
+      r$metal, fmt(r$n_plan_years),
+      fmt(r$med_premium), fmt(r$med_mc_str), fmt(r$med_markup),
+      fmt(r$med_lerner, 2), fmt(r$med_mc_foc), fmt(r$med_comm)
     ))
   }
 
@@ -587,106 +489,89 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
       .groups = "drop"
     )
 
-  # Labels and display order of the reported scenarios
-  scen_levels <- c("baseline",
-                   "zero_tau0.00", "zero_tau0.50", "zero_tau1.00",
-                   "uniform_low", "aligned", "scale_0.50",
-                   "flat_mandate", "defund_0.50", "endog_tau0.50")
-  scen_labels <- c(baseline = "Baseline",
-                   zero_tau0.00 = "Zero commission",
-                   zero_tau0.50 = "Zero commission",
-                   zero_tau1.00 = "Zero commission",
-                   uniform_low = "Low uniform commission",
-                   aligned = "Aligned commissions",
-                   scale_0.50 = "Scaled commission (50\\%)",
-                   flat_mandate = "Flat-fee mandate",
-                   defund_0.50 = "Navigator defunding (50\\%)",
-                   endog_tau0.50 = "Navigator expansion (50\\%)")
+  # The counterfactual tables share one layout: three panels (removing
+  # commissions, reshaping the schedule, changing navigator use), each scenario
+  # an indented row, the baseline omitted since every entry is a change from it
+  cf_panels <- list(
+    "Zero commission" = c(zero_tau0.00 = "$\\tau = 0$", zero_tau0.50 = "$\\tau = 0.5$",
+                          zero_tau1.00 = "$\\tau = 1$"),
+    "Commission schedule" = c(uniform_low = "Low uniform commission",
+                              scale_0.50 = "Halved commissions",
+                              aligned = "Aligned commissions",
+                              flat_mandate = "Flat-fee mandate"),
+    "Navigators" = c(defund_0.50 = "Navigator defunding (50\\%)",
+                     endog_tau0.50 = "Navigator expansion (50\\%)"))
+  # Rounded values print without a sign when they round to zero
+  fmtz <- function(x, d = 0) sub("^-(0(\\.0+)?)$", "\\1", fmt(x, d))
+  panel_lines <- function(ncol, scen_row) {
+    out <- character(0)
+    for (pn in names(cf_panels)) {
+      rows <- character(0)
+      for (sc in names(cf_panels[[pn]])) {
+        v <- scen_row(sc)
+        if (!is.null(v)) rows <- c(rows, sprintf("\\quad %s & %s \\\\", cf_panels[[pn]][[sc]], v))
+      }
+      if (length(rows)) out <- c(out, sprintf("\\multicolumn{%d}{l}{\\emph{%s}} \\\\", ncol, pn), rows)
+    }
+    out
+  }
 
   cf_summary <- prem_summary %>%
-    left_join(welf_summary, by = "scenario", relationship = "many-to-one") %>%
-    mutate(scenario = factor(scenario, levels = scen_levels)) %>%
-    filter(!is.na(scenario)) %>%
-    arrange(scenario) %>%
-    mutate(label = scen_labels[as.character(scenario)])
+    left_join(welf_summary, by = "scenario", relationship = "many-to-one")
+  cf_row <- function(sc) {
+    r <- cf_summary[cf_summary$scenario == sc, ]
+    if (nrow(r) == 1) r else NULL
+  }
 
   # Headline table. The coverage effect (change in the uninsured share, in points)
   # is the robust, parameter-driven result; the objective column is the central
   # uninsured-cost case, with the low/high band in the companion table below.
+  # d_prem and d_nav are per member per month; x12 to the annual basis of d_cs and d_obj
   tab_lines <- c(
-    "\\begin{tabular}{llrrrrr}",
+    "\\begin{tabular}{lrrrrr}",
     "\\hline\\hline",
-    "Scenario & $\\tau$ & $\\Delta$ Premium & $\\Delta$ Uninsured (pp) & $\\Delta$ CS & $\\Delta V^{nav}$ & $\\Delta V^{obj}$ \\\\",
-    "\\hline"
-  )
-  for (i in seq_len(nrow(cf_summary))) {
-    r <- cf_summary[i, ]
-    tau_str <- if (is.na(r$tau)) "--" else fmt(r$tau)
-    # d_nav is per member per month; x12 to the annual basis of d_cs and d_obj
-    tab_lines <- c(tab_lines, sprintf(
-      "%s & %s & %s & %s & %s & %s & %s \\\\",
-      r$label, tau_str,
-      fmt(12 * r$d_prem), fmt(100 * r$d_shu, 1), fmt(r$d_cs), fmt(12 * r$d_nav, 0), fmt(r$d_obj, 0)
-    ))
-  }
-  tab_lines <- c(tab_lines, "\\hline\\hline", "\\end{tabular}")
+    " & $\\Delta$ Premium & $\\Delta$ Uninsured & \\multicolumn{3}{c}{$\\Delta$ Welfare} \\\\",
+    "\\cline{4-6}",
+    " & (\\$) & (pp) & CS & $V^{nav}$ & $V^{obj}$ \\\\",
+    "\\hline",
+    panel_lines(6, function(sc) {
+      r <- cf_row(sc); if (is.null(r)) return(NULL)
+      sprintf("%s & %s & %s & %s & %s", fmtz(12 * r$d_prem), fmtz(100 * r$d_shu, 1),
+              fmtz(r$d_cs), fmtz(12 * r$d_nav), fmtz(r$d_obj))
+    }),
+    "\\hline\\hline", "\\end{tabular}")
   writeLines(tab_lines, "results/tables/counterfactual_results.tex")
 
   # --- 5a1. Objective welfare band (low / central / high uninsured cost), annual $ ---
-  # Multi-scenario families print under one label with the tau or scale value as an
-  # indented sub-row.
-  fam_label <- c(
-    zero_tau0.00 = "Zero commission",
-    zero_tau0.50 = "Zero commission",
-    zero_tau1.00 = "Zero commission",
-    scale_0.50 = "Scaled commission",
-    defund_0.50 = "Navigator defunding")
-  sub_label <- c(
-    zero_tau0.00 = "$\\tau=0.00$",
-    zero_tau0.50 = "$\\tau=0.50$",
-    zero_tau1.00 = "$\\tau=1.00$",
-    scale_0.50 = "50\\%",
-    defund_0.50 = "50\\%")
   band_lines <- c(
     "\\begin{tabular}{lrrr}",
     "\\hline\\hline",
-    "Scenario & $\\Delta V^{obj}$ low & central & high \\\\",
-    "\\hline"
-  )
-  prev_fam <- ""
-  for (i in seq_len(nrow(cf_summary))) {
-    r <- cf_summary[i, ]
-    sc <- as.character(r$scenario)
-    vals <- sprintf("%s & %s & %s", fmt(r$d_obj_low, 0), fmt(r$d_obj, 0), fmt(r$d_obj_hi, 0))
-    if (sc %in% names(fam_label)) {
-      if (fam_label[[sc]] != prev_fam) {
-        band_lines <- c(band_lines, sprintf("%s & & & \\\\", fam_label[[sc]]))
-        prev_fam <- fam_label[[sc]]
-      }
-      band_lines <- c(band_lines, sprintf("\\quad %s & %s \\\\", sub_label[[sc]], vals))
-    } else {
-      prev_fam <- ""
-      band_lines <- c(band_lines, sprintf("%s & %s \\\\", r$label, vals))
-    }
-  }
-  band_lines <- c(band_lines, "\\hline\\hline", "\\end{tabular}")
+    " & \\multicolumn{3}{c}{$\\Delta V^{obj}$ by cost of being uninsured} \\\\",
+    "\\cline{2-4}",
+    " & Low & Central & High \\\\",
+    "\\hline",
+    panel_lines(4, function(sc) {
+      r <- cf_row(sc); if (is.null(r)) return(NULL)
+      sprintf("%s & %s & %s", fmtz(r$d_obj_low), fmtz(r$d_obj), fmtz(r$d_obj_hi))
+    }),
+    "\\hline\\hline", "\\end{tabular}")
   writeLines(band_lines, "results/tables/counterfactual_welfare_band.tex")
 
   # --- 5a1b. Producer surplus and government cost, per member per year ---
   fisc_lines <- c(
-    "\\begin{tabular}{llrrrrrr}",
+    "\\begin{tabular}{lrrrrrr}",
     "\\hline\\hline",
-    "Scenario & $\\tau$ & $\\Delta$ Producer surplus & $\\Delta$ Subsidies & $\\Delta$ CSR & $\\Delta$ Uncomp.\\ care & $\\Delta$ Penalties & $\\Delta$ Gov.\\ cost \\\\",
-    "\\hline"
-  )
-  for (i in seq_len(nrow(cf_summary))) {
-    r <- cf_summary[i, ]
-    tau_str <- if (is.na(r$tau)) "--" else fmt(r$tau)
-    fisc_lines <- c(fisc_lines, sprintf("%s & %s & %s & %s & %s & %s & %s & %s \\\\",
-      r$label, tau_str, fmt(r$d_ps, 0), fmt(r$d_gov_sub, 0), fmt(r$d_gov_csr, 0),
-      fmt(r$d_gov_uc, 0), fmt(r$d_gov_pen, 0), fmt(r$d_gov, 0)))
-  }
-  fisc_lines <- c(fisc_lines, "\\hline\\hline", "\\end{tabular}")
+    " & $\\Delta$ Producer & \\multicolumn{5}{c}{$\\Delta$ Government cost} \\\\",
+    "\\cline{3-7}",
+    " & surplus & Subsidies & CSR & Uncomp.\\ care & Penalties & Total \\\\",
+    "\\hline",
+    # penalty revenue enters with a negative sign so the cost columns sum to the total
+    panel_lines(7, function(sc) {
+      r <- cf_row(sc); if (is.null(r)) return(NULL)
+      sprintf("%s & %s & %s & %s & %s & %s", fmtz(r$d_ps), fmtz(r$d_gov_sub), fmtz(r$d_gov_csr),
+              fmtz(r$d_gov_uc), fmtz(-r$d_gov_pen), fmtz(r$d_gov))
+    }),
+    "\\hline\\hline", "\\end{tabular}")
   writeLines(fisc_lines, "results/tables/counterfactual_fiscal.tex")
 
   # --- 5a2. Welfare effects with SEs (cf3 demand bootstrap + cf4 commission delta method) ---
@@ -708,19 +593,13 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
   if (!is.null(draws) && nrow(draws) > 1) {
     RPc <- UNINS_RISK_PROT[["central"]]; MRc <- UNINS_MORT_REDUX[["central"]]
     VSLc <- UNINS_VSL[["central"]]
-    se_scen <- c(zero_tau0.00  = "Zero commission ($\\tau$=0)",
-                 zero_tau1.00  = "Zero commission ($\\tau$=1)",
-                 uniform_low   = "Low uniform commission",
-                 aligned       = "Aligned commissions",
-                 flat_mandate  = "Flat-fee mandate",
-                 defund_0.50   = "Navigator defunding",
-                 endog_tau0.50 = "Navigator expansion")
     col <- function(p, s) draws[[paste0(p, "_", s)]]
-    # Point estimate with bootstrap SE in parentheses (2 significant figures).
-    sefmt <- function(x) format(signif(x, 2), scientific = FALSE, trim = TRUE)
-    wl <- c("\\begin{tabular}{lrr}", "\\hline\\hline",
-            "Scenario & $\\Delta$ Uninsured (pp) & $\\Delta V^{obj}$ \\\\", "\\hline")
-    for (s in names(se_scen)) {
+    # Point estimate with the bootstrap SE in parentheses, the SE carrying one
+    # more decimal than the point estimate
+    sefmt <- function(x, d) if (x < 0.5 * 10^(-d)) sprintf("$<$%s", formatC(10^(-d), format = "f", digits = d)) else
+      formatC(x, format = "f", digits = d)
+    se_cells <- list()
+    for (s in unlist(lapply(cf_panels, names))) {
       if (!all(paste0(c("dshare","dobjins","doop","dmort","dcat"), "_", s) %in% names(draws))) next
       cov_d <- 100 * col("dshare", s)
       obj_d <- col("dobjins", s) - col("doop", s) - RPc * col("dshare", s) -
@@ -734,10 +613,13 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
                         paste0(c("dobjins", "doop", "dshare", "dmort", "dcat"), "_", s))
       se_cov <- sqrt(var(cov_d, na.rm = TRUE) + comm_var(a_cov))
       se_obj <- sqrt(var(obj_d, na.rm = TRUE) + comm_var(a_obj))
-      wl <- c(wl, sprintf("%s & %s (%s) & %s (%s) \\\\",
-        se_scen[[s]], fmt(cov_pt, 1), sefmt(se_cov), fmt(obj_pt, 0), sefmt(se_obj)))
+      se_cells[[s]] <- sprintf("%s (%s) & %s (%s)", fmtz(cov_pt, 1), sefmt(se_cov, 2),
+                               fmtz(obj_pt), sefmt(se_obj, 1))
     }
-    wl <- c(wl, "\\hline\\hline", "\\end{tabular}")
+    wl <- c("\\begin{tabular}{lrr}", "\\hline\\hline",
+            " & $\\Delta$ Uninsured (pp) & $\\Delta V^{obj}$ (\\$) \\\\", "\\hline",
+            panel_lines(3, function(sc) se_cells[[sc]]),
+            "\\hline\\hline", "\\end{tabular}")
     writeLines(wl, "results/tables/counterfactual_welfare_se.tex")
   }
 

@@ -119,14 +119,14 @@ for (y in years) {
   })
   clusterExport(cl, c("SAMPLE_FRAC", "plan_choice", "supply_results", "coefs",
     "commission_lookup", "rs_coefs", "claims_coefs", "reins_df", "STRUCTURAL_SPEC",
-    "ADMIN_LOOKUP", "BETA_LOOKUP"))
+    "ADMIN_LOOKUP", "BETA_LOOKUP", "zip3_avail"))
   t_init <- Sys.time()
   inits <- clusterApply(cl, tasks, function(task) {
     if (is.null(task$hhs)) return(NULL)
     tryCatch(cf_cell_init(task$r, task$y, task$seed, SAMPLE_FRAC, task$hhs,
                           plan_choice, supply_results, coefs, commission_lookup,
                           rs_coefs, claims_coefs, reins_df, STRUCTURAL_SPEC,
-                          ADMIN_LOOKUP, BETA_LOOKUP),
+                          ADMIN_LOOKUP, BETA_LOOKUP, zip3_avail),
              error = function(e) { cat("  init error cell", task$r, task$y, ":", conditionMessage(e), "\n"); NULL })
   })
   active <- !vapply(inits, is.null, logical(1))

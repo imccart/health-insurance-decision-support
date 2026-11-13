@@ -1,16 +1,20 @@
-\begin{tabular}{llrrrrr}
+\begin{tabular}{lrrrrr}
 \hline\hline
-Scenario & $\tau$ & $\Delta$ Premium & $\Delta$ Uninsured (pp) & $\Delta$ CS & $\Delta V^{nav}$ & $\Delta V^{obj}$ \\
+ & $\Delta$ Premium & $\Delta$ Uninsured & \multicolumn{3}{c}{$\Delta$ Welfare} \\
+\cline{4-6}
+ & (\$) & (pp) & CS & $V^{nav}$ & $V^{obj}$ \\
 \hline
-Baseline & -- & 0.00 & 0.0 & 0.00 & 0 & 0 \\
-Zero commission & 0.00 & 69.85 & 6.1 & -385.99 & -59 & -412 \\
-Zero commission & 0.50 & 4.16 & 2.8 & -104.55 & -18 & -177 \\
-Zero commission & 1.00 & -52.81 & -0.3 & 184.37 & 19 & 34 \\
-Low uniform commission & -- & -5.77 & 0.6 & -2.81 & -6 & -43 \\
-Aligned commissions & -- & -1.13 & -0.0 & 6.01 & 11 & 7 \\
-Scaled commission (50\%) & -- & 1.08 & 0.7 & -0.59 & -6 & -41 \\
-Flat-fee mandate & -- & 2.21 & 0.1 & -0.60 & 0 & -14 \\
-Navigator defunding (50\%) & -- & 10.82 & 0.1 & -43.64 & -7 & -16 \\
-Navigator expansion (50\%) & 0.50 & -20.45 & -0.1 & 90.52 & 7 & 14 \\
+\multicolumn{6}{l}{\emph{Zero commission}} \\
+\quad $\tau = 0$ & 70 & 6.1 & -386 & -59 & -412 \\
+\quad $\tau = 0.5$ & 4 & 2.8 & -105 & -18 & -177 \\
+\quad $\tau = 1$ & -53 & -0.3 & 184 & 19 & 34 \\
+\multicolumn{6}{l}{\emph{Commission schedule}} \\
+\quad Low uniform commission & -6 & 0.6 & -3 & -6 & -43 \\
+\quad Halved commissions & 1 & 0.7 & -1 & -6 & -41 \\
+\quad Aligned commissions & -1 & 0.0 & 6 & 11 & 7 \\
+\quad Flat-fee mandate & 2 & 0.1 & -1 & 0 & -14 \\
+\multicolumn{6}{l}{\emph{Navigators}} \\
+\quad Navigator defunding (50\%) & 11 & 0.1 & -44 & -7 & -16 \\
+\quad Navigator expansion (50\%) & -20 & -0.1 & 91 & 7 & 14 \\
 \hline\hline
 \end{tabular}

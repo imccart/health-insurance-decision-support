@@ -13,9 +13,11 @@
 # Uses NET premium (matches the structural demand price); retains premium_posted
 # for the markup FOC and the posted->net chain rule. Returns
 # list(cell_data, plan_attrs). Callers must use the SAME seed and SAMPLE_FRAC
-# for an identical HH sample.
+# for an identical HH sample. avail is data/output/zip3_plan_availability.csv:
+# each household's choice set is the plans offered in its zip3, and its ACA
+# benchmark (bench_plan, bench_obs) is the 2nd cheapest silver plan there.
 
-build_structural <- function(plans, hhs, sample_frac,
+build_structural <- function(plans, hhs, sample_frac, avail,
                              spec = NULL) {
 
   hhs_dt <- as.data.table(hhs)
@@ -91,7 +93,7 @@ build_structural <- function(plans, hhs, sample_frac,
   # 2. Cross-join sampled HH x choice set. `cutoff` looked up from
   # AFFORD_THRESHOLDS by year (not carried as a per-row HH column).
   hh_slim <- hhs_dt[, .(
-    household_id, FPL, subsidized_members, rating_factor,
+    household_id, zip3, FPL, subsidized_members, rating_factor,
     hh_plan_id = plan_id,
     oldest_member, cheapest_premium, subsidy, penalty,
     poverty_threshold, SLC_contribution, premiumSLC,
@@ -103,6 +105,15 @@ build_structural <- function(plans, hhs, sample_frac,
   dt <- merge(hh_slim, choice_set, by = ".xjoin", allow.cartesian = TRUE)
   dt[, .xjoin := NULL]
   rm(hh_slim, choice_set)
+
+  # Zip3 menus: keep the outside option and the plans offered in the household's zip3
+  cell_ry <- unique(hhs_dt[, .(region, year)])
+  avail_cell <- as.data.table(avail)[region == cell_ry$region & year == cell_ry$year,
+                                     .(zip3, plan_id, offered = 1L)]
+  dt <- merge(dt, avail_cell, by = c("zip3", "plan_id"), all.x = TRUE)
+  dt <- dt[plan_id == "Uninsured" | offered == 1L]
+  dt[, offered := NULL]
+  rm(avail_cell)
 
   # 3. CSR filter
   dt[, `:=`(
@@ -198,6 +209,7 @@ build_structural <- function(plans, hhs, sample_frac,
     small <- small_raw[, .(
       premium_oop    = min(premium_oop, na.rm = TRUE),
       plan_choice    = max(plan_choice, na.rm = TRUE),
+      zip3           = first(zip3),
       FPL            = first(FPL),
       hh_plan_id     = first(hh_plan_id),
       oldest_member  = first(oldest_member),
@@ -375,6 +387,19 @@ build_structural <- function(plans, hhs, sample_frac,
     plan_attrs <- merge(plan_attrs, comm_by_plan, by = "plan_id", all.x = TRUE)
     plan_attrs[is.na(comm_pmpm), comm_pmpm := 0]
   }
+
+  # ACA benchmark on each zip3 menu: the 2nd cheapest silver plan by posted
+  # premium (the cheapest where the menu has one). bench_obs stays at the
+  # observed point; bench_plan is the benchmark in use, which the
+  # counterfactual re-picks at candidate premiums.
+  sil <- plan_attrs[metal == "Silver", .(plan_id, premium_posted)]
+  bench_z <- merge(unique(dt[plan_id %in% sil$plan_id, .(zip3, plan_id)]), sil,
+                   by = "plan_id", all.x = TRUE)
+  setorder(bench_z, zip3, premium_posted, plan_id)
+  bench_z <- bench_z[, .(bench_obs = if (.N > 1) plan_id[2] else plan_id[1]), by = zip3]
+  dt <- merge(dt, bench_z, by = "zip3", all.x = TRUE)
+  dt[, bench_plan := bench_obs]
+  rm(sil, bench_z)
 
   setorder(dt, household_id, plan_id)
 
@@ -664,7 +689,8 @@ nest_inside_rows <- function(cell_data, V, V_base, lambda,
 # Net premium is floored at zero (premium less subsidy, never negative), so a
 # household whose subsidy covers the plan does not respond to a small premium
 # change. kink_m = 1{premium_hh > subsidy} per row multiplies the pass-through.
-# For the benchmark column of a subsidized HH with an interior subsidy
+# For the column of the household's own benchmark plan (bench_plan, set on its
+# zip3 menu) of a subsidized HH with an interior subsidy
 # (sub_interior = 1: benchmark premium above the contribution cap), the subsidy
 # absorbs the own-price change and every other plan's net premium falls by rf_i
 # on the rows not at the floor. With S_f = sum_{k != l} kink_m_k s_kg and S_b
@@ -689,7 +715,7 @@ nest_inside_rows <- function(cell_data, V, V_base, lambda,
 # Omega_broker %*% comm_vec is in the same share units as the rest of the FOC.
 # Cells with navigators but no brokers return zeros.
 
-compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan,
+compute_shares_and_elasticities <- function(cell_data, V, lambda,
                                              plans_cell, coefs_cell, spec = NULL,
                                              V_base = NULL, channel_filter = NULL,
                                              add_N = NULL, add_A = NULL) {
@@ -770,9 +796,14 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
     set(ins_dt, j = paste0("wz_", z), value = v)
   }
 
+  # Each household's benchmark (its zip3 menu's 2nd cheapest silver) is the
+  # bench_plan column
+  if (!"bench_plan" %in% names(ins_dt))
+    stop("cell data lack bench_plan: rebuild the cells with build_structural")
+
   for (l_idx in seq_along(plan_ids)) {
     l <- plan_ids[l_idx]
-    is_benchmark <- (!is.na(benchmark_plan) && l == benchmark_plan)
+    is_benchmark <- any(ins_dt$bench_plan == l, na.rm = TRUE)
 
     if (use_states) {
       l_info <- ins_dt[plan_id == l, .(household_number, s_lg = s_jg,
@@ -816,7 +847,7 @@ compute_shares_and_elasticities <- function(cell_data, V, lambda, benchmark_plan
         merged[, S_b := sum(kink_m * s_jg_b * (1 - own_l)), by = household_number]
         merged[, enr_S := alpha_b * S_b]
       }
-      merged[subsidized == 1L & sub_interior == 1,
+      merged[subsidized == 1L & sub_interior == 1 & bench_plan %in% l,
              dq_dposted := -q_j * rf_i *
                (alpha_i * (kink_m * (1 - own_l) - S_f) / lambda_i + (1 - s_g) * enr_S)]
     }

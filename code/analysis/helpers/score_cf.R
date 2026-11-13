@@ -31,15 +31,13 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   sil_flag <- vapply(plan_ids_cell, function(pn)
     inside$silver[match(pn, inside$plan_id)] == 1, logical(1))
   silver_ids <- plan_ids_cell[!is.na(sil_flag) & sil_flag]
-  sil_sorted <- silver_ids[order(p_obs[silver_ids])]
-  benchmark_plan <- if (length(sil_sorted) == 0) NA_character_ else
-    if (length(sil_sorted) == 1) sil_sorted[1] else sil_sorted[2]   # at observed premiums
+  menus <- zip3_silver_menus(cell_data_base, silver_ids)   # benchmarks on each zip3 menu
   comm_obs_cell <- vapply(plan_ids_cell, function(pn) {
     v <- mean(inside$comm_pmpm[inside$plan_id == pn], na.rm = TRUE)
     if (is.finite(v)) v else 0
   }, numeric(1))
-  cl_score <- list(plan_ids = plan_ids_cell, p_obs = p_obs,
-                   silver_ids = silver_ids, benchmark_plan = benchmark_plan,
+  cl_score <- list(plan_ids = plan_ids_cell, p_obs = p_obs, silver_ids = silver_ids,
+                   zip3_silver = menus$zip3_silver, bench_obs = menus$bench_obs,
                    spec = STRUCTURAL_SPEC, cell_data_base = cell_data_base,
                    comm_obs = comm_obs_cell)
 

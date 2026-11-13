@@ -25,13 +25,13 @@ COMM_TERMS <- c("commission_broker", "commission_broker_sq")
 # cf_cell_init --------------------------------------------------------------
 # Builds the cell's frozen state: the structural choice data at the sampled
 # households, plan attributes, the observed premiums and commissions, the
-# insurer structure, the benchmark plan, the claims-equation plan
+# insurer structure, the benchmark on each zip3 menu, the claims-equation plan
 # characteristics, and the commission derivatives at the observed point.
 # Returns a small summary for the master (NULL if the cell cannot be used).
 cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
                          plan_choice, supply_results, coefs, commission_lookup,
                          rs_coefs, claims_coefs, reins_df, STRUCTURAL_SPEC,
-                         admin_lookup, beta_admin) {
+                         admin_lookup, beta_admin, zip3_avail) {
   # admin_lookup: the insurer's non-commission administrative cost per member
   # (MLR), keyed prefix_year; beta_admin: the administrative saving per
   # commission dollar on a broker enrollee by insurer-year (s4), keyed
@@ -57,7 +57,8 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
     summarize(split = n_distinct(rate) > 1, .groups = "drop") %>%
     filter(split) %>% pull(insurer_prefix)
 
-  build_result <- build_structural(plans_cell, hhs_raw, sample_frac, spec = STRUCTURAL_SPEC)
+  build_result <- build_structural(plans_cell, hhs_raw, sample_frac, avail = zip3_avail,
+                                   spec = STRUCTURAL_SPEC)
   if (is.null(build_result)) { cat("Empty cell data for", r, y, "\n"); return(NULL) }
   cell_data_base <- build_result$cell_data
   plan_attrs     <- build_result$plan_attrs
@@ -90,11 +91,11 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
   plan_unit <- ifelse(plan_prefix %in% split_prefix,
                       paste0(plan_prefix, ifelse(comm_hmo_cf == 1, ".HMO", ".PPO")),
                       plan_prefix)
-  # 2nd cheapest Silver by observed posted premium (the ACA benchmark at the
-  # observed point; the counterfactual re-picks it at the candidate premiums)
-  silver <- plan_attrs[plan_attrs$metal == "Silver", ]
-  silver <- silver[order(silver$premium_posted), ]
-  benchmark_plan <- if (nrow(silver) == 0) NA_character_ else if (nrow(silver) == 1) silver$plan_id[1] else silver$plan_id[2]
+  # ACA benchmark on each zip3 menu: build_structural sets the observed one
+  # (bench_obs); the counterfactual re-picks it at the candidate premiums
+  # among the silver plans on that menu
+  silver_ids <- intersect(plan_attrs$plan_id[plan_attrs$metal == "Silver"], plan_ids_cell)
+  menus <- zip3_silver_menus(cell_data_base, silver_ids)
 
   plan_chars_cell <- tibble(
     plan_id  = plan_ids_cell,
@@ -151,8 +152,8 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
     coefs = coefs, lambda = setNames(coefs$estimate, coefs$term)[["lambda"]],
     spec = STRUCTURAL_SPEC, rs_coefs = rs_coefs, claims_coefs = claims_coefs,
     p_obs = p_obs, plan_avs = plan_avs, comm_obs = comm_obs, g = g_cell, share_obs = share_obs,
-    own_mat = own_mat, benchmark_plan = benchmark_plan,
-    silver_ids = intersect(plan_attrs$plan_id[plan_attrs$metal == "Silver"], plan_ids_cell),
+    own_mat = own_mat, silver_ids = silver_ids,
+    zip3_silver = menus$zip3_silver, bench_obs = menus$bench_obs,
     plan_chars = plan_chars_cell, reins_vec = reins_vec, gcf = ra_gcf(r, y),
     mean_comm_pmpm = mean_comm_pmpm
   )
@@ -160,15 +161,28 @@ cf_cell_init <- function(r, y, seed, sample_frac, hhs_raw,
        p_obs = p_obs, comm_obs = comm_obs, g = g_cell, share_obs = share_obs)
 }
 
+# zip3_silver_menus ---------------------------------------------------------
+# The silver plans on each zip3 menu of a cell and the observed benchmark there,
+# both keyed by zip3, from the cell data build_structural returns
+zip3_silver_menus <- function(cell_data, silver_ids) {
+  cd <- as.data.table(cell_data)
+  sm <- unique(cd[plan_id %in% silver_ids, .(zip3, plan_id)])
+  bo <- unique(cd[, .(zip3, bench_obs)])
+  list(zip3_silver = split(sm$plan_id, as.character(sm$zip3)),
+       bench_obs = setNames(bo$bench_obs, as.character(bo$zip3)))
+}
+
 # current_benchmark -------------------------------------------------------
-# The ACA benchmark at a candidate posted-premium vector: the 2nd cheapest
-# Silver plan in the cell at those premiums (the cheapest if there is one).
+# The ACA benchmark on each zip3 menu at a candidate posted-premium vector: the
+# 2nd cheapest silver plan on the menu at those premiums (the cheapest if there
+# is one). Named by zip3.
 current_benchmark <- function(cl, p_vec) {
-  sil <- cl$silver_ids
-  sil <- sil[sil %in% names(p_vec)]
-  if (length(sil) == 0) return(NA_character_)
-  sil <- sil[order(p_vec[sil])]
-  if (length(sil) == 1) sil[1] else sil[2]
+  vapply(cl$zip3_silver, function(sil) {
+    sil <- sil[sil %in% names(p_vec)]
+    if (length(sil) == 0) return(NA_character_)
+    sil <- sil[order(p_vec[sil])]
+    if (length(sil) == 1) sil[1] else sil[2]
+  }, character(1))
 }
 
 # update_premiums ---------------------------------------------------------
@@ -179,21 +193,21 @@ current_benchmark <- function(cl, p_vec) {
 # re-picked at the candidate premiums: subsidy = max(0, premiumSLC(p) - zeta),
 # anchored to the data-build value at the observed benchmark so the observed
 # point reproduces it exactly. Takes the cell object explicitly (shared with
-# the cf2/cf3 scorer); returns the data plus the benchmark in use, which the
-# share derivatives need.
+# the cf2/cf3 scorer); returns the data with each household's benchmark in
+# use (bench_plan), which the share derivatives need.
 update_premiums <- function(cl, dt, p_vec) {
   rf_i <- dt$rating_factor / RATING_FACTOR_AGE40
-  bench_cur <- current_benchmark(cl, p_vec)
-  if (!is.na(bench_cur) && !is.na(cl$benchmark_plan)) {
-    d_bench       <- p_vec[[bench_cur]] - cl$p_obs[[cl$benchmark_plan]]
-    premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
-    sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
-    dt[, subsidy_cf := fifelse(subsidized == 1L, sub_endog, adj_subsidy)]
-    dt[, sub_interior := as.numeric(subsidized == 1L & (premiumSLC_cf - SLC_contribution) > 0)]
-  } else {
-    dt[, subsidy_cf := adj_subsidy]
-    dt[, sub_interior := 0]
-  }
+  zk <- as.character(dt$zip3)
+  bench_i <- unname(current_benchmark(cl, p_vec)[zk])
+  obs_i   <- unname(cl$bench_obs[zk])
+  has_b   <- !is.na(bench_i) & !is.na(obs_i) & obs_i %in% names(cl$p_obs)
+  d_bench <- numeric(nrow(dt))
+  d_bench[has_b] <- p_vec[bench_i[has_b]] - cl$p_obs[obs_i[has_b]]
+  premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
+  sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
+  dt[, subsidy_cf := fifelse(has_b & subsidized == 1L, sub_endog, adj_subsidy)]
+  dt[, sub_interior := as.numeric(has_b & subsidized == 1L & (premiumSLC_cf - SLC_contribution) > 0)]
+  dt[, bench_plan := bench_i]
   dt[, kink_m := 1]
   for (pn in names(p_vec)) {
     idx <- which(dt$plan_id == pn)
@@ -205,7 +219,7 @@ update_premiums <- function(cl, dt, p_vec) {
     set(dt, i = idx, j = "kink_m", value = as.numeric(gap > 0))
   }
   dt <- recompute_prem_interactions(dt, cl$spec)
-  list(dt = dt, bench = bench_cur)
+  list(dt = dt)
 }
 
 # build_scenario_data ------------------------------------------------------
@@ -358,7 +372,7 @@ cf_cell_scenario <- function(label, spec) {
       cd_obs <- build_scenario_data(cl, cl$comm_obs)
       up_obs <- update_premiums(cl, cd_obs, cl$p_obs)
       u_obs  <- compute_utility(up_obs$dt, cl$coefs)
-      br_obs <- compute_shares_and_elasticities(up_obs$dt, u_obs$V, cl$lambda, up_obs$bench,
+      br_obs <- compute_shares_and_elasticities(up_obs$dt, u_obs$V, cl$lambda,
                                                 cl$plan_attrs, cl$coefs, spec = cl$spec,
                                                 V_base = u_obs$V_base, channel_filter = "broker",
                                                 add_N = u_obs$add_N, add_A = u_obs$add_A)
@@ -402,11 +416,11 @@ cf_cell_eval_p1 <- function(P) {
 
   eta_cur <- sc$comm
   up <- update_premiums(cl, copy(sc$dt_base), p_vec)
-  dt <- up$dt; bench <- up$bench
+  dt <- up$dt
 
   util <- compute_utility(dt, cl$coefs)
   se <- tryCatch(
-    compute_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
+    compute_shares_and_elasticities(dt, util$V, cl$lambda, cl$plan_attrs,
                                      cl$coefs, spec = cl$spec, V_base = util$V_base,
                                      add_N = util$add_N, add_A = util$add_A),
     error = function(e) NULL)
@@ -416,7 +430,7 @@ cf_cell_eval_p1 <- function(P) {
                    error = function(e) NULL)
   if (is.null(demo)) { .cf$ev <- NULL; return(NULL) }
   br <- tryCatch(
-    compute_shares_and_elasticities(dt, util$V, cl$lambda, bench, cl$plan_attrs,
+    compute_shares_and_elasticities(dt, util$V, cl$lambda, cl$plan_attrs,
                                      cl$coefs, spec = cl$spec, V_base = util$V_base,
                                      channel_filter = "broker",
                                      add_N = util$add_N, add_A = util$add_A),

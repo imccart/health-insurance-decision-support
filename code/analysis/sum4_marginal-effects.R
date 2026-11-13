@@ -12,7 +12,8 @@
 ##                (1 - S_F) * sum_{k in F} s_k b_k / lambda.
 ##                Changes: commission +$1 PMPM, premium +$10 per member per
 ##                month, actuarial value +10 points.
-##                Outputs: results/demand_marginal_effects.csv
+##                Outputs: results/demand_marginal_effects.csv,
+##                results/tables/demand_marginal_effects.tex
 
 # Dependencies: _analysis.R preamble (TEMP_DIR, helpers) loaded.
 
@@ -110,3 +111,27 @@ insurer_me <- rbindlist(insurer_rows)[, lapply(.SD, sum), by = channel][
   .SDcols = me_vars]
 
 fwrite(rbind(plan_me, insurer_me), "results/demand_marginal_effects.csv")
+
+
+# Table: percent change in the choice probability, by channel -------------
+
+me <- fread("results/demand_marginal_effects.csv")
+chan <- c("Unassisted", "Navigator", "Agent")
+me_row <- function(lv, v, d = 1, scale = 1) {
+  x <- me[level == lv][match(chan, channel), get(v)] * scale
+  if (v == "comm_pct") x[chan != "Agent"] <- NA   # commissions reach agent clients only
+  paste(ifelse(is.na(x), "", formatC(x, format = "f", digits = d)), collapse = " & ")
+}
+tl <- c("\\begin{tabular}{lrrr}", "\\hline\\hline",
+        " & Unassisted & Navigator & Agent \\\\", "\\hline",
+        "\\multicolumn{4}{l}{\\emph{Plan level}} \\\\",
+        paste0("\\quad Mean choice probability (\\%) & ", me_row("plan", "s", 1, 100), " \\\\"),
+        paste0("\\quad Premium, $+$\\$10 & ", me_row("plan", "prem_pct"), " \\\\"),
+        paste0("\\quad Actuarial value, $+$10 points & ", me_row("plan", "av_pct"), " \\\\"),
+        paste0("\\quad Commission, $+$\\$1 & ", me_row("plan", "comm_pct"), " \\\\"),
+        "\\multicolumn{4}{l}{\\emph{Insurer level}} \\\\",
+        paste0("\\quad Mean choice probability (\\%) & ", me_row("insurer", "s", 1, 100), " \\\\"),
+        paste0("\\quad Premium, $+$\\$10 & ", me_row("insurer", "prem_pct"), " \\\\"),
+        paste0("\\quad Commission, $+$\\$1 & ", me_row("insurer", "comm_pct"), " \\\\"),
+        "\\hline\\hline", "\\end{tabular}")
+writeLines(tl, "results/tables/demand_marginal_effects.tex")

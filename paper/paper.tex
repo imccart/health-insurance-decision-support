@@ -344,13 +344,13 @@ We report analytical standard errors. For the demand parameters, we use a robust
 \subsection{Results}
 \label{subsec:structural-results}
 
-Table~\ref{tab:demand-estimates} reports the demand estimates, obtained from the 20 percent sample of \nDemandHH{} household-years. The nesting parameter is \lambdaHat{}, confirming that households treat exchange plans as closer substitutes for one another than for the outside option. The base premium coefficient is $-0.418$ per hundred dollars of monthly premium. Both channel premium interactions add to that sensitivity rather than offsetting it, by $-0.098$ for navigator-assisted households and $-0.022$ for agent-assisted households, so households choosing with assistance respond more to premium differences than households choosing on their own.
+We estimate demand on the 20 percent sample of \nDemandHH{} household-years. The supplemental appendix reports the full set of coefficients, and Table~\ref{tab:demand-me} summarizes them as changes in choice probabilities by assistance channel. The nesting parameter is \lambdaHat{}, confirming that households treat exchange plans as closer substitutes for one another than for the outside option. The base premium coefficient is $-0.418$ per hundred dollars of monthly premium. Both channel premium interactions add to that sensitivity rather than offsetting it, by $-0.098$ for navigator-assisted households and $-0.022$ for agent-assisted households, so households choosing with assistance respond more to premium differences than households choosing on their own. A \$10 increase in a plan's monthly premium lowers its choice probability by 16.7 percent among unassisted households, 20.2 percent among navigator-assisted households, and 17.6 percent among agent-assisted households.
 
-The steering terms line up with the design-based evidence. The linear commission coefficient is positive and the squared term is negative (0.027 and $-0.066$, with standard errors of 0.0004 and 0.0011), so agent-assisted households are more likely to enroll in plans paying higher commissions, holding premiums and plan characteristics fixed, and the pull of an additional commission dollar falls as the commission rises, reaching zero at \$\commTurningPoint{} per member per month. Evaluated at the mean commission and the mean price coefficient among agent-assisted households, a \$1 increase in monthly commission shifts their enrollment as much as a \$\commPremRatio{} reduction in net monthly premium. Because mean commissions (\$\meanCommission{} per member per month) are much smaller than mean net premiums (\$\meanNetPremium{}), the same comparison in percentage terms puts the commission elasticity of agent-assisted demand at \commPremElast{} of its premium elasticity. The channel interactions with actuarial value are both positive and larger for navigators (1.19) than for agents (0.74), so assisted households place more value on plan generosity than unassisted households, and navigator-assisted households most of all.
+The steering terms line up with the design-based evidence. The linear commission coefficient is positive and the squared term is negative (0.027 and $-0.066$, with standard errors of 0.0004 and 0.0011), so agent-assisted households are more likely to enroll in plans paying higher commissions, holding premiums and plan characteristics fixed, and the pull of an additional commission dollar falls as the commission rises, reaching zero at \$\commTurningPoint{} per member per month. At observed commissions, a \$1 increase in a plan's monthly commission raises its choice probability among agent-assisted households by 2.3 percent. Evaluated at the mean commission and the mean price coefficient among agent-assisted households, a \$1 increase in monthly commission shifts their enrollment as much as a \$\commPremRatio{} reduction in net monthly premium. Because mean commissions (\$\meanCommission{} per member per month) are much smaller than mean net premiums (\$\meanNetPremium{}), the same comparison in percentage terms puts the commission elasticity of agent-assisted demand at \commPremElast{} of its premium elasticity. The channel interactions with actuarial value are both positive and larger for navigators (1.19) than for agents (0.74), so assisted households place more value on plan generosity than unassisted households, and navigator-assisted households most of all.
 
-Table~\ref{tab:cost-estimates} reports the cost estimates, which follow \cite{saltzman2019} where the specifications overlap. The risk score equation places the level of predicted risk in a full set of insurer-by-metal effects, so two platinum plans offered by different carriers are assigned different risk even at the same enrollee composition, while the demographic shares enter with slopes common across insurers and tiers. A higher share of family households raises predicted risk, and higher shares of non-white and of younger enrollees lower it, while the share male is not distinguishable from zero. In the claims equation, the pass-through of the risk score into average claims is 1.31, so a plan whose enrollees are ten percent riskier has roughly thirteen percent higher claims.
+The supplemental appendix reports the cost estimates, which follow \cite{saltzman2019} where the specifications overlap. The risk score equation places the level of predicted risk in a full set of insurer-by-metal effects, so two platinum plans offered by different carriers are assigned different risk even at the same enrollee composition, while the demographic shares enter with slopes common across insurers and tiers. A higher share of family households raises predicted risk, and higher shares of non-white and of younger enrollees lower it, while the share male is not distinguishable from zero. In the claims equation, the pass-through of the risk score into average claims is 1.31, so a plan whose enrollees are ten percent riskier has roughly thirteen percent higher claims.
 
-Table~\ref{tab:supply-results} reports the recovered markups by metal tier. Markups are smallest on bronze plans and largest on platinum. The table reports within-tier medians; the unweighted mean across all plan-cells is \$\meanMarkup{} per member per month, a Lerner index of \meanLerner{}. Figure~\ref{fig:mc-validation} plots the marginal cost implied by the pricing first-order conditions against the structural prediction from the risk score and claims equations. The two are correlated at \mcFitCorr{} across the \nPlanCells{} plan-cells, of which \nPlanCellsFOC{} are above the share floor, and \nNegMC{} have negative marginal cost net of transfers.
+Table~\ref{tab:supply-results} reports the recovered markups by metal tier. Markups are smallest on bronze plans and largest on platinum. The table reports within-tier medians, and the unweighted mean across all plan-cells is \$\meanMarkup{} per member per month, a Lerner index of \meanLerner{}. Figure~\ref{fig:mc-validation} plots the marginal cost implied by the pricing first-order conditions against the structural prediction from the risk score and claims equations. The two are correlated at \mcFitCorr{} across the \nPlanCells{} plan-cells, of which \nPlanCellsFOC{} are above the share floor, and \nNegMC{} have negative marginal cost net of transfers.
 
 \section{Welfare Effects of Agent Intermediation}
 \label{sec:welfare}
@@ -458,119 +458,6 @@ More broadly, our findings apply to other markets in which intermediaries are pa
 
 \section*{Tables and Figures}
 
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Summary Statistics for Covered California Enrollees}\footnote{Statistics based on the population of households enrolled in a Covered California plan from 2014--2019. Dominated choice rates are conditional on having at least one dominated plan in the choice set.}}
-\label{tab:summary-stats}
-\centerline{%
-    \input{results/tables/summary_stats.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Structural Demand Estimates}\footnote{Estimated by maximum likelihood on the pooled sample of all households, weighted by household size, with household-clustered sandwich standard errors. Premiums are net of subsidy and measured in hundreds of dollars. The nesting parameter $\lambda$ governs substitution between exchange plans and the outside option. Navigator $\times$ AV and agent $\times$ AV interactions capture each channel's effect on the valuation of plan generosity. Commission $\times$ agent and its square over 100 capture the effect of per-member-per-month commissions for agent-assisted households. The demographic interactions let price sensitivity, the valuation of generosity, and the value of enrolling vary with household characteristics.}}
-\label{tab:demand-estimates}
-\renewcommand{\arraystretch}{0.9}
-\centerline{%
-    \input{results/tables/demand_estimates.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Cost Estimates}\footnote{The risk score Equation~\eqref{eqn:risk_score_estimation} is estimated by weighted least squares and held fixed. The claims Equation~\eqref{eqn:avg_claims_estimation} is estimated by two-step generalized method of moments jointly with the pricing and commission first-order conditions, with the second-step weight equal to the inverse of the estimated moment covariance. Sandwich standard errors in parentheses. Kaiser silver is the omitted cell in the insurer-by-metal effects. Demographic shares are predicted from the estimated choice model.}}
-\label{tab:cost-estimates}
-\centerline{%
-    \input{results/tables/cost_estimates.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Supply-Side Results by Metal Tier}\footnote{Each column reports the within-tier median across plan-cells. Premium is the average premium collected per member, the posted age-40 premium scaled by the average age rating of the plan's enrollees. Markup is that premium less MC (Structural). MC (FOC) is the marginal cost implied by the first-order condition inversion. MC (Structural) is the predicted marginal cost from the risk score and claims equations estimated on rate filing data, net of risk adjustment transfers and reinsurance. Lerner index is the markup divided by the premium.}}
-\label{tab:supply-results}
-\centerline{%
-    \input{results/tables/supply_results.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Counterfactual Premium, Coverage, and Welfare Effects}\footnote{Each row reports the change relative to the baseline equilibrium, averaged across region-year cells, for a given counterfactual scenario. $\tau$ is the substitution rate for the zero-commission and navigator-expansion families and is blank where it does not apply. $\Delta$ Premium is the share-weighted change in posted premiums. $\Delta$ Uninsured is the change in the share of households taking the outside option, in percentage points. $\Delta$ CS is the change in Small-Rosen consumer surplus, $\Delta V^{nav}$ is the change in the navigator-rule money metric, and $\Delta V^{obj}$ is the change in the objective money metric at the central uninsured-cost calibration; all are defined in Section~\ref{subsec:welfare_measurement}, and the four dollar figures ($\Delta$ Premium, $\Delta$ CS, $\Delta V^{nav}$, and $\Delta V^{obj}$) are per member per year. The low and high uninsured-cost cases are in Table~\ref{tab:cf-band}.}}
-\label{tab:cf-results}
-\centerline{%
-    \input{results/tables/counterfactual_results.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Objective Welfare Effect by Uninsured-Cost Calibration}\footnote{Change in the objective money-metric welfare measure relative to the baseline equilibrium, per member per year, under the low, central, and high valuations of the cost of being uninsured described in Section~\ref{subsec:welfare_measurement}. The band reflects the calibration of the cost of being uninsured, principally the mortality valuation; it is distinct from the sampling uncertainty in the estimated parameters. Scenarios are described in Section~\ref{subsec:cf_design}.}}
-\label{tab:cf-band}
-\centerline{%
-    \input{results/tables/counterfactual_welfare_band.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Coverage and Welfare Effects with Bootstrap Standard Errors}\footnote{Change in the uninsured share (percentage points) and in the objective money metric at the central uninsured-cost calibration, per member per year, relative to the baseline equilibrium. Standard errors in parentheses are from a parametric bootstrap over the estimated demand parameters and capture the sampling uncertainty in those estimates, distinct from the calibration band across uninsured-cost valuations in Table~\ref{tab:cf-band}. Scenarios are described in Section~\ref{subsec:cf_design}.}}
-\label{tab:cf-se}
-\centerline{%
-    \input{results/tables/counterfactual_welfare_se.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
-\begin{table}[!h]
-\centering
-\footnotesize
-\begin{minipage}[h]{6in}
-\caption[]{\textbf{Producer Surplus and Government Cost by Scenario}\footnote{Change relative to the baseline equilibrium, per member per year, averaged across region-year cells. Producer surplus is the insurer margin, the age-rated premium collected less marginal cost, summed over enrolled members and net of commissions paid to agents less the administrative cost they replace. Subsidies are the advance premium tax credit actually paid, capped at the household premium, on enrolled households. Government cost is subsidies plus cost-sharing reduction payments and uncompensated care, less mandate penalty revenue. Scenarios are described in Section~\ref{subsec:cf_design}.}}
-\label{tab:cf-fiscal}
-\centerline{%
-    \input{results/tables/counterfactual_fiscal.tex}
-}
-\end{minipage}
-\end{table}
-
-\clearpage
-
 \begin{figure}[htb]
 \centering
 \begin{minipage}[h]{6in}
@@ -597,6 +484,20 @@ More broadly, our findings apply to other markets in which intermediaries are pa
 \label{fig:enrollee-count}
 \end{minipage}
 \end{figure}
+
+\clearpage
+
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Summary Statistics for Covered California Enrollees}\footnote{Statistics based on the population of households enrolled in a Covered California plan from 2014--2019. Dominated choice rates are conditional on having at least one dominated plan in the choice set.}}
+\label{tab:summary-stats}
+\centerline{%
+    \input{results/tables/summary_stats.tex}
+}
+\end{minipage}
+\end{table}
 
 \clearpage
 
@@ -665,6 +566,34 @@ More broadly, our findings apply to other markets in which intermediaries are pa
 
 \clearpage
 
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Demand Response by Assistance Channel}\footnote{Average percent change in a plan's choice probability (plan level) or in the probability of choosing an insurer (insurer level) from the stated change in that plan's characteristic, or in that characteristic on every plan of the insurer, holding all other plans fixed. Averages are over enrolled households at their realized channel, weighted by household size, from the demand estimates reported in the supplemental appendix. Mean choice probability is the average probability of a plan or insurer in the household's choice set. Premiums are net of subsidy, premium and commission changes are per member per month, and the actuarial value change is 10 percentage points. Commissions are paid only on agent-assisted enrollment.}}
+\label{tab:demand-me}
+\centerline{%
+    \input{results/tables/demand_marginal_effects.tex}
+}
+\end{minipage}
+\end{table}
+
+\clearpage
+
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Supply-Side Results by Metal Tier}\footnote{Within-tier medians across plan-cells, in dollars per member per month except the Lerner index. Premium is the average premium collected per member, the posted age-40 premium scaled by the average age rating of the plan's enrollees. Marginal cost is the prediction from the risk score and claims equations, net of risk adjustment transfers and reinsurance, plus administrative cost. Markup is premium less marginal cost, and the Lerner index is the markup divided by the premium. Implied marginal cost solves the pricing first-order condition at observed premiums, on the same basis. Commission is per agent-assisted member. Medians are taken column by column, so the markup need not equal the difference between the premium and marginal cost columns.}}
+\label{tab:supply-results}
+\centerline{%
+    \input{results/tables/supply_results.tex}
+}
+\end{minipage}
+\end{table}
+
+\clearpage
+
 \begin{figure}[htb]
 \centering
 \begin{minipage}[h]{6in}
@@ -675,6 +604,62 @@ More broadly, our findings apply to other markets in which intermediaries are pa
 \label{fig:mc-validation}
 \end{minipage}
 \end{figure}
+
+\clearpage
+
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Counterfactual Premium, Coverage, and Welfare Effects}\footnote{Each row reports the change relative to the baseline equilibrium, averaged across region-year cells, for a given counterfactual scenario. In the zero-commission scenarios, $\tau$ is the substitution rate defined in Section~\ref{subsec:cf_design}. $\Delta$ Premium is the share-weighted change in posted premiums. $\Delta$ Uninsured is the change in the share of households taking the outside option, in percentage points. $\Delta$ CS is the change in Small-Rosen consumer surplus, $\Delta V^{nav}$ is the change in the navigator-rule money metric, and $\Delta V^{obj}$ is the change in the objective money metric at the central uninsured-cost calibration. All are defined in Section~\ref{subsec:welfare_measurement}, and the four dollar figures ($\Delta$ Premium, $\Delta$ CS, $\Delta V^{nav}$, and $\Delta V^{obj}$) are per member per year. The low and high uninsured-cost cases are in Table~\ref{tab:cf-band}.}}
+\label{tab:cf-results}
+\centerline{%
+    \input{results/tables/counterfactual_results.tex}
+}
+\end{minipage}
+\end{table}
+
+\clearpage
+
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Objective Welfare Effect by Uninsured-Cost Calibration}\footnote{Change in the objective money-metric welfare measure relative to the baseline equilibrium, per member per year, under the low, central, and high valuations of the cost of being uninsured described in Section~\ref{subsec:welfare_measurement}. The band reflects the calibration of the cost of being uninsured, principally the mortality valuation, and is distinct from the sampling uncertainty in the estimated parameters. Scenarios are described in Section~\ref{subsec:cf_design}.}}
+\label{tab:cf-band}
+\centerline{%
+    \input{results/tables/counterfactual_welfare_band.tex}
+}
+\end{minipage}
+\end{table}
+
+\clearpage
+
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Coverage and Welfare Effects with Bootstrap Standard Errors}\footnote{Change in the uninsured share (percentage points) and in the objective money metric at the central uninsured-cost calibration, per member per year, relative to the baseline equilibrium. Standard errors in parentheses are from a parametric bootstrap over the estimated demand parameters and capture the sampling uncertainty in those estimates, distinct from the calibration band across uninsured-cost valuations in Table~\ref{tab:cf-band}. Scenarios are described in Section~\ref{subsec:cf_design}.}}
+\label{tab:cf-se}
+\centerline{%
+    \input{results/tables/counterfactual_welfare_se.tex}
+}
+\end{minipage}
+\end{table}
+
+\clearpage
+
+\begin{table}[!h]
+\centering
+\footnotesize
+\begin{minipage}[h]{6in}
+\caption[]{\textbf{Producer Surplus and Government Cost by Scenario}\footnote{Change relative to the baseline equilibrium, per member per year, averaged across region-year cells. Producer surplus is the insurer margin, the age-rated premium collected less marginal cost, summed over enrolled members and net of commissions paid to agents less the administrative cost they replace. Subsidies are the advance premium tax credit actually paid, capped at the household premium, on enrolled households. Government cost is subsidies plus cost-sharing reduction payments and uncompensated care, less mandate penalty revenue, so penalty revenue enters with a negative sign and the government cost columns sum to the total. Scenarios are described in Section~\ref{subsec:cf_design}.}}
+\label{tab:cf-fiscal}
+\centerline{%
+    \input{results/tables/counterfactual_fiscal.tex}
+}
+\end{minipage}
+\end{table}
 
 \end{document}
 

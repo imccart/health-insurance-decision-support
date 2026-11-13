@@ -255,7 +255,10 @@ Raw inputs referred to below (all under `data/input/`):
 `rf2_choice-att.R` builds one cell per region-year from `hh_choice.csv` and
 `plan_choice.csv` (both written by `build3_data-prep.R`) with `build_rf`, using
 a 20 percent draw of households per cell (`SAMPLE_FRAC`, stratified by insured
-and uninsured) and the net premium. The columns below exist only inside the
+and uninsured) and the net premium. Each household's choice set is the plans
+offered in its zip3 (`data/output/zip3_plan_availability.csv`, written by
+`1_clean-enrollment.R` from `zip3_choices.csv` and `product_definitions.csv`)
+plus the outside option. The columns below exist only inside the
 cells; `cell_vars` in `rf2_choice-att.R` lists the ones kept.
 
 ### `choice`
@@ -307,9 +310,12 @@ row. Compared with the reduced-form cells, the seven larger regional insurers
 (Molina, LA Care, Sharp, Chinese Community, Oscar, Western, Valley) stay
 separate plans and only the remaining micro-carriers collapse into
 `OS_<metal>` (`Other_Small`, which carries no commission); the cost-sharing
-variants collapse into one silver plan as before. The sampling, menu filters,
-premium construction and plan attributes are those of section 6; this section
-covers what the structural cells add.
+variants collapse into one silver plan as before. The sampling, zip3 menus,
+menu filters, premium construction and plan attributes are those of section 6;
+this section covers what the structural cells add. Each household also carries
+its ACA benchmark, the second-cheapest silver plan by posted premium on its
+zip3 menu (`bench_obs`, and `bench_plan`, the benchmark in use, which the
+counterfactual re-picks at candidate premiums).
 
 ### `inside`
 - Paper: the inside-good intercept of the demand model.
@@ -467,7 +473,7 @@ again in `s4_cost-gmm.R` at the GMM solution (`mc_gmm.csv`,
 
 ### Demand derivatives: `elast_mat`, `relast_mat`, `zelast`, `own_mat`, `Omega`, `Omega_r`, `Omega_broker`, `comm_D`, `comm_D_r`, `comm_Dz`, `comm_qB`
 - Paper: the derivative terms of the pricing and commission conditions and of the transfer response.
-- Chain: `compute_shares_and_elasticities` differentiates each plan's predicted members with respect to each plan's posted premium through the household premium, the subsidy (the benchmark's premium moves every subsidized household's price) and the enrollment margin (`elast_mat`), the same weighted by `rf_i` (`relast_mat`) and by each composition characteristic (`zelast`); `compute_broker_shares_and_elasticities` gives the agent-assisted part; `compute_commission_derivatives` differentiates agent enrollment with respect to each plan's commission through the household marginal utility `b1 + 2 b2 comm_hh / 100` (`comm_D`, `comm_D_r`, `comm_Dz`) and gives agent members per plan (`comm_qB`). `own_mat` marks plans of the same carrier (plan-id prefix); `Omega = -own_mat * t(elast_mat)`, `Omega_r` and `Omega_broker` the same on the other two matrices.
+- Chain: `compute_shares_and_elasticities` differentiates each plan's predicted members with respect to each plan's posted premium through the household premium, the subsidy (a household's own benchmark, `bench_plan`, moves its price when subsidized) and the enrollment margin (`elast_mat`), the same weighted by `rf_i` (`relast_mat`) and by each composition characteristic (`zelast`); `compute_broker_shares_and_elasticities` gives the agent-assisted part; `compute_commission_derivatives` differentiates agent enrollment with respect to each plan's commission through the household marginal utility `b1 + 2 b2 comm_hh / 100` (`comm_D`, `comm_D_r`, `comm_Dz`) and gives agent members per plan (`comm_qB`). `own_mat` marks plans of the same carrier (plan-id prefix); `Omega = -own_mat * t(elast_mat)`, `Omega_r` and `Omega_broker` the same on the other two matrices.
 - Files: `supply.R`, `s3_pricing.R`, `s4_cost-gmm.R`, `cf_cell.R`, `cf_year.R`.
 
 ### `posted_premium`, `realized_premium`, `base_premium`, `region_factor`
@@ -543,7 +549,7 @@ constants (`commission_wedge.csv`), `base_premium` and `region_factor` from
 
 ### Scenario shares and costs: `share_obs`, `share_cf`, `mc`, `claims`, `commission_pmpm`, `markup_cf`
 - Paper: the coverage effects; the cost decompositions.
-- Chain: `cf_cell_eval_p1` recomputes household premiums (`update_premiums`, with the subsidy from the benchmark re-identified at the candidate premiums for subsidized households), utility, shares, elasticities and the predicted composition at the scenario's commissions; `cf_cell_eval_p2` recomputes the transfer, claims and marginal cost (`compute_mc`) with the cell's contribution to the statewide sums updated. `mc` in the rows includes the administrative cost per member; `claims` is predicted claims; `commission_pmpm` is the scenario's plan commission basis; `markup_cf = premium_cf - mc`.
+- Chain: `cf_cell_eval_p1` recomputes household premiums (`update_premiums`, with the subsidy from each zip3 menu's benchmark re-identified at the candidate premiums for subsidized households), utility, shares, elasticities and the predicted composition at the scenario's commissions; `cf_cell_eval_p2` recomputes the transfer, claims and marginal cost (`compute_mc`) with the cell's contribution to the statewide sums updated. `mc` in the rows includes the administrative cost per member; `claims` is predicted claims; `commission_pmpm` is the scenario's plan commission basis; `markup_cf = premium_cf - mc`.
 - Level: plan-cell, shares of the cell's members and dollars per member month.
 - Files: `cf_cell.R`, `cf_year.R`, `cf1_estimate.R`, `cf2_score.R`, `score_cf.R`.
 

@@ -16,7 +16,7 @@
 ##                and the plan-year residuals; the per-cell markup inversion
 ##                (mc_foc) is kept as a diagnostic only.
 
-# Dependencies: preamble + s1_inputs.R (plan_choice, commission_lookup)
+# Dependencies: preamble + s1_inputs.R (plan_choice, commission_lookup, zip3_avail)
 # loaded by _analysis.R before this step. Full spec (base + assisted) feeds the
 # price-interaction machinery; read from what s2_demand wrote.
 STRUCTURAL_SPEC <- read_demand_spec(file.path(TEMP_DIR, "demand_spec.csv"))$all
@@ -138,7 +138,7 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
     stop("plans lack comm_pmpm/rate/is_pct: re-run build3_data-prep.R")
 
   # Build supply choice data (same seed/sample as demand)
-  build_result <- build_structural(plans, hhs, SAMPLE_FRAC, spec = STRUCTURAL_SPEC)
+  build_result <- build_structural(plans, hhs, SAMPLE_FRAC, avail = zip3_avail, spec = STRUCTURAL_SPEC)
   rm(hhs)
 
   if (is.null(build_result)) { n_skip <- n_skip + 1L; rm(plans); next }
@@ -180,12 +180,6 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   plan_avs       <- setNames(pa$av, pa$plan_id)
   comm_vec       <- if ("comm_pmpm" %in% names(pa)) setNames(pa$comm_pmpm, pa$plan_id) else setNames(rep(0, J), plan_ids_cell)
 
-  # 2nd cheapest Silver by posted premium (ACA benchmark)
-  silver_bp <- plan_attrs[plan_attrs$metal == "Silver", ]
-  silver_bp <- silver_bp[order(silver_bp$premium_posted), ]
-  benchmark_plan <- if (nrow(silver_bp) == 0) NA_character_ else if (nrow(silver_bp) == 1) silver_bp$plan_id[1] else silver_bp$plan_id[2]
-  rm(silver_bp)
-
   # -----------------------------------------------------------------------
   # Step 1: Compute utility
   # -----------------------------------------------------------------------
@@ -199,7 +193,7 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   # Step 2: Compute shares and elasticities (all HH)
   # -----------------------------------------------------------------------
   se_result <- compute_shares_and_elasticities(
-    cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
+    cell_data, V, lambda, plan_attrs, coefs,
     spec = STRUCTURAL_SPEC, V_base = V_base, add_N = add_N, add_A = add_A
   )
   shares    <- se_result$shares
@@ -227,7 +221,7 @@ for (i in which(cells$year %in% SUPPLY_YEARS)) {
   # Step 4: Broker shares and elasticities (assisted HH only)
   # -----------------------------------------------------------------------
   broker_result <- compute_shares_and_elasticities(
-    cell_data, V, lambda, benchmark_plan, plan_attrs, coefs,
+    cell_data, V, lambda, plan_attrs, coefs,
     spec = STRUCTURAL_SPEC, V_base = V_base, channel_filter = "broker",
     add_N = add_N, add_A = add_A
   )

@@ -3,7 +3,8 @@
 #
 # Input:  data/input/Covered California/pra_07192019.csv
 #         (reference tables already loaded by _data-build.R)
-# Output: data/output/enrollment_individual.csv
+# Output: data/output/enrollment_individual.csv,
+#         data/output/zip3_plan_availability.csv (zip3, region, year, plan_id)
 #
 # Key keys:
 #   (individual_id, year) uniquely identifies a row (post mid-year dedup)
@@ -125,6 +126,16 @@ valid_plans <- zip_product_long %>%
   filter(MSP == p_msp) %>%                          # MSP (for Anthem variants)
   filter(is.na(p_netnum) | Network == p_netnum) %>% # SHARP two-network case
   distinct(zip3, region, year, HIOS, metal_level)
+
+# The same availability at the analysis plan id (plan_data's Plan_Name2): the
+# household's choice set in the structural and design-based models
+zip3_plan_availability <- valid_plans %>%
+  inner_join(plan_data %>%
+               distinct(HIOS, metal_level, year = ENROLLMENT_YEAR, region, plan_id = Plan_Name2),
+             by = c("HIOS", "metal_level", "region", "year"), relationship = "many-to-one") %>%
+  distinct(zip3, region, year, plan_id)
+fwrite(zip3_plan_availability, "data/output/zip3_plan_availability.csv")
+rm(zip3_plan_availability)
 
 # Enrollment join key: CC records the 16-char hios_id but plan_data has HIOS
 # (10 chars for 2014-2015 non-SHARP; 14 chars for 2016+)

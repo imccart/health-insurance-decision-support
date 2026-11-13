@@ -1,54 +1,37 @@
-\begin{tabular}{lrr}
+\begin{tabular}{lrrrr}
 \hline\hline
-Variable & Estimate & Std. Error \\
+\multicolumn{5}{l}{\emph{A. Plan and enrollment terms}} \\
+ & Coefficient & & & \\
 \hline
-Insured (constant) & -3.4399 & 0.0269 \\
-Premium & -0.4180 & 0.0032 \\
-Actuarial value (AV) & 4.4277 & 0.0285 \\
-HMO & -0.2137 & 0.0015 \\
-Anthem & 0.3452 & 0.0022 \\
-Blue Shield & 0.4592 & 0.0026 \\
-Kaiser & 0.5419 & 0.0030 \\
-Health Net & 0.2589 & 0.0020 \\
-HH size $\times$ premium & -0.0249 & 0.0013 \\
-Age 0--17 $\times$ premium & 0.1066 & 0.0095 \\
-Age 18--34 $\times$ premium & -0.3816 & 0.0027 \\
-Age 35--54 $\times$ premium & -0.1855 & 0.0020 \\
-Male $\times$ premium & -0.0177 & 0.0015 \\
-Black $\times$ premium & -0.1287 & 0.0049 \\
-Hispanic $\times$ premium & -0.2613 & 0.0026 \\
-Asian $\times$ premium & -0.2010 & 0.0025 \\
-Other race $\times$ premium & -0.0672 & 0.0017 \\
-FPL 250--400\% $\times$ premium & 0.3318 & 0.0025 \\
-FPL 400+\% $\times$ premium & 0.3683 & 0.0037 \\
-HH size $\times$ AV & 0.2418 & 0.0088 \\
-Age 0--17 $\times$ AV & -3.6541 & 0.0639 \\
-Age 18--34 $\times$ AV & -1.0227 & 0.0162 \\
-Age 35--54 $\times$ AV & -0.4379 & 0.0145 \\
-Male $\times$ AV & -0.3473 & 0.0118 \\
-Black $\times$ AV & 0.5491 & 0.0356 \\
-Hispanic $\times$ AV & 0.9957 & 0.0164 \\
-Asian $\times$ AV & 0.7274 & 0.0174 \\
-Other race $\times$ AV & 0.1689 & 0.0138 \\
-FPL 250--400\% $\times$ AV & -3.1455 & 0.0245 \\
-FPL 400+\% $\times$ AV & -3.1323 & 0.0373 \\
-Enrolled $\times$ HH size & -0.0382 & 0.0071 \\
-Enrolled $\times$ share 0--17 & 1.6169 & 0.0434 \\
-Enrolled $\times$ share 18--34 & 0.8613 & 0.0134 \\
-Enrolled $\times$ share 35--54 & -0.2355 & 0.0118 \\
-Enrolled $\times$ share male & 0.1652 & 0.0096 \\
-Enrolled $\times$ share Black & -0.6287 & 0.0287 \\
-Enrolled $\times$ share Hispanic & -1.3459 & 0.0128 \\
-Enrolled $\times$ share Asian & -0.5366 & 0.0143 \\
-Enrolled $\times$ share other race & -0.5320 & 0.0112 \\
-Enrolled $\times$ FPL 250--400\% & 3.0874 & 0.0189 \\
-Enrolled $\times$ FPL $>$400\% & 4.0564 & 0.0279 \\
-Navigator $\times$ AV & 1.1935 & 0.0177 \\
-Agent $\times$ AV & 0.7357 & 0.0137 \\
-Navigator $\times$ premium & -0.0983 & 0.0023 \\
-Agent $\times$ premium & -0.0216 & 0.0017 \\
-Commission $\times$ agent & 0.0275 & 0.0004 \\
-Commission$^2$/100 $\times$ agent & -0.0662 & 0.0011 \\
-$\lambda$ (nesting parameter) & 0.3765 & 0.0018 \\
+Premium & -0.418 (0.003) & & & \\
+Actuarial value & 4.428 (0.029) & & & \\
+HMO & -0.214 (0.002) & & & \\
+Anthem & 0.345 (0.002) & & & \\
+Blue Shield & 0.459 (0.003) & & & \\
+Kaiser & 0.542 (0.003) & & & \\
+Health Net & 0.259 (0.002) & & & \\
+Enrolled (constant) & -3.440 (0.027) & & & \\
+$\lambda$ (nesting parameter) & 0.377 (0.002) & & & \\
+\hline
+\multicolumn{5}{l}{\emph{B. Assistance channel}} \\
+ & $\times$ Premium & $\times$ AV & $\times$ Commission & $\times$ Commission$^2$/100 \\
+\hline
+Navigator & -0.098 (0.002) & 1.193 (0.018) & & \\
+Agent & -0.022 (0.002) & 0.736 (0.014) & 0.027 ($<$0.001) & -0.066 (0.001) \\
+\hline
+\multicolumn{5}{l}{\emph{C. Household characteristics}} \\
+ & $\times$ Premium & $\times$ AV & $\times$ Enrolled & \\
+\hline
+Household size & -0.025 (0.001) & 0.242 (0.009) & -0.038 (0.007) & \\
+Share age 0--17 & 0.107 (0.010) & -3.654 (0.064) & 1.617 (0.043) & \\
+Share age 18--34 & -0.382 (0.003) & -1.023 (0.016) & 0.861 (0.013) & \\
+Share age 35--54 & -0.186 (0.002) & -0.438 (0.015) & -0.236 (0.012) & \\
+Share male & -0.018 (0.002) & -0.347 (0.012) & 0.165 (0.010) & \\
+Share Black & -0.129 (0.005) & 0.549 (0.036) & -0.629 (0.029) & \\
+Share Hispanic & -0.261 (0.003) & 0.996 (0.016) & -1.346 (0.013) & \\
+Share Asian & -0.201 (0.003) & 0.727 (0.017) & -0.537 (0.014) & \\
+Share other race & -0.067 (0.002) & 0.169 (0.014) & -0.532 (0.011) & \\
+FPL 250--400\% & 0.332 (0.003) & -3.145 (0.024) & 3.087 (0.019) & \\
+FPL above 400\% & 0.368 (0.004) & -3.132 (0.037) & 4.056 (0.028) & \\
 \hline\hline
 \end{tabular}

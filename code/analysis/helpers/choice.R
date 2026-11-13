@@ -17,11 +17,13 @@
 #                  plan_id, issuer, network_type, metal, premium, msp, hsa)
 #   hhs          — hh_full rows for this region-year (expects plan_id; NA = uninsured)
 #   sample_frac  — fraction of HH to sample per cell (estimation + OOS)
+#   avail        — data/output/zip3_plan_availability.csv; each household's
+#                  choice set is the plans offered in its zip3
 #
 # Returns:
 #   Combined estimation + OOS tibble with `assisted` flag.
 
-build_rf <- function(plans, hhs, sample_frac,
+build_rf <- function(plans, hhs, sample_frac, avail,
                               spec = NULL, premium_type = "net") {
 
   # Convert inputs to data.table (copy, don't modify originals)
@@ -92,7 +94,7 @@ build_rf <- function(plans, hhs, sample_frac,
   # affordability threshold) looked up from AFFORD_THRESHOLDS instead of
   # carried as a per-row HH column.
   hh_slim <- hhs_dt[, .(
-    household_id, FPL, subsidized_members, rating_factor,
+    household_id, zip3, FPL, subsidized_members, rating_factor,
     hh_plan_id = plan_id,
     oldest_member, cheapest_premium, subsidy, penalty,
     poverty_threshold,
@@ -105,6 +107,15 @@ build_rf <- function(plans, hhs, sample_frac,
   dt <- merge(hh_slim, choice_set, by = ".xjoin", allow.cartesian = TRUE)
   dt[, .xjoin := NULL]
   rm(hh_slim, choice_set)
+
+  # Zip3 menus: keep the outside option and the plans offered in the household's zip3
+  cell_ry <- unique(hhs_dt[, .(region, year)])
+  avail_cell <- as.data.table(avail)[region == cell_ry$region & year == cell_ry$year,
+                                     .(zip3, plan_id, offered = 1L)]
+  dt <- merge(dt, avail_cell, by = c("zip3", "plan_id"), all.x = TRUE)
+  dt <- dt[plan_id == "Uninsured" | offered == 1L]
+  dt[, c("offered", "zip3") := NULL]
+  rm(avail_cell)
 
   # 3. CSR filter: enhanced silver only at correct FPL brackets
   dt[, `:=`(

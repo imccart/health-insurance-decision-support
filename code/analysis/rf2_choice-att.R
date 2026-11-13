@@ -33,6 +33,7 @@ cell_vars <- c(
 RF_CELL_DIR <- file.path(TEMP_DIR, "rf_cells")
 
 plan_choice <- fread(file.path(TEMP_DIR, "plan_choice.csv")) %>% as_tibble()
+zip3_avail  <- fread("data/output/zip3_plan_availability.csv")
 hh_all <- fread(file.path(TEMP_DIR, "hh_choice.csv"))
 hh_split <- split(hh_all, by = c("region", "year"))
 cells <- unique(hh_all[, .(region, year)])[order(region, year)]
@@ -64,7 +65,7 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  cd <- build_rf(plans, hhs, SAMPLE_FRAC, spec = cell_vars,
+  cd <- build_rf(plans, hhs, SAMPLE_FRAC, avail = zip3_avail, spec = cell_vars,
                  premium_type = "net")
   rm(hhs, plans)
 

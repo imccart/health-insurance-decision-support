@@ -80,7 +80,7 @@ for (i in seq_len(nrow(cells))) {
   plans <- plan_choice %>% filter(region == r, year == y)
   if (nrow(plans) == 0) { n_skip <- n_skip + 1L; next }
 
-  cd <- build_structural(plans, hhs, SAMPLE_FRAC,
+  cd <- build_structural(plans, hhs, SAMPLE_FRAC, avail = zip3_avail,
                          spec = c(STRUCTURAL_SPEC, STRUCTURAL_ASST))$cell_data
   rm(hhs, plans)
 
