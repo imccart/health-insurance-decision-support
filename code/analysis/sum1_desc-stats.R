@@ -266,6 +266,36 @@ tex_lines <- c(
 )
 writeLines(tex_lines, "results/tables/summary_stats.tex")
 
+# Predicted risk by assistance channel -------------------------------------
+# The demographic part of the log risk score (risk-score equation, s4), member-
+# weighted, for enrollees in the supply years: whether agent-assisted enrollees
+# differ in the risk the transfer formula prices.
+rs_demo <- read_csv("results/risk_score_coefficients.csv", show_col_types = FALSE) %>%
+  { setNames(.$estimate, .$term) }
+risk_hh <- hh_ins %>%
+  filter(year %in% SUPPLY_YEARS) %>%
+  mutate(share_0to34 = perc_0to17 + perc_18to25 + perc_26to34,
+         share_family = as.numeric(household_size > 1),
+         share_minority = perc_black + perc_hispanic + perc_asian + perc_other,
+         risk_index = rs_demo[["share_0to34"]] * share_0to34 +
+           rs_demo[["share_male"]] * perc_male +
+           rs_demo[["share_family"]] * share_family +
+           rs_demo[["share_minority"]] * share_minority)
+risk_mean_all <- weighted.mean(risk_hh$risk_index, risk_hh$household_size)
+risk_by_channel <- risk_hh %>%
+  group_by(channel_detail) %>%
+  summarize(members = sum(household_size),
+            share_0to34 = weighted.mean(share_0to34, household_size),
+            share_male = weighted.mean(perc_male, household_size),
+            share_family = weighted.mean(share_family, household_size),
+            share_minority = weighted.mean(share_minority, household_size),
+            risk_index = weighted.mean(risk_index, household_size),
+            .groups = "drop") %>%
+  mutate(risk_sd_all = sqrt(weighted.mean((risk_hh$risk_index - risk_mean_all)^2,
+                                          risk_hh$household_size)))
+write_csv(risk_by_channel, "results/risk_index_by_channel.csv")
+rm(risk_hh)
+
 # Data facts quoted in the text --------------------------------------------
 # Commission schedules over the sample years; rates below 1 are percentages of
 # premium, rates of 1 or more are flat dollars per member per month.

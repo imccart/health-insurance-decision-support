@@ -574,6 +574,78 @@ if (!is.null(cf_results) && nrow(cf_results) > 0) {
     "\\hline\\hline", "\\end{tabular}")
   writeLines(fisc_lines, "results/tables/counterfactual_fiscal.tex")
 
+  # --- 5a1c. Regulation regimes: the cost of commissions under each regime ---
+  # Within each regime (current rules, equivalent voucher, risk adjustment at
+  # 90 and 75 percent strength),
+  # the change from the regime's commission equilibrium to zero commissions with
+  # agents still assisting, at the commission-equilibrium premiums (fixed
+  # premiums) and with premiums re-solved. Positive welfare changes mean
+  # commissions cost households welfare. The held-commission row repeats the
+  # regime's commission equilibrium with commissions at the baseline schedule.
+  # nav is per member per month (x12); obj, ps and gov are per member per year.
+  regime_labels <- tribble(
+    ~regime, ~comm,       ~hold,       ~zero_fixP,       ~zero,
+    "cur",   "baseline",  "baseline",  "cur_zero_fixP",  "cur_zero",
+    "vou",   "vou_comm",  "vou_hold",  "vou_zero_fixP",  "vou_zero",
+    "ra90",  "ra90_comm", "ra90_hold", "ra90_zero_fixP", "ra90_zero",
+    "ra75",  "ra75_comm", "ra75_hold", "ra75_zero_fixP", "ra75_zero")
+  sub_summ <- tryCatch(read_csv("results/counterfactual_welfare_subsidized.csv", show_col_types = FALSE),
+                       error = function(e) NULL)
+  one_or_na <- function(v) if (length(v) == 1) v else NA_real_
+  regime_rows <- list()
+  for (i in seq_len(nrow(regime_labels))) {
+    rl <- regime_labels[i, ]
+    ref <- welf_summary %>% filter(scenario == rl$comm)
+    if (nrow(ref) != 1) next
+    for (arm in c("hold", "zero_fixP", "zero")) {
+      r <- welf_summary %>% filter(scenario == rl[[arm]])
+      if (nrow(r) != 1 || rl[[arm]] == rl$comm) next
+      d_sub <- if (!is.null(sub_summ)) {
+        s_ref <- sub_summ %>% filter(scenario == rl$comm)
+        s_arm <- sub_summ %>% filter(scenario == rl[[arm]])
+        inner_join(s_arm, s_ref, by = "subsidized", suffix = c("", "_ref"),
+                   relationship = "one-to-one") %>%
+          transmute(subsidized, d_nav_g = 12 * (nav - nav_ref), d_obj_g = obj - obj_ref)
+      } else NULL
+      regime_rows[[length(regime_rows) + 1]] <- tibble(
+        regime = rl$regime, arm = arm,
+        d_nav = 12 * (r$d_nav - ref$d_nav), d_obj = r$d_obj - ref$d_obj,
+        d_shu = 100 * (r$d_shu - ref$d_shu),
+        d_ps = r$d_ps - ref$d_ps, d_gov = r$d_gov - ref$d_gov,
+        d_obj_sub = one_or_na(d_sub$d_obj_g[d_sub$subsidized == 1]),
+        d_obj_unsub = one_or_na(d_sub$d_obj_g[d_sub$subsidized == 0]))
+    }
+  }
+  if (length(regime_rows) > 0) {
+    cf_regimes <- bind_rows(regime_rows)
+    write_csv(cf_regimes, "results/cf_regimes.csv")
+    regime_names <- c(cur = "Current rules", vou = "Equivalent voucher",
+                      ra90 = "Risk adjustment at 90\\%", ra75 = "Risk adjustment at 75\\%")
+    arm_names <- c(zero_fixP = "Zero commissions, premiums fixed", zero = "Zero commissions",
+                   hold = "Commissions held at baseline")
+    reg_lines <- c(
+      "\\begin{tabular}{lrrrrrrr}",
+      "\\hline\\hline",
+      " & $\\Delta$ Uninsured & \\multicolumn{2}{c}{$\\Delta$ Welfare} & \\multicolumn{2}{c}{$\\Delta V^{obj}$} & $\\Delta$ Producer & $\\Delta$ Government \\\\",
+      "\\cline{3-4}\\cline{5-6}",
+      " & (pp) & $V^{nav}$ & $V^{obj}$ & Subsidized & Unsubsidized & surplus & cost \\\\",
+      "\\hline")
+    for (rg in names(regime_names)) {
+      rr <- cf_regimes %>% filter(regime == rg)
+      if (nrow(rr) == 0) next
+      reg_lines <- c(reg_lines, sprintf("\\multicolumn{8}{l}{\\emph{%s}} \\\\", regime_names[[rg]]))
+      for (a in names(arm_names)) {
+        r <- rr %>% filter(arm == a)
+        if (nrow(r) != 1) next
+        reg_lines <- c(reg_lines, sprintf("\\quad %s & %s & %s & %s & %s & %s & %s & %s \\\\",
+                                          arm_names[[a]], fmtz(r$d_shu, 1), fmtz(r$d_nav), fmtz(r$d_obj),
+                                          fmtz(r$d_obj_sub), fmtz(r$d_obj_unsub), fmtz(r$d_ps), fmtz(r$d_gov)))
+      }
+    }
+    reg_lines <- c(reg_lines, "\\hline\\hline", "\\end{tabular}")
+    writeLines(reg_lines, "results/tables/cf_regimes.tex")
+  }
+
   # --- 5a2. Welfare effects with SEs (cf3 demand bootstrap + cf4 commission delta method) ---
   # Reconstruct each draw's coverage effect and central objective from the component
   # columns in cf_bootstrap_draws.csv, pair with the cf2 point estimate. The

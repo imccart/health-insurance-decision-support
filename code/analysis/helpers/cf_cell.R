@@ -195,7 +195,10 @@ current_benchmark <- function(cl, p_vec) {
 # point reproduces it exactly. Takes the cell object explicitly (shared with
 # the cf2/cf3 scorer); returns the data with each household's benchmark in
 # use (bench_plan), which the share derivatives need.
-update_premiums <- function(cl, dt, p_vec) {
+# sub_frozen (household_number, subsidy_cf), the voucher regime: each household's
+# subsidy is the frozen amount whatever the premiums, and with sub_interior = 0
+# the premium derivatives carry no benchmark-subsidy response.
+update_premiums <- function(cl, dt, p_vec, sub_frozen = NULL) {
   rf_i <- dt$rating_factor / RATING_FACTOR_AGE40
   zk <- as.character(dt$zip3)
   bench_i <- unname(current_benchmark(cl, p_vec)[zk])
@@ -205,8 +208,14 @@ update_premiums <- function(cl, dt, p_vec) {
   d_bench[has_b] <- p_vec[bench_i[has_b]] - cl$p_obs[obs_i[has_b]]
   premiumSLC_cf <- dt$premiumSLC + rf_i * d_bench
   sub_endog     <- pmax(0, premiumSLC_cf - dt$SLC_contribution)
-  dt[, subsidy_cf := fifelse(has_b & subsidized == 1L, sub_endog, adj_subsidy)]
-  dt[, sub_interior := as.numeric(has_b & subsidized == 1L & (premiumSLC_cf - SLC_contribution) > 0)]
+  if (is.null(sub_frozen)) {
+    dt[, subsidy_cf := fifelse(has_b & subsidized == 1L, sub_endog, adj_subsidy)]
+    dt[, sub_interior := as.numeric(has_b & subsidized == 1L & (premiumSLC_cf - SLC_contribution) > 0)]
+  } else {
+    dt[, subsidy_cf := sub_frozen$subsidy_cf[match(household_number, sub_frozen$household_number)]]
+    dt[is.na(subsidy_cf), subsidy_cf := adj_subsidy]
+    dt[, sub_interior := 0]
+  }
   dt[, bench_plan := bench_i]
   dt[, kink_m := 1]
   for (pn in names(p_vec)) {
@@ -220,6 +229,15 @@ update_premiums <- function(cl, dt, p_vec) {
   }
   dt <- recompute_prem_interactions(dt, cl$spec)
   list(dt = dt)
+}
+
+# baseline_subsidy ----------------------------------------------------------
+# Each household's subsidy at a posted-premium vector under the price-linked
+# rule: the voucher amount when p_vec is the current-rules baseline. Shared with
+# the scorer so cf1 and cf2 freeze the same values.
+baseline_subsidy <- function(cl, p_vec) {
+  dt <- update_premiums(cl, as.data.table(copy(cl$cell_data_base)), p_vec)$dt
+  unique(dt[, .(household_number, subsidy_cf)], by = "household_number")
 }
 
 # build_scenario_data ------------------------------------------------------
@@ -338,6 +356,10 @@ build_scenario_data <- function(cl, comm_sc, tau = NULL, broker_remain = FALSE, 
 #   spec$tau, spec$broker_remain, spec$defund: household conversions (rank-based
 #   and deterministic, so re-installing with a new k_firm converts the same
 #   households)
+#   spec$voucher_P: plan-year base premiums of the current-rules baseline; when
+#   present, subsidies are frozen at their values there (the voucher regime)
+#   spec$ra_scale: strength of risk adjustment, the transfers scaled by this
+#   factor (1, the formula, when absent)
 # Returns the per-plan commission vector (for the master's records).
 cf_cell_scenario <- function(label, spec) {
   cl <- .cf$cell
@@ -385,8 +407,16 @@ cf_cell_scenario <- function(label, spec) {
     stop("unknown commission basis ", spec$comm))
   cd <- build_scenario_data(cl, comm_sc, tau = spec$tau, broker_remain = isTRUE(spec$broker_remain),
                             defund = spec$defund, comm_mode = spec$comm)
+  sub_frozen <- NULL
+  if (!is.null(spec$voucher_P)) {
+    p_v <- cl$p_obs
+    inV <- pn %in% names(spec$voucher_P)
+    p_v[inV] <- spec$voucher_P[pn[inV]] * cl$g[inV]
+    sub_frozen <- baseline_subsidy(cl, p_v)
+  }
   .cf$scen <- list(label = label, dt_base = cd, comm = comm_sc,
-                   calib = isTRUE(spec$calib))
+                   calib = isTRUE(spec$calib), sub_frozen = sub_frozen,
+                   ra_scale = if (is.null(spec$ra_scale)) 1 else spec$ra_scale)
   comm_sc
 }
 
@@ -415,7 +445,7 @@ cf_cell_eval_p1 <- function(P) {
   p_vec[inP] <- P[pn[inP]] * cl$g[inP]
 
   eta_cur <- sc$comm
-  up <- update_premiums(cl, copy(sc$dt_base), p_vec)
+  up <- update_premiums(cl, copy(sc$dt_base), p_vec, sc$sub_frozen)
   dt <- up$dt
 
   util <- compute_utility(dt, cl$coefs)
@@ -468,6 +498,12 @@ cf_cell_eval_p2 <- function(st) {
   if (is.null(cl) || is.null(sc) || is.null(ev)) return(NULL)
   pn <- cl$plan_ids; J <- length(pn)
   ra_env <- ra_env_for_cell(cl$r, cl$y, cl$N, ev$demo, st)
+  # Weaker risk adjustment: the transfer level, its derivative, and the
+  # premium-total feedback (which scales with nu) all scale with ra_scale
+  if (sc$ra_scale != 1) {
+    ra_env$tpn <- sc$ra_scale * ra_env$tpn
+    ra_env$nu  <- sc$ra_scale * ra_env$nu
+  }
   mc_res <- compute_mc(cl$rs_coefs, cl$claims_coefs, cl$plan_chars, ev$demo, ev$shares,
                        ra_env, cl$plan_avs, cl$reins_vec)
   # Marginal cost: claims net of reinsurance and the transfer, plus the insurer's

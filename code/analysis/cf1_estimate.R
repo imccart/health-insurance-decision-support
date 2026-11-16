@@ -350,6 +350,37 @@ for (y in years) {
                         list(tau = tt, broker_remain = TRUE), tau_row = tt)
   }
 
+  # Regulation regimes. In each: insurers re-solve commissions (comm), hold
+  # them at the baseline schedule (hold), or pay none while agents keep their
+  # households (zero), the last also at the comm premiums without re-solving
+  # (zero_fixP). Current rules: baseline is comm and hold. The voucher fixes
+  # each household's subsidy at its current-rules baseline value; ra90 and ra75
+  # scale the risk-adjustment transfers to 90 and 75 percent of the formula.
+  eval_rows <- function(label, spec, P) {
+    invisible(clusterCall(cl, cf_cell_scenario, label, spec))
+    pieces <- cf_year_evaluate(cl, P)
+    if (is.null(pieces)) { cf_log(paste("  ", label, "- evaluation failed\n")); return(invisible(NULL)) }
+    save_rows(label, cf_year_rows(yr, label, NA_real_, pieces, P, 0, 0L, 0L))
+  }
+  regimes <- list(cur = list(), vou = list(voucher_P = P_base),
+                  ra90 = list(ra_scale = 0.9), ra75 = list(ra_scale = 0.75))
+  for (rg in names(regimes)) {
+    spec_rg <- regimes[[rg]]
+    P_comm <- P_base
+    if (rg != "cur") {
+      if (length(firms_solve) > 0) {
+        out_c <- run_comm_scenario(paste0(rg, "_comm"), spec_rg)
+        if (!is.null(out_c)) { P_comm <- P_obs; P_comm[names(out_c$P)] <- out_c$P }
+      }
+      run_scenario(paste0(rg, "_hold"), NA_real_,
+                   c(spec_rg, list(comm = "firmscale", k_firm = k_base)), P_base,
+                   comm_scale = NA_real_)
+    }
+    eval_rows(paste0(rg, "_zero_fixP"), c(spec_rg, list(comm = "zero")), P_comm)
+    run_scenario(paste0(rg, "_zero"), NA_real_, c(spec_rg, list(comm = "zero")), P_comm,
+                 comm_scale = 0)
+  }
+
   stopCluster(cl)
   year_results[[as.character(y)]] <- bind_rows(rows_y)
   cat(sprintf("  year %d done: %d scenarios, %.1f min elapsed overall\n", y, length(rows_y),

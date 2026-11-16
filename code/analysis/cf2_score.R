@@ -88,3 +88,22 @@ if (nrow(dist) > 0) {
   write_csv(dsumm, "results/counterfactual_welfare_dist.csv")
 }
 
+# Welfare and subsidy paid by subsidy eligibility, per scenario ---------------
+# Household-weighted means of the navigator and objective measures and of the
+# expected subsidy paid per member per year, separately for subsidy-eligible and
+# unsubsidized households (the regime comparisons in sum2).
+sub_rows <- rbindlist(lapply(list.files(CF_WELFARE_HH_DIR, full.names = TRUE), function(f) {
+  h <- fread(f)
+  if (!"subsidized" %in% names(h)) return(NULL)
+  h[, .(region = first(region), year = first(year), w = sum(w),
+        nav = sum(w * nav) / sum(w), obj = sum(w * obj) / sum(w),
+        sub_paid_pm = sum(w * sub_paid_pm, na.rm = TRUE) / sum(w)),
+    by = .(scenario, subsidized)]
+}))
+if (nrow(sub_rows) > 0) {
+  sub_summ <- sub_rows[, .(nav = sum(w * nav) / sum(w), obj = sum(w * obj) / sum(w),
+                           sub_paid_pm = sum(w * sub_paid_pm) / sum(w), w = sum(w)),
+                       by = .(scenario, subsidized)][order(scenario, subsidized)]
+  write_csv(sub_summ, "results/counterfactual_welfare_subsidized.csv")
+}
+

@@ -97,8 +97,21 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
   # rows); defund_<f> -> reverse conversion at fraction f. Commissions come
   # from the persisted commission_pmpm.
   scen_labels <- unique(cf_cell$scenario)
+  # Voucher scenarios (vou_*): each household's subsidy frozen at its value at
+  # the current-rules baseline premiums, as in cf1. Weaker risk adjustment
+  # (ra90_*, ra75_*) needs nothing here: cf1's mc carries the scaled transfers.
+  sub_frozen <- NULL
+  if (any(grepl("^vou_", scen_labels))) {
+    base_rows <- cf_cell[scenario == "baseline"]
+    p_base <- setNames(base_rows$premium_cf, base_rows$plan_id)[plan_ids_cell]
+    if (nrow(base_rows) > 0 && !any(is.na(p_base))) {
+      names(p_base) <- plan_ids_cell
+      sub_frozen <- baseline_subsidy(cl_score, p_base)
+    }
+  }
 
   per <- lapply(scen_labels, function(lab) {
+    if (grepl("^vou_", lab) && is.null(sub_frozen)) return(NULL)
     rows <- cf_cell[scenario == lab]
     if (nrow(rows) == 0) return(NULL)
     comm <- setNames(rows$commission_pmpm, rows$plan_id)[plan_ids_cell]
@@ -113,7 +126,8 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
     p_vec <- setNames(rows$premium_cf, rows$plan_id)[plan_ids_cell]
     if (any(is.na(p_vec))) return(NULL)
     names(p_vec) <- plan_ids_cell
-    dt <- update_premiums(cl_score, as.data.table(copy(cd)), p_vec)$dt
+    dt <- update_premiums(cl_score, as.data.table(copy(cd)), p_vec,
+                          if (grepl("^vou_", lab)) sub_frozen else NULL)$dt
     espend <- household_spending(dt, SPENDING_SCHEDULE)   # per-row expected spending
 
     # Producer surplus (insurer margin net of commissions) and government cost, per
@@ -153,6 +167,14 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
       ins[, sub_paid := pmin((p_vec[plan_id] / RATING_FACTOR_AGE40) * rating_factor, subsidy_cf)]
       ins[is.na(sub_paid), sub_paid := 0]
       gov_month <- ins[, sum(p_ch * sub_paid, na.rm = TRUE)]
+      # per household: expected subsidy paid per member per year, and whether it
+      # is subsidy-eligible, for the subsidized / unsubsidized split
+      hh_sub <- dd[, .(subsidized = max(fcoalesce(as.integer(subsidized), 0L)),
+                       hh_size = first(hh_size)), by = household_number]
+      hh_sub <- merge(hh_sub, ins[, .(sub_paid_hh = sum(p_ch * sub_paid, na.rm = TRUE)), by = household_number],
+                      by = "household_number", all.x = TRUE)
+      hh_sub[is.na(sub_paid_hh), sub_paid_hh := 0]
+      hh_sub[, sub_paid_pm := sub_paid_hh / hh_size * 12]
       # CSR: silver rows of CSR-eligible households, government share by variant
       ins[, csr_var := fifelse(csr94_elig == 1L, "94",
                         fifelse(csr87_elig == 1L, "87",
@@ -175,7 +197,8 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
                   .SDcols = unname(RS_DEMO_RAWCOL)]
       rs_unins <- exp(g("(Intercept)") + sum(vapply(RS_DEMO_TERMS, function(t) g(t) * pool[[t]], numeric(1))))
       list(ps = ps_month / M * 12, gov = gov_month / M * 12, csr = csr_month / M * 12,
-           pen = pen_month / M * 12, uc = uc_month / M * 12, rs_unins = rs_unins)
+           pen = pen_month / M * 12, uc = uc_month / M * 12, rs_unins = rs_unins,
+           hh_sub = hh_sub[, .(household_number, subsidized, sub_paid_pm)])
     }
 
     # Revealed-preference CS with the commission term in the inclusive value
@@ -207,7 +230,8 @@ score_cf_cell <- function(r, y, cf_cell, hh_dir, coefs, lambda) {
                        unins_oop = agg(whh$unins_oop), unins_mort = agg(whh$unins_mort), unins_cat = agg(whh$unins_cat),
                        producer_surplus = psg$ps, gov_subsidy = psg$gov, gov_csr = psg$csr,
                        gov_penalty = psg$pen, gov_uc_raw = psg$uc, rs_unins = psg$rs_unins)
-    list(cell = cell, hh = data.table(region = r, year = y, scenario = lab, whh))
+    hh_out <- merge(as.data.table(whh), psg$hh_sub, by = "household_number", all.x = TRUE)
+    list(cell = cell, hh = data.table(region = r, year = y, scenario = lab, hh_out))
   })
   # Uncompensated care scaled by the uninsured pool's risk score relative to the
   # baseline scenario; government cost total = subsidies + CSR + uncompensated care
