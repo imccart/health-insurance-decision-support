@@ -384,7 +384,7 @@ cf_cell_scenario <- function(label, spec) {
     },
     aligned  = {
       cd_nc <- as.data.table(copy(cl$cell_data_base))
-      for (cn in intersect(COMM_TERMS, names(cd_nc))) cd_nc[[cn]] <- 0
+      for (cn in intersect(COMM_TERMS, names(cd_nc))) set(cd_nc, j = cn, value = 0)
       cd_nc[, V_nc := compute_utility(cd_nc, cl$coefs)$V]
       plan_val <- cd_nc[plan_id != "Uninsured", .(val = mean(V_nc, na.rm = TRUE)), by = plan_id]
       val_vec <- setNames(plan_val$val, plan_val$plan_id)[pn]
