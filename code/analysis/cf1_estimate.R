@@ -91,7 +91,7 @@ base_comm_rows <- list()
 # Clear only the years about to be solved; other years' checkpoints stay so
 # the final assembly keeps them. Clear cf_years by hand when the spec changes.
 old_rows <- list.files(CF_YEAR_DIR, full.names = TRUE,
-                       pattern = paste0("^(year|firms|basecomm)_(", paste(years, collapse = "|"), ")[_.]"))
+                       pattern = paste0("^(year|firms|basecomm|resid)_(", paste(years, collapse = "|"), ")[_.]"))
 if (length(old_rows) > 0) invisible(file.remove(old_rows))
 
 for (y in years) {
